@@ -1,7 +1,7 @@
 # FreeBSD ports files of lang/php82 that are NOT applied, with the reason.
 # Format: "<port file>: <reason>"; listed in the branch README and in the release notes.
 # Documentation only: editing this file does not rebuild the branch.
-patch-configure.ac: ports build layout: split packaging (ext/php_config.h include, no pthreads check) and the ports' PEAR include_path; the upstream defaults of a hand build are kept
+patch-configure.ac: ports build layout: makes php_config.h include ext/php_config.h, which only the port's Makefile creates (a hand build fails without it), drops the configure pthreads check and sets the ports' PEAR include_path
 patch-ext_hash_xxhash_xxhash.h: PowerPC VSX (AltiVec) and s390x only; no effect on amd64
 patch-ext_mysqli_mysqli__api.c: ports split packaging of ext/mysqli (built alone with phpize, where the ext/mysqlnd headers are missing); not needed when building from the full source tree
 patch-ext_mysqli_mysqli__nonapi.c: ports split packaging of ext/mysqli (built alone with phpize, where the ext/mysqlnd headers are missing); not needed when building from the full source tree

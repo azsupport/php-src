@@ -15,8 +15,10 @@
 #   5. build a release tarball (tools/makedist.sh) and publish it as a GitHub
 #      release, plus a moving "freebsd-<target>-latest" release.
 #
-# The branch README and the release notes list the ports patches that are applied
-# and, with the reason from freebsd/patches/<target>/SKIPPED, the ones that are not.
+# The branch README and the dated release notes list the ports patches that are
+# applied and, with the reason from freebsd/patches/<target>/SKIPPED, the ones that
+# are not. Regular runs also bring the notes of up-to-date targets in step with
+# this script (only releases whose notes differ are edited).
 #
 # Usage: run inside a git clone of azsupport/php-src (remote 'origin'):
 #   tools/sync.sh [--local] [--force] [--no-release] [--check] [--notes] [target ...]
@@ -140,7 +142,8 @@ upstream_info() {
 port_url() { printf 'https://github.com/freebsd/freebsd-ports/tree/%s/lang/%s/files' "$portrev" "$port"; }
 
 # Applied and not applied ports files as markdown lists. $1 is a line prefix
-# ("> " inside the README block); the reasons come from SKIPPED.
+# ("> " inside the README block); the reasons come from SKIPPED, and files that
+# share a reason are listed on one line.
 ports_notes() {
     printf '%s**Applied** (commit "Apply curated FreeBSD ports patches"):\n%s\n' "$1" "${1% }"
     for p in "$patch_dir"/patch-*; do
@@ -150,9 +153,15 @@ ports_notes() {
     done
     if [ -f "$patch_dir/SKIPPED" ]; then
         printf '%s\n%s**Not applied:**\n%s\n' "${1% }" "$1" "${1% }"
-        grep -vE '^[[:space:]]*(#|$)' "$patch_dir/SKIPPED" | while IFS= read -r line; do
-            printf '%s- `%s`: %s\n' "$1" "${line%%: *}" "${line#*: }"
-        done
+        grep -vE '^[[:space:]]*(#|$)' "$patch_dir/SKIPPED" | awk -v pfx="$1" '
+            {
+                i = index($0, ": ")
+                f = "`" substr($0, 1, i - 1) "`"
+                r = substr($0, i + 2)
+                if (r in files) files[r] = files[r] ", " f
+                else { order[++n] = r; files[r] = f }
+            }
+            END { for (k = 1; k <= n; k++) printf "%s- %s: %s\n", pfx, files[order[k]], order[k] }'
     fi
 }
 
@@ -293,10 +302,16 @@ release_notes() {
     printf '\n### Build\n\nExtract, then in the new directory run `sh /root/php-X.Y.Z/config.nice` (the configure options of your previous build) or `./configure` with your options, then `make` and `make install`. See the [README](https://github.com/%s#readme).\n' "$gh_repo"
 }
 
+# Notes of the moving release: a pointer to the dated release, which carries the
+# full notes, so that the releases page does not show everything twice.
 latest_notes() {   # $1: tag of the dated release with the same tarball
-    printf 'Moving release: always the newest build of `%s`; same tarball as the dated release [`%s`](https://github.com/%s/releases/tag/%s).\n\n' \
-        "$branch" "$1" "$gh_repo" "$1"
-    release_notes "php-$target-fbsd-latest.tar.xz"
+    printf 'Moving release: always the newest build of [`%s`](https://github.com/%s/tree/%s), now PHP %s.\n\n' \
+        "$branch" "$gh_repo" "$branch" "$php_ver"
+    printf '| | |\n|---|---|\n'
+    printf '| Tarball | `php-%s-fbsd-latest.tar.xz`, unpacks into `%s/` |\n' "$target" "$name"
+    printf '| SHA-256 | `%s` |\n' "$sha"
+    printf '| Same tarball as | [`%s`](https://github.com/%s/releases/tag/%s): upstream commit and the FreeBSD ports patches, applied and not applied |\n' \
+        "$1" "$gh_repo" "$1"
 }
 
 publish_release() {
@@ -344,6 +359,10 @@ build_target() {
         if [ "$(printf '%s\n' "$msg" | sed -n 's/^Upstream-Commit: //p')" = "$up_commit" ] &&
            [ "$(printf '%s\n' "$msg" | sed -n 's/^Patchset: //p')" = "$patchset" ]; then
             log "$target: up to date ($up_ref @ $(short "$up_commit"))"
+            if [ "$release" = 1 ]; then
+                refresh_notes "$target" "$url" "$ref" "$port" "$portrev" ||
+                    log "$target: warning: could not refresh the release notes"
+            fi
             return 0
         fi
     fi
@@ -418,16 +437,24 @@ refresh_notes() {
     sha_id="$(printf '%s\n' "$assets" | awk -v f="$name.tar.xz.sha256" '$2 == f {print $1}')"
     sha="$(gh api -H 'Accept: application/octet-stream' "repos/$gh_repo/releases/assets/$sha_id" | cut -c1-64)"
     [ "${#sha}" = 64 ] || { log "$target: cannot read the SHA-256 of $tag"; return 1; }
+    notes="$(release_notes "$name.tar.xz")"
+    latest_tag="freebsd-$target-latest"
     if [ "$check_only" = 1 ]; then
-        release_notes "$name.tar.xz"
-        log "$target: would update the notes of $tag and freebsd-$target-latest"
+        printf '%s\n\n----- %s:\n%s\n' "$notes" "$latest_tag" "$(latest_notes "$tag")"
+        log "$target: would update the notes of $tag and $latest_tag"
         return 0
     fi
-    gh release edit "$tag" --repo "$gh_repo" --notes "$(release_notes "$name.tar.xz")" >/dev/null
-    log "$target: notes of $tag updated"
-    if printf '%s\n' "$tags" | grep -qx -- "freebsd-$target-latest"; then
-        gh release edit "freebsd-$target-latest" --repo "$gh_repo" --notes "$(latest_notes "$tag")" >/dev/null
-        log "$target: notes of freebsd-$target-latest updated"
+    # Edit only what differs, so that regular runs leave current notes alone.
+    if [ "$(gh api "repos/$gh_repo/releases/tags/$tag" --jq .body)" != "$notes" ]; then
+        gh release edit "$tag" --repo "$gh_repo" --notes "$notes" >/dev/null || return 1
+        log "$target: notes of $tag updated"
+    fi
+    if printf '%s\n' "$tags" | grep -qx -- "$latest_tag"; then
+        notes="$(latest_notes "$tag")"
+        if [ "$(gh api "repos/$gh_repo/releases/tags/$latest_tag" --jq .body)" != "$notes" ]; then
+            gh release edit "$latest_tag" --repo "$gh_repo" --notes "$notes" >/dev/null || return 1
+            log "$target: notes of $latest_tag updated"
+        fi
     fi
 }
 

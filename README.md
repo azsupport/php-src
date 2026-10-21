@@ -64,6 +64,8 @@ Only patches that matter for a monolithic build on FreeBSD are applied:
 - `sapi/fpm/www.conf.in` (7.4+): documents that IPv4-mapped addresses are
   disabled by default on FreeBSD.
 - `TSRM/TSRM.c` (8.1+): no Linux aarch64 TLS assembly on FreeBSD (no effect on amd64).
+- `ext/pcre/php_pcre.h` (8.4): with `--with-external-pcre`, the system `<pcre2.h>`
+  is included as in the port; no effect with the bundled PCRE.
 - 5.6 only, `Zend/zend.h`: no `alloca()` in thread-safe (ZTS) builds on FreeBSD;
   no effect on non-ZTS builds.
 - 5.6 only, `Zend/zend_compile.h`, `Zend/zend_execute.h`, `Zend/zend_list.[ch]`:
@@ -73,12 +75,12 @@ Only patches that matter for a monolithic build on FreeBSD are applied:
 Not applied, by kind:
 
 - the ports' split packaging, where every extension is a separate package:
-  `configure.ac` / `configure.in` (which also set the ports' PEAR `include_path`),
-  `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`, `ext/standard/image.c`,
-  `php_session.h`;
+  `configure.ac` / `configure.in` (they include an `ext/php_config.h` that only the
+  ports' Makefile creates, so a hand build would fail, and set the ports' PEAR
+  `include_path`), `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`,
+  `ext/standard/image.c`, `php_session.h`;
 - other CPU architectures: PowerPC `sljit` and `xxhash`;
 - `ext/openssl/openssl.c` for LibreSSL (8.4);
-- `ext/pcre/php_pcre.h` (8.4), which only affects `--with-external-pcre` builds;
 - 5.6: the experimental apache2filter SAPI and the ports' tweak of the configure
   pthreads check;
 - the ports' rc.d scripts (`php-fpm.in`, `php_fpm.in`).
@@ -128,7 +130,9 @@ calls [`tools/sync.sh`](tools/sync.sh):
 
 A run can also be started by hand (Actions, "Sync FreeBSD branches", "Run
 workflow"), optionally with `force`, a list of targets, or `notes_only`, which
-rewrites the notes of the current releases without rebuilding anything. A second
+rewrites the notes of the current releases without rebuilding anything (regular
+runs do the same for targets that are up to date). The dated release carries the
+full notes; `freebsd-<version>-latest` points to it. A second
 build of the same upstream commit on the same day replaces that day's dated
 release. Locally: `tools/sync.sh --local` in a clone of this repository builds the
 branches without pushing.
