@@ -46,7 +46,7 @@ set -eu
 # Bump when the generated branch content changes (commit layout, README block),
 # so that every branch is rebuilt once. Tooling-only changes must not bump it;
 # wording changes of the README block reach a branch with its next rebuild.
-layout_version=5
+layout_version=6
 
 main_dir="$(cd "$(dirname "$0")/.." && pwd)"
 conf="$main_dir/freebsd/targets.conf"
@@ -371,7 +371,9 @@ make_commits() {
     pecl_entries > "$pecl_list"
     if [ -s "$pecl_list" ]; then
         while read -r n v u c; do pecl_fetch "$n" "$v" "$u" "$c" || return 1; done < "$pecl_list"
-        git add -A ext
+        # -f: the .gitignore of php-src would drop files the extensions need (its
+        # unanchored "php" and "include" match swoole's thirdparty/php/ and include/).
+        while read -r n v u c; do git add -A -f "ext/$n"; done < "$pecl_list"
         {
             echo "Bundle PECL extensions"
             echo
