@@ -1,0 +1,16 @@
+Description: Declare the dependency on ext/hash: RedisArray calls php_hash_fetch_ops(), so a PHP 5.6 built with --disable-all and without --enable-hash failed to link (undefined reference to php_hash_fetch_ops); configure now says that redis needs hash.
+Origin: azsupport; phpredis 5.x and later need PHP 7, where ext/hash is always built
+
+diff --git a/config.m4 b/config.m4
+index 8a9072f..d01bc57 100755
+--- a/config.m4
++++ b/config.m4
+@@ -142,4 +142,8 @@ dnl Check for igbinary
+   dnl PHP_SUBST(REDIS_SHARED_LIBADD)
+ 
+   PHP_NEW_EXTENSION(redis, redis.c redis_commands.c library.c redis_session.c redis_array.c redis_array_impl.c redis_cluster.c cluster_library.c $lzf_sources, $ext_shared)
++  dnl RedisArray calls php_hash_fetch_ops(): ext/hash must be built too (PHP 5.6 --enable-hash)
++  ifdef([PHP_ADD_EXTENSION_DEP], [
++    PHP_ADD_EXTENSION_DEP(redis, hash)
++  ])
+ fi
