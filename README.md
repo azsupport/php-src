@@ -111,8 +111,7 @@ tar xf php-7.4-fbsd-latest.tar.xz
 cd php-7.4.33-fbsd-*/
 fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh
 sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice
-sh /root/php-7.4.33/config.nice        # if the check says "same options"
-# sh config.installed.sh               # if it says "different"
+sh config.installed.sh                 # the installed build's configure options
 make -j`sysctl -n hw.ncpu`
 make install
 php -v                                 # PHP 7.4.33-20261021-fbsd-802c2107 (cli) ...
@@ -121,8 +120,8 @@ php -v                                 # PHP 7.4.33-20261021-fbsd-802c2107 (cli)
 [`tools/config-check.sh`](tools/config-check.sh) compares the options in an old
 `config.nice` with those of the PHP that is actually installed (from `php -n -i`), as
 a `config.nice` may come from a configure run that was never installed. The
-installed build wins: when the options differ, the script lists the differences and
-writes `config.installed.sh` with the installed build's options.
+installed build wins: the script lists the differences, if any, and always writes
+`config.installed.sh` with the installed build's options into the current directory.
 
 The commands work in both `sh` and `csh`. `config.nice` is written by
 `configure` into every build directory and re-runs `./configure` with the same
