@@ -91,6 +91,7 @@ sha256_of() {   # SHA-256 of stdin
 patchset_of() {
     {
         cat "$patch_dir"/patch-*
+        for c in "$patch_dir"/compat-*.patch; do if [ -f "$c" ]; then cat "$c"; fi; done
         for b in "$patch_dir"/backport-*.patch; do if [ -f "$b" ]; then cat "$b"; fi; done
         echo "$target $url $ref $port $portrev layout=$layout_version"
     } | sha256_of
@@ -167,6 +168,15 @@ ports_notes() {
     fi
 }
 
+compat_notes() {   # $1: line prefix; build compatibility patches of the target
+    for p in "$patch_dir"/compat-*.patch; do
+        [ -f "$p" ] || continue
+        printf '%s- `%s`: %s (%s)\n' "$1" "${p##*/}" \
+            "$(sed -n 's/^Description: //p' "$p" | head -1)" "$(sed -n 's/^Origin: //p' "$p" | head -1)"
+    done
+}
+has_compat() { for p in "$patch_dir"/compat-*.patch; do [ -f "$p" ] && return 0; done; return 1; }
+
 backports_notes() {   # $1: line prefix
     while IFS= read -r p; do
         printf '%s- %s (%s)\n' "$1" \
@@ -196,6 +206,10 @@ readme_header() {
 >
 EOF
     ports_notes "> "
+    if has_compat; then
+        printf '>\n> **Build compatibility patches by azsupport** (commit "Apply build compatibility patches"):\n>\n'
+        compat_notes "> "
+    fi
     cat <<EOF
 >
 > The upstream \`.github/\` CI configuration is removed so that php-src CI does not
@@ -241,6 +255,29 @@ make_commits() {
         echo "not run in this fork."
         if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
     } | git commit -q -F -
+
+    # Build compatibility patches (-p1, git format): always applied; one that no
+    # longer applies fails the build, so that it gets reviewed.
+    if has_compat; then
+        for p in "$patch_dir"/compat-*.patch; do
+            [ -f "$p" ] || continue
+            if ! patch -p1 -N -s -f < "$p"; then
+                echo "sync: $target: ${p##*/} does not apply" >&2
+                return 1
+            fi
+        done
+        git add -u
+        {
+            echo "Apply build compatibility patches"
+            echo
+            for p in "$patch_dir"/compat-*.patch; do
+                [ -f "$p" ] || continue
+                echo "- ${p##*/}: $(sed -n 's/^Description: //p' "$p" | head -1)"
+                echo "  Origin: $(sed -n 's/^Origin: //p' "$p" | head -1)"
+            done
+            if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
+        } | git commit -q -F -
+    fi
 
     # Optional interim backports (-p1, git format), skipped once upstream has them.
     # -f (not -t): -t guesses "reversed" patches and would fake the -R check.
@@ -340,6 +377,10 @@ release_notes() {
     printf '| SHA-256 | `%s` |\n\n' "$sha"
     printf '### FreeBSD ports patches\n\nFrom freebsd-ports [`lang/%s` @ `%s`](%s).\n\n' "$port" "$portrev" "$(port_url)"
     ports_notes ""
+    if has_compat; then
+        printf '\n### Build compatibility patches\n\nBy azsupport (commit "Apply build compatibility patches"):\n\n'
+        compat_notes ""
+    fi
     if [ -s "$bp_list" ]; then
         printf '\n### Interim security backports\n\nBy azsupport, carried only until the upstream branch has its own fix; not reviewed upstream:\n\n'
         backports_notes ""
