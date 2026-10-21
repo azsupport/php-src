@@ -31,14 +31,19 @@ of 8.2+ (for example, it disables session upload progress in the code), so keep 
 configuration mitigations from the announcement on these versions. `freebsd/5.6` has
 no fix for these vulnerabilities.
 
-Every branch is upstream plus exactly two commits:
+Every branch is upstream plus exactly three commits:
 
 1. **Apply curated FreeBSD ports patches**: taken from `lang/phpXY` in the
    [FreeBSD ports collection](https://github.com/freebsd/freebsd-ports); the patch
    files with a description and origin line are in [`freebsd/patches/`](freebsd/patches).
    The same commit removes the upstream `.github/` directory, so that php-src's own
    CI does not run in this fork (release tarballs never contain it anyway).
-2. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
+2. **Mark the version as a FreeBSD build**: `php -v` shows the upstream version
+   plus the build date and the upstream commit, for example
+   `PHP 7.4.33-20261021-fbsd-802c2107 (cli)`. The suffix starts with a digit, so
+   `version_compare()` ranks the build above 7.4.33 and below 7.4.34;
+   `PHP_VERSION_ID` stays 70433.
+3. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
    README with the exact upstream commit (`Upstream-Commit:` trailer) and the lists
    of applied and not applied ports patches; the release notes carry the same lists.
 
@@ -91,10 +96,11 @@ The exact list for each version, one line per port file with the reason, is in
 ## Building on FreeBSD from a release tarball
 
 The `freebsd-<version>-latest` release always carries the newest tarball of a
-branch; dated releases (`freebsd-<version>-<YYYYMMDD>-<commit>`) are kept. The
-version string is the upstream one (for example `7.4.33`); a tarball unpacks into
-a directory that also carries the date and upstream commit, for example
-`php-7.4.33-fbsd-20261021-802c2107/`.
+branch; dated releases (`freebsd-<version>-<YYYYMMDD>-<commit>`) are kept. A tarball
+unpacks into a directory with the date and the upstream commit, for example
+`php-7.4.33-fbsd-20261021-802c2107/`, and the PHP built from it reports the same in
+`php -v`: `PHP 7.4.33-20261021-fbsd-802c2107`. Tarballs published before this was
+added (21.10.2026) report the plain upstream version.
 
 ```sh
 cd /root
@@ -141,7 +147,7 @@ branches without pushing.
 
 If an end-of-life branch needs a security fix before Remi Collet publishes one,
 a git-format patch (`-p1`, with `Description:` and `Origin:` lines on top) can be
-put into `freebsd/patches/<version>/backport-*.patch`. It is applied as a third
+put into `freebsd/patches/<version>/backport-*.patch`. It is applied as an extra
 commit, "Backport security fixes", and flagged in the branch README. Once the
 upstream branch contains the same change (the patch applies in reverse), it is
 skipped automatically, so the branch falls back to upstream's own fix.
