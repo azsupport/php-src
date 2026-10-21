@@ -111,10 +111,10 @@ tar xf php-7.4-fbsd-latest.tar.xz
 cd php-7.4.33-fbsd-*/
 fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh
 sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice
-sh config.installed.sh                 # the installed build's configure options
+sh config.installed.sh
 make -j`sysctl -n hw.ncpu`
 make install
-php -v                                 # PHP 7.4.33-20261021-fbsd-802c2107 (cli) ...
+php -v
 ```
 
 [`tools/config-check.sh`](tools/config-check.sh) compares the options in an old
@@ -123,7 +123,9 @@ a `config.nice` may come from a configure run that was never installed. The
 installed build wins: the script lists the differences, if any, and always writes
 `config.installed.sh` with the installed build's options into the current directory.
 
-The commands work in both `sh` and `csh`. `config.nice` is written by
+`php -v` then reports `PHP 7.4.33-20261021-fbsd-802c2107 (cli) ...`. The commands
+work in both `sh` and `csh`; the block has no comments on purpose, because an
+interactive csh does not treat `#` as a comment. `config.nice` is written by
 `configure` into every build directory and re-runs `./configure` with the same
 options from the current directory. Restart php-fpm or Apache afterwards so that
 no worker keeps running the old binary.
