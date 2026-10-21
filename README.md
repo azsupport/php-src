@@ -19,7 +19,7 @@ Provided as is, without warranty.
 | [`freebsd/8.2`](https://github.com/azsupport/php-src/tree/freebsd/8.2) | 8.2.x | newest official release tag `php-8.2.N` | security fixes until 31.12.2026 | [freebsd-8.2-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.2-latest) |
 | [`freebsd/8.1`](https://github.com/azsupport/php-src/tree/freebsd/8.1) | 8.1.34 + backports | Remi Collet, [`PHP-8.1-security-backports`](https://github.com/remicollet/php-src-security/tree/PHP-8.1-security-backports) | end of life 31.12.2025 | [freebsd-8.1-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.1-latest) |
 | [`freebsd/7.4`](https://github.com/azsupport/php-src/tree/freebsd/7.4) | 7.4.33 + backports | Remi Collet, [`PHP-7.4-security-backports`](https://github.com/remicollet/php-src-security/tree/PHP-7.4-security-backports) | end of life 28.11.2022 | [freebsd-7.4-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-7.4-latest) |
-| [`freebsd/5.6`](https://github.com/azsupport/php-src/tree/freebsd/5.6) | 5.6.40 + backports | Remi Collet, [`PHP-5.6-security-backports-openssl11`](https://github.com/remicollet/php-src-security/tree/PHP-5.6-security-backports-openssl11) (builds with OpenSSL 1.1) | end of life 31.12.2018 | [freebsd-5.6-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-5.6-latest) |
+| [`freebsd/5.6`](https://github.com/azsupport/php-src/tree/freebsd/5.6) | 5.6.40 + backports | Remi Collet, [`PHP-5.6-security-backports-openssl11`](https://github.com/remicollet/php-src-security/tree/PHP-5.6-security-backports-openssl11) (OpenSSL 1.1 support; OpenSSL 3 through a compat patch here) | end of life 31.12.2018 | [freebsd-5.6-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-5.6-latest) |
 
 For the PHP security release of 21.10.2026 (CVE-2026-109618, CVE-2026-109619,
 [announcement](https://www.php.net/archive/2026.php)): `freebsd/8.2`, `freebsd/8.3`
@@ -31,14 +31,19 @@ of 8.2+ (for example, it disables session upload progress in the code), so keep 
 configuration mitigations from the announcement on these versions. `freebsd/5.6` has
 no fix for these vulnerabilities.
 
-Every branch is upstream plus exactly three commits:
+Every branch is upstream plus these commits, in this order:
 
 1. **Apply curated FreeBSD ports patches**: taken from `lang/phpXY` in the
    [FreeBSD ports collection](https://github.com/freebsd/freebsd-ports); the patch
    files with a description and origin line are in [`freebsd/patches/`](freebsd/patches).
    The same commit removes the upstream `.github/` directory, so that php-src's own
    CI does not run in this fork (release tarballs never contain it anyway).
-2. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
+2. **Apply build compatibility patches** (5.6 and 7.4): changes that make an old
+   branch build and work on current FreeBSD, see
+   [Build compatibility patches](#build-compatibility-patches).
+3. **Backport security fixes** (only while there is one, now 5.6): see
+   [Interim backports](#interim-backports).
+4. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
    appended to the banner by C string-literal concatenation, so `php -v` shows the
    build date and upstream commit, for example
    `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`. `PHP_VERSION`
@@ -46,7 +51,7 @@ Every branch is upstream plus exactly three commits:
    `PHP x.y.z` parsers are not disturbed. On 8.2+ the banner is shared by every SAPI
    (`php -v`, `php-fpm -v`); on 5.6/7.4 it is the CLI banner. `phpinfo()` shows the
    plain version, not the build id.
-3. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
+5. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
    README with the exact upstream commit (`Upstream-Commit:` trailer) and the lists
    of applied and not applied ports patches; the release notes carry the same lists.
 
@@ -106,36 +111,153 @@ unpacks into a directory with the date and the upstream commit, for example
 version itself stays `7.4.33`. Tarballs published before this was added (21.10.2026)
 have no `(fork: ...)` in the banner.
 
+Each block rebuilds one version with the options of the PHP installed in
+`/usr/local/phpXY`: it downloads and checks the newest tarball, unpacks it in
+`/root`, writes `config.installed.sh` with [`tools/config-check.sh`](tools/config-check.sh),
+then configures, builds and installs. Paste a block as it is: the commands work in
+both `sh` and `csh` and have no comments on purpose, because an interactive csh
+does not treat `#` as a comment. If a PHP lives elsewhere (for example
+`/usr/local/php5640`), change the prefix in the `config-check.sh` line and in the
+last line. Restart Apache or php-fpm afterwards, so that no worker keeps running
+the old binary.
+
+### PHP 8.4
+
+```sh
+cd /root
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-8.4-latest/php-8.4-fbsd-latest.tar.xz
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-8.4-latest/php-8.4-fbsd-latest.tar.xz.sha256
+sha256 -c `cut -d' ' -f1 php-8.4-fbsd-latest.tar.xz.sha256` php-8.4-fbsd-latest.tar.xz
+tar xf php-8.4-fbsd-latest.tar.xz
+cd /root/`tar tf php-8.4-fbsd-latest.tar.xz | head -1`
+fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh
+sh config-check.sh /usr/local/php84
+sh config.installed.sh
+make -j`sysctl -n hw.ncpu`
+make install
+/usr/local/php84/bin/php -v
+```
+
+### PHP 8.3
+
+```sh
+cd /root
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-8.3-latest/php-8.3-fbsd-latest.tar.xz
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-8.3-latest/php-8.3-fbsd-latest.tar.xz.sha256
+sha256 -c `cut -d' ' -f1 php-8.3-fbsd-latest.tar.xz.sha256` php-8.3-fbsd-latest.tar.xz
+tar xf php-8.3-fbsd-latest.tar.xz
+cd /root/`tar tf php-8.3-fbsd-latest.tar.xz | head -1`
+fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh
+sh config-check.sh /usr/local/php83
+sh config.installed.sh
+make -j`sysctl -n hw.ncpu`
+make install
+/usr/local/php83/bin/php -v
+```
+
+### PHP 8.2
+
+```sh
+cd /root
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-8.2-latest/php-8.2-fbsd-latest.tar.xz
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-8.2-latest/php-8.2-fbsd-latest.tar.xz.sha256
+sha256 -c `cut -d' ' -f1 php-8.2-fbsd-latest.tar.xz.sha256` php-8.2-fbsd-latest.tar.xz
+tar xf php-8.2-fbsd-latest.tar.xz
+cd /root/`tar tf php-8.2-fbsd-latest.tar.xz | head -1`
+fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh
+sh config-check.sh /usr/local/php82
+sh config.installed.sh
+make -j`sysctl -n hw.ncpu`
+make install
+/usr/local/php82/bin/php -v
+```
+
+### PHP 8.1
+
+```sh
+cd /root
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-8.1-latest/php-8.1-fbsd-latest.tar.xz
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-8.1-latest/php-8.1-fbsd-latest.tar.xz.sha256
+sha256 -c `cut -d' ' -f1 php-8.1-fbsd-latest.tar.xz.sha256` php-8.1-fbsd-latest.tar.xz
+tar xf php-8.1-fbsd-latest.tar.xz
+cd /root/`tar tf php-8.1-fbsd-latest.tar.xz | head -1`
+fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh
+sh config-check.sh /usr/local/php81
+sh config.installed.sh
+make -j`sysctl -n hw.ncpu`
+make install
+/usr/local/php81/bin/php -v
+```
+
+### PHP 7.4
+
 ```sh
 cd /root
 fetch https://github.com/azsupport/php-src/releases/download/freebsd-7.4-latest/php-7.4-fbsd-latest.tar.xz
 fetch https://github.com/azsupport/php-src/releases/download/freebsd-7.4-latest/php-7.4-fbsd-latest.tar.xz.sha256
 sha256 -c `cut -d' ' -f1 php-7.4-fbsd-latest.tar.xz.sha256` php-7.4-fbsd-latest.tar.xz
 tar xf php-7.4-fbsd-latest.tar.xz
-cd php-7.4.33-fbsd-*/
+cd /root/`tar tf php-7.4-fbsd-latest.tar.xz | head -1`
 fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh
-sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice
+sh config-check.sh /usr/local/php74
 sh config.installed.sh
 make -j`sysctl -n hw.ncpu`
 make install
-php -v
+/usr/local/php74/bin/php -v
 ```
 
-[`tools/config-check.sh`](tools/config-check.sh) compares the options in an old
-`config.nice` with those of the PHP that is actually installed (from `php -n -i`), as
-a `config.nice` may come from a configure run that was never installed. The
-installed build wins: the script lists the differences, if any, and always writes
-`config.installed.sh` with the installed build's options into the current directory.
+### PHP 5.6
 
-`php -v` then reports `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`.
-The commands work in both `sh` and `csh`; the block has no comments on purpose,
-because an interactive csh does not treat `#` as a comment. `config.nice` is written by
-`configure` into every build directory and re-runs `./configure` with the same
-options from the current directory. Restart php-fpm or Apache afterwards so that
-no worker keeps running the old binary.
+```sh
+cd /root
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-5.6-latest/php-5.6-fbsd-latest.tar.xz
+fetch https://github.com/azsupport/php-src/releases/download/freebsd-5.6-latest/php-5.6-fbsd-latest.tar.xz.sha256
+sha256 -c `cut -d' ' -f1 php-5.6-fbsd-latest.tar.xz.sha256` php-5.6-fbsd-latest.tar.xz
+tar xf php-5.6-fbsd-latest.tar.xz
+cd /root/`tar tf php-5.6-fbsd-latest.tar.xz | head -1`
+fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh
+sh config-check.sh /usr/local/php56
+sh config.installed.sh
+make -j`sysctl -n hw.ncpu`
+make install
+/usr/local/php56/bin/php -v
+```
+
+For 5.6 on FreeBSD 14 and 15, the options `--with-pcre-regex=/usr/local` and
+`--with-mcrypt=/usr/local` need the `pcre` and `libmcrypt` packages; FreeType is
+found through `pkg-config` (the `freetype2` package no longer ships
+`freetype-config`).
+
+`config-check.sh` takes the options of the installed PHP (`php -n -i`, Configure
+Command), never a `config.nice` blindly: a `config.nice` may come from a configure
+run that was never installed. It compares them with the `config.nice` of the old
+build and carries over that file's environment lines (`CFLAGS=...`, which the
+installed build does not record). It finds that file itself:
+`/root/php-<installed version>/config.nice`, or the newest
+`/root/php-<installed version>-fbsd-*/config.nice` from an earlier build of this
+fork; another one can be given as the second argument
+(`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`). Without any
+`config.nice` it still writes the script, but without `CFLAGS`. PHP 5.6 records
+options with spaces in a broken quoting (`'CFLAGS=-O3 '-pipe' ...''`); the script
+reads them as the shell would, as one option.
 
 Building straight from a branch also works, but then autoconf, bison and re2c
 are required (`./buildconf --force` first).
+
+### Build test on FreeBSD
+
+[`.github/workflows/build-test.yml`](.github/workflows/build-test.yml) builds the
+`-latest` tarballs in a FreeBSD VM (default 15.1: clang 19, base OpenSSL 3.5,
+libraries from `pkg`) with the configure options of our servers, then runs
+`php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php)
+(parse errors, DNS and IPv6, `tls://`, `ssl://` and `https://`, the OpenSSL legacy
+ciphers, `openssl_seal()`, GD with FreeType, XML, sessions, curl and more) and a
+part of the PHP test suite. The result shows per version on the run page. Start it
+on https://github.com/azsupport/php-src/actions/workflows/build-test.yml with
+**Run workflow**. On a FreeBSD machine the same script runs from a checkout of this
+branch, with the tarballs in `dist/`: `sh tools/build-test.sh --deps 5.6 7.4`
+installs the packages, `sh tools/build-test.sh --tests 5.6 7.4` builds and checks;
+the presets are in [`tools/build-test.sh`](tools/build-test.sh).
 
 ### OpenSSL
 
@@ -153,8 +275,15 @@ are required (`./buildconf --force` first).
   returns random bytes instead of failing (protection against the Marvin
   attack), DSA/DH keys below 512 bits and certificates with malformed times are
   refused. A 7.4 build against a separate OpenSSL 1.1 behaves as before.
-- 5.6 (the `-openssl11` branch of Remi Collet) needs OpenSSL 1.1: the base system
-  of FreeBSD 13, or a separate OpenSSL 1.1 on 14 and 15.
+- 5.6 builds against the same OpenSSL 3 of the base system with
+  [`compat-openssl3.patch`](freebsd/patches/5.6/compat-openssl3.patch)
+  (`--with-openssl=/usr`), with the same legacy provider loading as 7.4 and the
+  same OpenSSL 3 differences. On top of that, `tls://` and
+  `STREAM_CRYPTO_METHOD_TLS_*` negotiate TLS 1.0 to 1.3: 5.6 limits them to TLS
+  1.0, which OpenSSL 3 refuses at its default security level, so they could not
+  connect at all (`ssl://`, `https://` and `STREAM_CRYPTO_METHOD_SSLv23_*` already
+  negotiated the newest version). A 5.6 build against a separate OpenSSL 1.1
+  behaves as before.
 
 ## How updates happen
 
@@ -185,6 +314,16 @@ and `Origin:` lines on top). They are always applied, as the commit "Apply build
 compatibility patches" right after the ports patches, and listed in the branch
 README and the release notes; one that stops applying fails the build, so that it
 gets reviewed.
+
+| Version | Patch | What it fixes |
+|---|---|---|
+| 5.6 | [`compat-bison3.patch`](freebsd/patches/5.6/compat-bison3.patch) | parsers generated by bison 3.6+ (the tarballs use 3.8) report only "syntax error" and shift the `T_*` token numbers; now detailed errors and the token numbers of the php.net 5.6.40 tarball |
+| 5.6 | [`compat-c99.patch`](freebsd/patches/5.6/compat-c99.patch) | clang 16+ (FreeBSD 14/15: clang 19) and gcc 14+ reject pre-C99 code: configure tests failed silently (no `getaddrinfo`, so no IPv6 name resolution; wrong `readdir_r` and `fopencookie` types, which broke the build; no `pread`/`pwrite`, ...), and four sources did not compile |
+| 5.6 | [`compat-freetype-pkgconfig.patch`](freebsd/patches/5.6/compat-freetype-pkgconfig.patch) | FreeType without `freetype-config`: found through `pkg-config`, and the bundled GD is built with FreeType, so `imagettftext()` draws |
+| 5.6 | [`compat-libxml2.patch`](freebsd/patches/5.6/compat-libxml2.patch) | libxml2 2.12+ (FreeBSD 15.1: 2.15) API changes |
+| 5.6 | [`compat-openssl3.patch`](freebsd/patches/5.6/compat-openssl3.patch) | OpenSSL 3: legacy provider, `tls://`, `OPENSSL_SSLV23_PADDING`, CSR public key |
+| 7.4 | [`compat-c99.patch`](freebsd/patches/7.4/compat-c99.patch) | configure tests that clang 16+ and gcc 14+ reject (`write(2)` to stdout, functions in separate libraries) |
+| 7.4 | [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch) | OpenSSL 3: legacy provider, `OPENSSL_SSLV23_PADDING`, CSR public key |
 
 ### Interim backports
 
