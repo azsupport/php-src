@@ -7,9 +7,14 @@
 # Usage (FreeBSD /bin/sh; from csh run it with sh):
 #   sh config-check.sh /usr/local/php81
 #   sh config-check.sh /usr/local/php81 /root/php-8.1.34/config.nice
+#   sh config-check.sh --pkg [php74]
 #
-#   The first argument is a php, php-fpm or php-cgi binary, or an install prefix
-#   (bin/php, sbin/php-fpm or bin/php-cgi inside it is used).
+#   The first argument is the install directory of the hand-built PHP (its bin/php,
+#   or else sbin/php-fpm or bin/php-cgi is used), or one of those binaries.
+#   --pkg instead writes the options for a hand build that replaces the PHP
+#   installed as packages (lang/phpXY, phpXY-* extensions, mod_phpXY): the port
+#   options of phpXY, one option per extension package, the layout of our hand
+#   builds (/usr/local/phpXY) and CFLAGS from /etc/make.conf (CFLAGS, CPUTYPE).
 #   The second argument is the config.nice of the old build. Without it,
 #   ./config.nice is used, or else the newest php-<version>/config.nice or
 #   php-<version>-*/config.nice next to the current directory or in $HOME, where
@@ -29,14 +34,249 @@
 # 2 usage or read error.
 
 set -u
+out="${OUT:-./config.installed.sh}"
+
+# --pkg: the ./configure options for a hand build that replaces the PHP installed
+# as FreeBSD packages (lang/phpXY, its phpXY-* extension packages, mod_phpXY), in
+# the layout of our hand builds, with CFLAGS from /etc/make.conf.
+if [ "${1:-}" = "--pkg" ]; then
+    [ $# -le 2 ] || { sed -n 's/^# \{0,1\}//; 7,10p' "$0" >&2; exit 2; }
+    pkg="${PKG:-pkg}"
+    mk_conf="${MAKE_CONF:-/etc/make.conf}"
+    lb="${LOCALBASE:-/usr/local}"
+    tmp="$(mktemp -d)" || exit 2
+    trap 'rm -rf "$tmp"' EXIT INT TERM
+
+    want="${2:-}"
+    case "$want" in
+        "" | php[0-9][0-9]) ;;
+        [0-9].[0-9]) want="php$(printf '%s' "$want" | tr -d .)" ;;
+        [0-9][0-9]) want="php$want" ;;
+        *) echo "config-check: --pkg takes a package name (php74), a version (7.4) or 74" >&2; exit 2 ;;
+    esac
+    cores="$("$pkg" query -g '%n' 'php[0-9][0-9]' 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+    if [ -z "$want" ]; then
+        case "$cores" in
+            "") echo "config-check: no PHP package (lang/phpXY) is installed" >&2; exit 2 ;;
+            *" "*) echo "config-check: several PHP packages are installed ($cores); name one: sh config-check.sh --pkg php74" >&2; exit 2 ;;
+        esac
+        want="$cores"
+    fi
+    pkgver="$("$pkg" query '%v' "$want" 2>/dev/null)"
+    [ -n "$pkgver" ] || { echo "config-check: $want is not installed (PHP packages: ${cores:-none})" >&2; exit 2; }
+    short="${want#php}"
+    minor="${short#?}"
+    case "$short" in
+        5*) fam=5 ;;
+        7*) fam=7 ;;
+        *) fam=8 ;;
+    esac
+    prefix="/usr/local/php$short"
+
+    : > "$tmp/opts"; : > "$tmp/map"; : > "$tmp/skip"; : > "$tmp/notes"
+    add() { for o in "$@"; do grep -qxF -- "$o" "$tmp/opts" || printf '%s\n' "$o" >> "$tmp/opts"; done; }
+    note() { printf '%s\n' "$*" >> "$tmp/notes"; }
+    has() { [ -f "$lb/include/$1" ]; }
+    "$pkg" query '%Ok %Ov' "$want" > "$tmp/core" 2>/dev/null
+    opt() { grep -qx "$1 $2" "$tmp/core"; }
+    "$pkg" query '%dn' "$want" > "$tmp/deps" 2>/dev/null
+    modphp="$("$pkg" query -g '%n' "mod_php$short" 2>/dev/null)"
+    intl=""
+
+    # Configure options of one extension package, in the style of our hand builds
+    # (the FreeBSD port's Makefile.ext passes the same, mostly with LOCALBASE paths).
+    # Exit 1 with the reason on stdout for a package that has no option.
+    ext_flags() {
+        case "$1" in
+            bcmath|calendar|ctype|dba|dom|exif|fileinfo|filter|ftp|mbstring|pcntl|pdo|phar|posix|\
+session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlreader|xmlwriter)
+                echo "--enable-$1" ;;
+            json) [ "$fam" = 8 ] || echo "--enable-json" ;;
+            opcache) if [ "$fam" = 8 ]; then echo "--enable-opcache --enable-opcache-jit"; else echo "--enable-opcache"; fi ;;
+            intl) if [ "$fam" = 5 ]; then echo "--enable-intl --with-icu-dir=/usr/local"; else echo "--enable-intl"; fi ;;
+            bz2) echo "--with-bz2" ;;
+            curl) if [ "$fam" = 5 ]; then echo "--with-curl"; else echo "--with-curl=/usr/local"; fi ;;
+            enchant) echo "--with-enchant=/usr/local" ;;
+            ffi) echo "--with-ffi" ;;
+            gd)
+                if [ "$fam" = 5 ]; then
+                    f="--with-gd"
+                    has jpeglib.h && f="$f --with-jpeg-dir=/usr/local"
+                    has png.h && f="$f --with-png-dir=/usr/local"
+                    has freetype2/ft2build.h && f="$f --with-freetype-dir=/usr/local"
+                    echo "$f"
+                else
+                    has gd.h || note "--with-external-gd needs the libgd package ($lb/include/gd.h is missing)."
+                    echo "--enable-gd --with-external-gd"
+                fi ;;
+            gettext) if [ "$fam" = 5 ]; then echo "--with-gettext"; else echo "--with-gettext=/usr/local"; fi ;;
+            gmp) echo "--with-gmp=/usr/local" ;;
+            iconv) echo "--with-iconv=/usr/local" ;;
+            imap) if [ "$fam" = 8 ] && [ "$minor" -ge 4 ]; then echo "removed from PHP in 8.4 (PECL imap)"; return 1; fi
+                  echo "--with-imap=/usr/local --with-imap-ssl=/usr" ;;
+            ldap) echo "--with-ldap=/usr/local" ;;
+            mcrypt) if [ "$fam" = 5 ]; then echo "--with-mcrypt=/usr/local"; else echo "removed from PHP in 7.2 (PECL mcrypt)"; return 1; fi ;;
+            mysql) if [ "$fam" = 5 ]; then echo "--with-mysql --with-mysql-sock=/tmp/mysql.sock"; else echo "removed from PHP in 7.0 (use mysqli or pdo_mysql)"; return 1; fi ;;
+            mysqli) if [ "$fam" = 5 ]; then echo "--with-mysqli --with-mysql-sock=/tmp/mysql.sock"; else echo "--with-mysqli=mysqlnd --with-mysql-sock=/tmp/mysql.sock"; fi ;;
+            odbc) echo "--with-unixODBC=/usr/local" ;;
+            openssl) case "$fam" in 5) echo "--with-openssl=/usr" ;; 7) echo "--with-openssl" ;; *) echo "--with-openssl=/usr" ;; esac ;;
+            pdo_dblib) echo "--with-pdo-dblib=/usr/local" ;;
+            pdo_firebird) echo "--with-pdo-firebird=/usr/local" ;;
+            pdo_mysql) if [ "$fam" = 5 ]; then echo "--with-pdo-mysql --with-mysql-sock=/tmp/mysql.sock"; else echo "--with-pdo-mysql=mysqlnd --with-mysql-sock=/tmp/mysql.sock"; fi ;;
+            pdo_odbc) echo "--with-pdo-odbc=unixODBC,/usr/local" ;;
+            pdo_pgsql) echo "--with-pdo-pgsql=/usr/local" ;;
+            pdo_sqlite) if [ "$fam" = 5 ]; then echo "--with-pdo-sqlite=/usr/local"; else echo "--with-pdo-sqlite"; fi ;;
+            pgsql) echo "--with-pgsql=/usr/local" ;;
+            pspell) if [ "$fam" = 8 ] && [ "$minor" -ge 4 ]; then echo "removed from PHP in 8.4 (PECL pspell)"; return 1; fi
+                    echo "--with-pspell=/usr/local" ;;
+            readline) if has readline/readline.h; then echo "--with-readline=/usr/local"; else echo "--with-libedit"; fi ;;
+            snmp) echo "--with-snmp=/usr/local" ;;
+            sodium) echo "--with-sodium=/usr/local" ;;
+            sqlite3) if [ "$fam" = 5 ]; then echo "--with-sqlite3=/usr/local"; else echo "--with-sqlite3"; fi ;;
+            tidy) echo "--with-tidy=/usr/local" ;;
+            wddx) if [ "$fam" = 5 ]; then echo "--enable-wddx"; else echo "removed from PHP in 7.4"; return 1; fi ;;
+            xmlrpc) if [ "$fam" = 8 ]; then echo "removed from PHP in 8.0 (PECL xmlrpc)"; return 1; fi; echo "--with-xmlrpc" ;;
+            xsl) if [ "$fam" = 5 ]; then echo "--with-xsl=/usr/local"; else echo "--with-xsl"; fi ;;
+            zip) if [ "$fam" = 5 ]; then echo "--enable-zip"; else echo "--with-zip"; fi ;;
+            zlib) if [ "$fam" = 5 ]; then echo "--with-zlib=/usr"; else echo "--with-zlib"; fi ;;
+            pecl-*) echo "PECL extension, not part of ./configure: build it later with $prefix/bin/phpize"; return 1 ;;
+            *) echo "not an extension of the PHP sources (a tool, or one this script does not know)"; return 1 ;;
+        esac
+    }
+
+    # The core package: layout of our hand builds, then its port options.
+    [ -n "$modphp" ] && add --with-apxs2=/usr/local/sbin/apxs
+    if [ "$fam" = 5 ]; then
+        add --prefix="$prefix" --disable-all --with-layout=GNU --with-zend-vm=CALL --enable-libxml \
+            --with-libxml-dir=/usr/local --with-regex=php --enable-mysqlnd
+    else
+        add --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --program-prefix= \
+            --prefix="$prefix" --mandir="$prefix/man" --infodir="$prefix/info/"
+    fi
+    opt CLI off && add --disable-cli
+    opt CGI off && add --disable-cgi
+    opt FPM on && add --enable-fpm --with-fpm-user=www --with-fpm-group=www
+    opt EMBED on && add --enable-embed
+    opt PHPDBG on && add --enable-phpdbg
+    opt IPV6 off && add --disable-ipv6
+    if opt ZTS on; then
+        if [ "$fam" = 8 ]; then add --enable-zts; else add --enable-maintainer-zts; fi
+    fi
+    opt MYSQLND on && add --enable-mysqlnd
+    libs=""
+    opt LINKTHR on && libs="-lpthread"
+    opt DEBUG on && note "DEBUG is on in the package: not carried over (add --enable-debug for a debug build)."
+    opt DTRACE on && note "DTRACE is on in the package: not carried over (add --enable-dtrace to keep the DTrace probes)."
+    opt MAILHEAD on && note "MAILHEAD (the mail() header patch of the php56 port) is not in this fork."
+    if [ "$fam" = 5 ]; then
+        if has pcre.h; then add --with-pcre-regex=/usr/local
+        else note "No $lb/include/pcre.h (package pcre): the old bundled PCRE 8.38 is used."; fi
+    elif ! opt PCRE off; then
+        if has pcre2.h; then add --with-external-pcre=/usr/local
+        else note "No $lb/include/pcre2.h (package pcre2): the bundled PCRE2 is used."; fi
+    fi
+    if [ "$fam" = 8 ]; then
+        add --with-openssl=/usr
+    fi
+    if [ "$fam" != 5 ]; then
+        if grep -qx libargon2 "$tmp/deps"; then add --with-password-argon2=/usr/local
+        elif [ "$fam" = 8 ] && [ "$minor" -ge 4 ]; then add --with-openssl-argon2; fi
+    fi
+
+    # The extension packages.
+    "$pkg" query -g '%n' "php$short-*" 2>/dev/null | sort > "$tmp/ext_pkgs"
+    n_ext=0
+    while IFS= read -r p; do
+        e="${p#php"$short"-}"
+        [ "$e" = extensions ] && continue
+        if f="$(ext_flags "$e")"; then
+            [ "$e" = intl ] && intl=1
+            # shellcheck disable=SC2086
+            [ -n "$f" ] && add $f
+            printf '  %-24s %s\n' "$p" "${f:-(built into PHP $fam, no option)}" >> "$tmp/map"
+            n_ext=$((n_ext + 1))
+        else
+            printf '  %-24s %s\n' "$p" "$f" >> "$tmp/skip"
+        fi
+    done < "$tmp/ext_pkgs"
+
+    # CFLAGS: those of /etc/make.conf plus -march=$CPUTYPE, as for the ports.
+    mc_get() {
+        [ -r "$mk_conf" ] || return 0
+        awk -v v="$1" '
+            { sub(/#.*/, "") }
+            $0 ~ "^[ \t]*" v "[ \t]*[?:]?=" { s = $0; sub("^[ \t]*" v "[ \t]*[?:]?=[ \t]*", "", s); val = s; have = 1; next }
+            $0 ~ "^[ \t]*" v "[ \t]*\\+=" { s = $0; sub("^[ \t]*" v "[ \t]*\\+=[ \t]*", "", s); val = val " " s; have = 1 }
+            END { if (have) { sub(/[ \t]+$/, "", val); print val } }
+        ' "$mk_conf"
+    }
+    mc_cflags="$(mc_get CFLAGS)"
+    cputype="$(mc_get CPUTYPE)"
+    cflags="${mc_cflags:--O2 -pipe}${cputype:+ -march=$cputype} -fstack-protector-strong -fno-strict-aliasing"
+    cxxflags="$cflags"
+    [ -n "$intl" ] && [ "$fam" != 5 ] && cxxflags="-std=c++17 $cflags"
+
+    out_dir="$(cd "$(dirname "$out")" 2>/dev/null && pwd)" || { echo "config-check: no directory for $out" >&2; exit 2; }
+    out="$out_dir/$(basename "$out")"
+    {
+        echo "#!/bin/sh"
+        echo "# Written by config-check.sh --pkg on $(date '+%d.%m.%Y %H:%M'): a hand build that replaces"
+        echo "# the packages $want $pkgver${modphp:+, $modphp} and $n_ext extension packages; CFLAGS from $mk_conf."
+        echo "# Run from inside the new PHP source tree: sh $out"
+        echo
+        printf "CFLAGS='%s' \\\\\n" "$cflags"
+        printf "CXXFLAGS='%s' \\\\\n" "$cxxflags"
+        [ -n "$libs" ] && printf "LIBS='%s' \\\\\n" "$libs"
+        echo "'./configure' \\"
+        sed "s/'/'\\\\''/g; s/^/'/; s/\$/' \\\\/" "$tmp/opts"
+        echo '"$@"'
+    } > "$out" || { echo "config-check: cannot write $out" >&2; exit 2; }
+    chmod +x "$out" 2>/dev/null || true
+
+    # Report.
+    printf 'packages:   %s %s%s, %s extension packages\n' "$want" "$pkgver" "${modphp:+, $modphp}" "$n_ext"
+    printf 'port opts:  %s\n' "$(tr '\n' ',' < "$tmp/core" | sed 's/,$//; s/,/, /g')"
+    printf 'make.conf:  CPUTYPE=%s, CFLAGS=%s (%s)\n' "${cputype:-unset}" "${mc_cflags:-unset}" "$mk_conf"
+    echo
+    echo "extension packages and their options:"
+    cat "$tmp/map"
+    if [ -s "$tmp/skip" ]; then
+        echo
+        echo "not carried over:"
+        cat "$tmp/skip"
+    fi
+    echo
+    echo "notes:"
+    sed 's/^/  - /' "$tmp/notes"
+    echo "  - php.ini: the packages read /usr/local/etc/php.ini and /usr/local/etc/php/*.ini; the new build"
+    echo "    reads $prefix/etc/php.ini. The extensions are compiled in, the ext-*.ini files are not needed."
+    if [ -n "$modphp" ]; then
+        echo "  - make install puts the Apache module where $modphp has it: run pkg delete $modphp first,"
+        echo "    or the next pkg upgrade writes the package's module over it."
+    fi
+    opt FPM on && echo "  - php-fpm goes to $prefix/sbin/php-fpm; the package's rc.d script starts /usr/local/sbin/php-fpm."
+    set -- "$want"
+    [ -n "$modphp" ] && set -- "$@" "$modphp"
+    while IFS= read -r p; do set -- "$@" "$p"; done < "$tmp/ext_pkgs"
+    "$pkg" query '%dn' "$@" 2>/dev/null | grep -v -e '^php' -e '^mod_php' | sort -u > "$tmp/libs"
+    if [ -s "$tmp/libs" ]; then
+        echo "  - Before deleting the PHP packages, keep the libraries the new build links against, so that"
+        echo "    pkg autoremove does not remove them:"
+        echo
+        echo "pkg set -y -A 0 $(tr '\n' ' ' < "$tmp/libs" | sed 's/ *$//')"
+    fi
+    echo
+    echo "written: $out"
+    echo "next, from inside the new source tree: sh $out"
+    exit 0
+fi
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-    sed -n 's/^# \{0,1\}//; 7,9p' "$0" >&2
+    sed -n 's/^# \{0,1\}//; 7,10p' "$0" >&2
     exit 2
 fi
 target="$1"
 nice="${2:-}"
-out="${OUT:-./config.installed.sh}"
 
 if [ -d "$target" ]; then
     php=""
