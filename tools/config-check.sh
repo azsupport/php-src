@@ -36,6 +36,10 @@
 # does not bring its -march along; a -march that needs CPU features this CPU has
 # not (cc -march=native) gives a warning, PHP built with it would stop with
 # "Illegal instruction".
+# Shared PECL modules that the source tree bundles (redis, memcached, memcache,
+# imagick, igbinary, swoole) are not added to the script: the report ends with the
+# command that builds them in, with the features they were built with (php --ri),
+# and lists the extension= lines to remove after make install.
 #
 # Exit status: 0 same options, 1 different (or no config.nice to compare with),
 # 2 usage or read error.
@@ -524,18 +528,30 @@ out="$out_dir/$out_name"
 chmod +x "$out" 2>/dev/null || true
 
 # Shared PECL modules of the installed PHP that this source tree bundles in ext/:
-# only a hint, they are built in only when their option is added. The features a
-# module was built with ("php --ri": serializers, compression, swoole's hooks) are
-# offered too, where the bundled version has an option for them (its config.m4).
+# they are not built in on their own; the report ends with the command that builds
+# them in (the script plus their options), ready to copy. The features a module was
+# built with ("php --ri": serializers, compression, swoole's hooks) are carried over
+# where the bundled version has an option for them (its config.m4).
 "$php" -m 2>/dev/null | tr 'A-Z' 'a-z' > "$tmp/modules"
 : > "$tmp/pecl_hint"
 : > "$tmp/pecl_note"
+: > "$tmp/pecl_opts"
+: > "$tmp/pecl_names"
+: > "$tmp/ini_lines"
 knows() { grep -q -e "\[$2\]" -e "($2," "ext/$1/config.m4" 2>/dev/null; }
 ri_row() { sed -n "s/^$2 => //p" "$tmp/ri_$1" | head -n 1; }
-for m in redis memcached memcache imagick igbinary swoole; do
-    [ -f "ext/$m/config.m4" ] || [ -f "ext/$m/config9.m4" ] || continue
+for m in igbinary redis memcached memcache imagick swoole; do
     grep -qx "$m" "$tmp/modules" || continue
     grep -q -e "--enable-$m\$" -e "--enable-$m=" -e "--with-$m" "$tmp/installed" && continue
+    if [ ! -d ext/standard ]; then
+        grep -q 'source tree' "$tmp/pecl_note" ||
+            echo "run config-check.sh from inside the new PHP source tree to get the options for $m and the other shared PECL modules" >> "$tmp/pecl_note"
+        continue
+    fi
+    if [ ! -f "ext/$m/config.m4" ] && [ ! -f "ext/$m/config9.m4" ]; then
+        echo "$m is not bundled for PHP ${ver:-?}: keep its extension= line" >> "$tmp/pecl_note"
+        continue
+    fi
     "$php" --ri "$m" > "$tmp/ri_$m" 2>/dev/null
     case "$m" in
         redis)
@@ -571,12 +587,50 @@ for m in redis memcached memcache imagick igbinary swoole; do
         *) o="--enable-$m" ;;
     esac
     printf '  %-10s %s\n' "$m" "$o" >> "$tmp/pecl_hint"
+    # shellcheck disable=SC2086
+    printf '%s\n' $o >> "$tmp/pecl_opts"
+    echo "$m" >> "$tmp/pecl_names"
 done
-if [ -s "$tmp/pecl_hint" ]; then
+
+# What they need from PHP itself, when the installed build has not got it.
+need() { grep -qx -e "$1" "$tmp/pecl_opts" "$tmp/installed" || printf '%s\n' "$1" >> "$tmp/pecl_opts"; }
+fam="${ver%%.*}"
+if grep -qx redis "$tmp/pecl_names"; then
+    case "$fam" in 5 | 7) grep -qx json "$tmp/modules" || need --enable-json ;; esac
+    if [ "$fam" = 5 ]; then grep -qx hash "$tmp/modules" || need --enable-hash; fi
+fi
+if grep -qx -e redis -e memcached "$tmp/pecl_names"; then
+    grep -qx session "$tmp/modules" || need --enable-session
+fi
+pecl_line="$(awk '!seen[$0]++' "$tmp/pecl_opts" | tr '\n' ' ' | sed 's/ *$//')"
+
+# The extension= lines that load them now (php --ini: php.ini and the scanned
+# directory), to be removed once they are built in.
+if [ -s "$tmp/pecl_names" ]; then
+    "$php" --ini 2>/dev/null | awk '
+        /^Loaded Configuration File:/ { sub(/^Loaded Configuration File:[ \t]*/, ""); print; next }
+        /^Additional \.ini files parsed:/ { sub(/^Additional \.ini files parsed:[ \t]*/, ""); add = 1 }
+        add { n = split($0, a, ","); for (i = 1; i <= n; i++) { f = a[i]; gsub(/^[ \t]+|[ \t]+$/, "", f); if (f != "") print f } }
+    ' | grep -v '^(none)$' > "$tmp/ini_files"
+    names="$(tr '\n' '|' < "$tmp/pecl_names" | sed 's/|$//')"
+    while IFS= read -r f; do
+        [ -r "$f" ] || continue
+        grep -n -E "^[[:space:]]*extension[[:space:]]*=[[:space:]]*[\"']?([^\"';]*/)?($names)(\\.so)?[\"']?[[:space:]]*(;.*)?\$" "$f" |
+            sed "s#^#  $f:#"
+    done < "$tmp/ini_files" > "$tmp/ini_lines"
+fi
+
+if [ -s "$tmp/pecl_hint" ] || [ -s "$tmp/pecl_note" ]; then
     echo
-    echo "loaded as shared modules (extension=... in php.ini), bundled in this tree; to build them in,"
-    echo "add the options after the script (sh config.installed.sh <options>) and remove the extension= lines:"
-    cat "$tmp/pecl_hint"
+    echo "shared PECL modules (extension=... in php.ini):"
+    if [ -s "$tmp/pecl_hint" ]; then
+        echo "  bundled in this tree, built in only with their options (the command is at the end):"
+        sed 's/^/  /' "$tmp/pecl_hint"
+    fi
+    if [ -s "$tmp/ini_lines" ]; then
+        echo "  after make install, remove the lines that load them, or PHP warns that they are loaded twice:"
+        sed 's/^/  /' "$tmp/ini_lines"
+    fi
     [ -s "$tmp/pecl_note" ] && sed 's/^/  note: /' "$tmp/pecl_note"
 fi
 
@@ -594,5 +648,13 @@ else
     rc=1
 fi
 echo "written: $out"
-echo "next, from inside the new source tree: sh $out"
+if [ -n "$pecl_line" ]; then
+    echo "next, from inside the new source tree, with the shared PECL modules built in:"
+    echo
+    echo "sh $out $pecl_line"
+    echo
+    echo "or without them: sh $out"
+else
+    echo "next, from inside the new source tree: sh $out"
+fi
 exit "$rc"

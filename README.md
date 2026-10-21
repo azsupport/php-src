@@ -328,9 +328,15 @@ asks for `Redis::SERIALIZER_IGBINARY`.
 To add them to a rebuild, put the options after `sh config.installed.sh`, for example
 `sh config.installed.sh --enable-redis --enable-memcache`, and remove the
 `extension=redis.so` lines of the old shared modules from `php.ini`.
-`config-check.sh` lists the shared modules of the installed PHP that the tree bundles,
-but does not add them on its own; with `--pkg`, the installed `phpXY-pecl-*` packages
-are converted like the other extension packages.
+`config-check.sh` does not add them to `config.installed.sh` on its own: for the
+shared modules of the installed PHP that the tree bundles, it ends with the full
+command, `sh config.installed.sh` plus their options, ready to copy. The options carry
+what the modules were built with (`php --ri`: the igbinary serializer, lzf/zstd/lz4,
+SASL, swoole's curl, c-ares, pgsql), plus `--enable-json`, `--enable-hash` or
+`--enable-session` when the installed build lacks what they need, and the report
+lists the `extension=` lines (file and line) to remove after `make install`. With
+`--pkg`, the installed `phpXY-pecl-*` packages are converted like the other extension
+packages.
 
 ### OpenSSL
 
