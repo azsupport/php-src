@@ -137,6 +137,25 @@ no worker keeps running the old binary.
 Building straight from a branch also works, but then autoconf, bison and re2c
 are required (`./buildconf --force` first).
 
+### OpenSSL
+
+- 8.1 and newer support OpenSSL 3 upstream: build against the base system
+  OpenSSL (`--with-openssl`).
+- 7.4 builds against the OpenSSL 3 of the base system of FreeBSD 14 and 15
+  (3.5.6 on FreeBSD 15.1) thanks to
+  [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch):
+  `--with-openssl` is enough, as FreeBSD ships `openssl.pc`. The patch loads the
+  OpenSSL 3 legacy provider (`/usr/lib/ossl-modules/legacy.so` in the base
+  system) at startup, so RC4 (the default of `openssl_seal()`), Blowfish, DES,
+  RC2, CAST5 and MD4 keep working without editing `openssl.cnf`. What still
+  behaves differently from OpenSSL 1.1 is OpenSSL 3 itself, the same as with PHP
+  8.x: TLS 1.0/1.1 are off by default, RSA PKCS#1 v1.5 decryption with a wrong key
+  returns random bytes instead of failing (protection against the Marvin
+  attack), DSA/DH keys below 512 bits and certificates with malformed times are
+  refused. A 7.4 build against a separate OpenSSL 1.1 behaves as before.
+- 5.6 (the `-openssl11` branch of Remi Collet) needs OpenSSL 1.1: the base system
+  of FreeBSD 13, or a separate OpenSSL 1.1 on 14 and 15.
+
 ## How updates happen
 
 [`.github/workflows/sync.yml`](.github/workflows/sync.yml) runs every hour and
@@ -157,6 +176,15 @@ full notes; `freebsd-<version>-latest` points to it. A second
 build of the same upstream commit on the same day replaces that day's dated
 release. Locally: `tools/sync.sh --local` in a clone of this repository builds the
 branches without pushing.
+
+### Build compatibility patches
+
+Patches that only make a branch build and work on current FreeBSD go into
+`freebsd/patches/<version>/compat-*.patch` (git format, `-p1`, with `Description:`
+and `Origin:` lines on top). They are always applied, as the commit "Apply build
+compatibility patches" right after the ports patches, and listed in the branch
+README and the release notes; one that stops applying fails the build, so that it
+gets reviewed.
 
 ### Interim backports
 
