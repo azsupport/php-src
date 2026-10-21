@@ -1,0 +1,49 @@
+name: Sync FreeBSD branches
+
+# Hourly: follow Remi Collet's backport branches (5.6, 7.4, 8.1) and the official
+# php-src release tags (8.2, 8.3, 8.4), rebuild the freebsd/<target> branches,
+# mirror the upstream refs and publish ready-to-build tarballs as releases.
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild and re-release even if upstream did not change'
+        type: boolean
+        default: false
+      targets:
+        description: 'Space-separated targets, e.g. "7.4 8.4" (empty = all)'
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-freebsd
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Install generators
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q autoconf bison re2c
+
+      - name: Sync branches and publish tarballs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_FLAG: ${{ inputs.force && '--force' || '' }}
+          TARGETS: ${{ inputs.targets }}
+        run: sh tools/sync.sh $FORCE_FLAG $TARGETS
