@@ -228,6 +228,17 @@ For 5.6 on FreeBSD 14 and 15, the options `--with-pcre-regex=/usr/local` and
 found through `pkg-config` (the `freetype2` package no longer ships
 `freetype-config`).
 
+The argument of `config-check.sh` is the install directory (`/usr/local/php82`);
+the script runs `bin/php` from it (or `sbin/php-fpm`, `bin/php-cgi`), and a path to
+one of those binaries works too. On a server where PHP comes from packages
+(`lang/phpXY`, `phpXY-*`, `mod_phpXY`), use `sh config-check.sh --pkg` instead (or
+`--pkg php74` when several PHP versions are installed as packages): it writes
+`config.installed.sh` for a hand build in `/usr/local/phpXY` with one option per
+installed extension package and the port options of `phpXY`, takes `CFLAGS` and
+`CPUTYPE` from `/etc/make.conf`, lists what it does not carry over (PECL packages,
+tools) and prints the `pkg set -A 0` line that keeps the libraries when the packages
+are removed later.
+
 `config-check.sh` takes the options of the installed PHP (`php -n -i`, Configure
 Command), never a `config.nice` blindly: a `config.nice` may come from a configure
 run that was never installed. It compares them with the `config.nice` of the old
