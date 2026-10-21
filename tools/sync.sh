@@ -133,6 +133,19 @@ EOF
         desc="$(sed -n 's/^Description: //p' "$p" | head -1)"
         printf '> - `%s`: %s\n' "$file" "$desc"
     done
+    if [ -s "$wt/.sync-backports" ]; then
+        cat <<EOF
+>
+> [!WARNING]
+> **Interim security backports by azsupport** (commit "Backport security fixes"),
+> carried only until the upstream branch has its own fix; not reviewed upstream:
+EOF
+        while IFS= read -r p; do
+            desc="$(sed -n 's/^Description: //p' "$p" | head -1)"
+            origin="$(sed -n 's/^Origin: //p' "$p" | head -1)"
+            printf '> - %s (%s)\n' "$desc" "$origin"
+        done < "$wt/.sync-backports"
+    fi
     cat <<EOF
 >
 > Ports patches that only serve the ports' split-extension packaging, other CPU
@@ -148,7 +161,7 @@ EOF
 make_commits() {
     cd "$wt"
     for p in "$patch_dir"/patch-*; do
-        if ! patch -p0 -N -s -t < "$p"; then
+        if ! patch -p0 -N -s -f < "$p"; then
             echo "sync: $target: ${p##*/} does not apply" >&2
             return 1
         fi
@@ -166,7 +179,37 @@ make_commits() {
         echo "not run in this fork."
         if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
     } | git commit -q -F -
-    readme_header > README.md.new
+
+    # Optional interim backports (-p1, git format), skipped once upstream has them.
+    # -f (not -t): -t guesses "reversed" patches and would fake the -R check.
+    : > .sync-backports
+    for p in "$patch_dir"/backport-*.patch; do
+        [ -f "$p" ] || continue
+        if patch -p1 -R --dry-run -s -f < "$p" >/dev/null 2>&1; then
+            echo "sync: $target: ${p##*/} is already upstream, skipped" >&2
+            continue
+        fi
+        if ! patch -p1 -N -s -f < "$p"; then
+            echo "sync: $target: ${p##*/} does not apply" >&2
+            return 1
+        fi
+        echo "$p" >> .sync-backports
+    done
+    if [ -s .sync-backports ]; then
+        git add -u
+        {
+            echo "Backport security fixes"
+            echo
+            echo "Interim backports carried until the upstream branch has its own fix:"
+            while IFS= read -r p; do
+                echo "- ${p##*/}: $(sed -n 's/^Description: //p' "$p" | head -1)"
+                echo "  Origin: $(sed -n 's/^Origin: //p' "$p" | head -1)"
+            done < .sync-backports
+            if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
+        } | git commit -q -F -
+    fi
+    readme_header > README.md.new     # reads the untracked .sync-backports list
+    rm -f .sync-backports
     cat README.md >> README.md.new
     mv README.md.new README.md
     git add README.md
@@ -213,7 +256,11 @@ build_target() {
     up_commit="${resolved%% *}" up_ref="${resolved#* }"
     [ -n "$up_commit" ] && [ "$up_commit" != "$resolved" ] || { log "$target: cannot resolve $ref"; return 1; }
 
-    patchset="$( { cat "$patch_dir"/patch-*; echo "$target $url $ref $port $portrev layout=$layout_version"; } | sha256_of)"
+    patchset="$( {
+        cat "$patch_dir"/patch-*
+        for b in "$patch_dir"/backport-*.patch; do if [ -f "$b" ]; then cat "$b"; fi; done
+        echo "$target $url $ref $port $portrev layout=$layout_version"
+    } | sha256_of)"
 
     # Up to date? Decided from ls-remote + API before any large fetch.
     if [ "$force" = 0 ] && [ "$local_only" = 0 ] && msg="$(current_message "$branch" 2>/dev/null)"; then
