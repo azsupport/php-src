@@ -130,8 +130,9 @@ EOF
     cat <<EOF
 >
 > Ports patches that only serve the ports' split-extension packaging, other CPU
-> architectures or LibreSSL are intentionally not applied. Provided as is, without
-> warranty. The original PHP README follows.
+> architectures or LibreSSL are intentionally not applied. The upstream \`.github/\`
+> CI configuration is removed so that php-src CI does not run in this fork.
+> Provided as is, without warranty. The original PHP README follows.
 <!-- freebsd-notes:end -->
 
 EOF
@@ -146,12 +147,17 @@ make_commits() {
             return 1
         fi
     done
+    # php-src's own CI configuration would run in this fork on every push; drop it.
+    git rm -r -q --ignore-unmatch .github
     git add -u
     {
         echo "Apply curated FreeBSD ports patches"
         echo
         echo "From freebsd-ports lang/$port at $portrev:"
         for p in "$patch_dir"/patch-*; do echo "- ${p##*/}"; done
+        echo
+        echo "Also removes the upstream .github/ directory so that php-src CI does"
+        echo "not run in this fork."
         if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
     } | git commit -q -F -
     readme_header > README.md.new
@@ -233,14 +239,17 @@ build_target() {
     [ "$local_only" = 1 ] && return 0
 
     git push -q -f origin "refs/heads/$branch:refs/heads/$branch"
+    log "$target: pushed $branch"
+    # Best effort: keep the mirror of Remi's branch under its original name. Official
+    # tags are not mirrored: pushing them would start php-src's tag-triggered CI here.
     case "$up_ref" in
-        refs/heads/*) git push -q -f origin "refs/sync/upstream/$target:$up_ref" ;;
-        refs/tags/*)
-            if ! git ls-remote --exit-code origin "$up_ref" >/dev/null 2>&1; then
-                git push -q origin "refs/sync/upstream/$target:$up_ref"
+        refs/heads/*)
+            if git push -q -f origin "refs/sync/upstream/$target:$up_ref"; then
+                log "$target: mirrored $up_ref"
+            else
+                log "$target: warning: could not mirror $up_ref (branch build is fine)"
             fi ;;
     esac
-    log "$target: pushed"
 
     if [ "$release" = 1 ]; then publish_release; fi
 }
