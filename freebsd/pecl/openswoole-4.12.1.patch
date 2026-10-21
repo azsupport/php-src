@@ -1,0 +1,71 @@
+Description: Build inside php-src as ext/openswoole (bundled by this fork): configure built OpenSwoole into every PHP, as it tested PHP_SWOOLE (left over from swoole, unset there) instead of PHP_OPENSWOOLE, and the default of --enable-openswoole was "yes"; now only --enable-openswoole builds it, and configure stops when --enable-swoole is given too (same C++ symbols). Drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (OpenSwoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer; and include <stdint.h> in swoole_proxy.h, which uses uint8_t (unknown type name with clang 19).
+Origin: azsupport
+
+--- a/config.m4
++++ b/config.m4
+@@ -31,10 +31,10 @@
+   [AS_HELP_STRING([--enable-sockets],
+     [Do you have sockets extension?])], [no], [no])
+ 
+-PHP_ARG_ENABLE([openssl],
+-  [enable openssl support],
+-  [AS_HELP_STRING([--enable-openssl],
+-    [Use openssl])], [no], [no])
++dnl Inside php-src the option --enable-openssl of swoole sets PHP_OPENSSL, the
++dnl variable of --with-openssl, back to "no" when it is not given, and mysqlnd
++dnl (config9.m4) then builds without its OpenSSL code. Without it, swoole uses
++dnl OpenSSL when PHP is built --with-openssl, as swoole 6.2 does.
+ 
+ PHP_ARG_ENABLE([http2],
+   [enable http2.0 support],
+@@ -44,7 +44,13 @@
+ PHP_ARG_ENABLE([openswoole],
+   [openswoole support],
+   [AS_HELP_STRING([--enable-openswoole],
+-    [Enable openswoole support])], [enable_openswoole"yes"])
++    [Enable openswoole support])], [no])
++dnl The default was enable_openswoole"yes": inside php-src that built OpenSwoole into
++dnl every PHP configured without --disable-all. Now only --enable-openswoole builds it.
++dnl OpenSwoole is a fork of swoole with the same C++ symbols: one of the two.
++if test "$PHP_OPENSWOOLE" != "no" && test -n "$enable_swoole" && test "$enable_swoole" != "no"; then
++  AC_MSG_ERROR([--enable-openswoole and --enable-swoole cannot be built together; enable one of them])
++fi
+ 
+ PHP_ARG_ENABLE([mysqlnd],
+   [enable mysqlnd support],
+@@ -336,7 +342,9 @@
+ 
+ AC_CANONICAL_HOST
+ 
+-if test "$PHP_SWOOLE" != "no"; then
++dnl Upstream tests PHP_SWOOLE here (left over from swoole): unset inside php-src when
++dnl this runs, so OpenSwoole was built into every PHP. PHP_OPENSWOOLE is its option.
++if test "$PHP_OPENSWOOLE" != "no"; then
+ 
+     AC_CHECK_LIB(c, accept4, AC_DEFINE(HAVE_ACCEPT4, 1, [have accept4]))
+     AC_CHECK_LIB(c, signalfd, AC_DEFINE(HAVE_SIGNALFD, 1, [have signalfd]))
+@@ -859,11 +867,9 @@
+ 
+     CXXFLAGS="$CXXFLAGS -Wall -Wno-unused-function -Wno-deprecated -Wno-deprecated-declarations"
+ 
+-    if test "$SW_OS" = "CYGWIN" || test "$SW_OS" = "MINGW"; then
+-        CXXFLAGS="$CXXFLAGS -std=gnu++11"
+-    else
+-        CXXFLAGS="$CXXFLAGS -std=c++11"
+-    fi
++    dnl Inside php-src CXXFLAGS is shared by all C++ code, and a -std=c++11 at its
++    dnl end would win over the C++17 that ext/intl needs with ICU 75 and newer: the
++    dnl compiler default (gnu++17 since clang 16) or a -std in CXXFLAGS applies.
+ 
+     PHP_ADD_BUILD_DIR($ext_builddir/ext-src)
+     PHP_ADD_BUILD_DIR($ext_builddir/src/core)
+--- a/include/swoole_proxy.h
++++ b/include/swoole_proxy.h
+@@ -16,6 +16,7 @@
+ 
+ #pragma once
+ 
++#include <stdint.h>
+ #include <string>
+ 
+ #define SW_SOCKS5_VERSION_CODE 0x05

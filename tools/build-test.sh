@@ -57,7 +57,11 @@ if grep -q AVX2 /var/run/dmesg.boot 2>/dev/null; then march=x86-64-v3; else marc
 
 # Presets: the configure options of our servers, without the options of the
 # ports framework (--build, build_alias, CPP=cpp, CPPFLAGS=).
+# 7.4 and 8.1 bundle swoole and OpenSwoole, only one can be built: SWOOLE=openswoole
+# takes OpenSwoole there; 8.2 and newer bundle swoole only.
 preset() {
+    sw=swoole
+    case "$1" in 7.4 | 8.1) [ "${SWOOLE:-swoole}" = openswoole ] && sw=openswoole ;; esac
     case "$1" in
         5.6)
             CFLAGS="-O3 -pipe -march=$march -fstack-protector -fno-strict-aliasing"
@@ -96,7 +100,7 @@ preset() {
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
                 --enable-memcache --with-imagick=/usr/local \
-                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-swoole
+                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw
             ;;
         8.*)
             v="$(echo "$1" | tr -d .)"
@@ -116,7 +120,7 @@ preset() {
                 --enable-intl --enable-fileinfo --with-zip --enable-xmlwriter --enable-exif \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
                 --enable-memcache --with-imagick=/usr/local \
-                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-swoole
+                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw
             ;;
         *) return 1 ;;
     esac

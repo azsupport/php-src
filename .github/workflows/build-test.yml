@@ -20,6 +20,11 @@ on:
         description: 'Also run a part of the PHP test suite'
         type: boolean
         default: true
+      swoole:
+        description: 'For 7.4 and 8.1: build swoole or OpenSwoole (one of the two)'
+        type: choice
+        options: [swoole, openswoole]
+        default: swoole
 
 permissions:
   contents: read
@@ -52,9 +57,10 @@ jobs:
         env:
           TARGETS: ${{ inputs.targets }}
           TESTS: ${{ inputs.tests && '--tests' || '' }}
+          SWOOLE: ${{ inputs.swoole }}
         with:
           release: ${{ inputs.release }}
-          envs: 'TARGETS TESTS'
+          envs: 'TARGETS TESTS SWOOLE'
           prepare: |
             sh tools/build-test.sh --deps $TARGETS
           run: |

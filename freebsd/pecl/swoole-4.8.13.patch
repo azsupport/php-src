@@ -1,4 +1,4 @@
-Description: Build inside php-src as ext/swoole (bundled by this fork): drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (swoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); and drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer.
+Description: Build inside php-src as ext/swoole (bundled by this fork): the default of --enable-swoole was "yes", which built it into every PHP configured without --disable-all; it is now "no"; drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (swoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer.
 Origin: azsupport
 
 --- a/config.m4
@@ -18,7 +18,18 @@ Origin: azsupport
  
  PHP_ARG_ENABLE([brotli],
    [enable brotli support],
-@@ -803,11 +803,9 @@
+@@ -49,7 +49,9 @@
+ PHP_ARG_ENABLE([swoole],
+   [swoole support],
+   [AS_HELP_STRING([--enable-swoole],
+-    [Enable swoole support])], [enable_swoole="yes"])
++    [Enable swoole support])], [no])
++dnl The default was enable_swoole="yes": inside php-src that built swoole into every
++dnl PHP configured without --disable-all. Now only --enable-swoole builds it.
+ 
+ PHP_ARG_ENABLE([mysqlnd],
+   [enable mysqlnd support],
+@@ -803,11 +805,9 @@
  
      CXXFLAGS="$CXXFLAGS -Wall -Wno-unused-function -Wno-deprecated -Wno-deprecated-declarations"
  
