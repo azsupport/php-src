@@ -329,7 +329,7 @@ release_notes() {
         printf '\n### Interim security backports\n\nBy azsupport, carried only until the upstream branch has its own fix; not reviewed upstream:\n\n'
         backports_notes ""
     fi
-    printf '\n### Build\n\nExtract, then in the new directory run `sh /root/php-X.Y.Z/config.nice` (the configure options of your previous build) or `./configure` with your options, then `make` and `make install`. See the [README](https://github.com/%s#readme).\n' "$gh_repo"
+    printf '\n### Build\n\nExtract, then in the new directory check the configure options of the installed build with [`tools/config-check.sh`](https://github.com/%s/blob/HEAD/tools/config-check.sh) (`sh config-check.sh /usr/local/phpXY /root/php-X.Y.Z/config.nice`, then `sh config.installed.sh`), then `make` and `make install`. See the [README](https://github.com/%s#readme).\n' "$gh_repo" "$gh_repo"
 }
 
 # Notes of the moving release: a pointer to the dated release, which carries the
@@ -345,6 +345,22 @@ latest_notes() {   # $1: tag of the dated release with the same tarball
     fi
     printf '| Same tarball as | [`%s`](https://github.com/%s/releases/tag/%s): upstream commit and the FreeBSD ports patches, applied and not applied |\n' \
         "$1" "$gh_repo" "$1"
+}
+
+# gh release create uploads into a draft and publishes it as the last step; when
+# that step fails, the release stays a draft, whose downloads answer 404. Publish
+# such drafts of this target that point at commit $1.
+publish_drafts() {
+    gh api "repos/$gh_repo/releases?per_page=100" \
+        --jq ".[] | select(.draft and .target_commitish == \"$1\") | \"\(.id) \(.tag_name)\"" |
+    while read -r id t; do
+        case "$t" in "freebsd-$target-"*) ;; *) continue ;; esac
+        if gh api -X PATCH "repos/$gh_repo/releases/$id" -F draft=false -f make_latest=false >/dev/null; then
+            log "$target: published the draft release $t"
+        else
+            log "$target: warning: release $t is still a draft"
+        fi
+    done
 }
 
 publish_release() {
@@ -373,6 +389,7 @@ publish_release() {
         --title "PHP $target for FreeBSD: latest ($php_ver, $today_human)" \
         --notes "$(latest_notes "$tag")"
     rm -f "$dist_dir/$latest.tar.xz" "$dist_dir/$latest.tar.xz.sha256"
+    publish_drafts "$new_tip"
     log "$target: released $name"
 }
 
@@ -461,6 +478,7 @@ refresh_notes() {
         log "$target: $branch waits for a rebuild (patch set changed), notes left as they are"
         return 0
     fi
+    if [ "$check_only" = 0 ]; then publish_drafts "$new_tip"; fi
     up_ref="$(printf '%s\n' "$msg" | sed -n 's/^Upstream-Ref: [^ ]* //p')"
     up_commit="$(printf '%s\n' "$msg" | sed -n 's/^Upstream-Commit: //p')"
     printf '%s\n' "$msg" | sed -n "s#^Backport: #$patch_dir/#p" > "$bp_list"
