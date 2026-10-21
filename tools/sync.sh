@@ -10,8 +10,8 @@
 #      and the same patch set (unless --force) - checked before any big fetch;
 #   3. rebuild freebsd/<target> = upstream
 #        + one commit applying the curated FreeBSD ports patches
-#        + one commit adding the build to the version string (php -v shows
-#          e.g. 7.4.33-20261021-fbsd-802c2107: build date, upstream commit)
+#        + one commit adding the build id to the php -v banner (PHP_VERSION is
+#          left untouched; php -v shows "... (fork: 20261021-fbsd-802c2107)")
 #        + one commit prepending FreeBSD notes to README.md;
 #   4. push the branch and mirror the upstream ref under its original name;
 #   5. build a release tarball (tools/makedist.sh) and publish it as a GitHub
@@ -46,7 +46,7 @@ set -eu
 # Bump when the generated branch content changes (commit layout, README block),
 # so that every branch is rebuilt once. Tooling-only changes must not bump it;
 # wording changes of the README block reach a branch with its next rebuild.
-layout_version=3
+layout_version=4
 
 main_dir="$(cd "$(dirname "$0")/.." && pwd)"
 conf="$main_dir/freebsd/targets.conf"
@@ -187,7 +187,7 @@ readme_header() {
 > | | |
 > |---|---|
 > | Upstream | $up_link @ \`$(short "$up_commit")\` |
-> | PHP version | $php_ver; \`php -v\` shows \`$php_ver$ver_suffix\` (build date, upstream commit) |
+> | PHP version | $php_ver (\`phpversion()\` unchanged); \`php -v\` adds \`(fork: $fork_build)\` |
 > | FreeBSD patches | from freebsd-ports \`lang/$port\` @ \`$portrev\`: applied and not applied, below |
 > | Ready-to-build tarball | [freebsd-$target-latest](https://github.com/$gh_repo/releases/tag/freebsd-$target-latest): \`configure\` and parsers are pre-generated, no autoconf/bison/re2c needed |
 > | Updated | $today_human (UTC), automatically by [tools/sync.sh](https://github.com/$gh_repo/blob/HEAD/tools/sync.sh) |
@@ -270,27 +270,42 @@ make_commits() {
             if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
         } | git commit -q -F -
     fi
-    # Version string (configure regenerates main/php_version.h from configure.ac/.in).
-    if [ -f configure.ac ]; then
-        vfile=configure.ac
-        sed -i.orig "s/^AC_INIT(\[PHP\],\[\([^]]*\)\]/AC_INIT([PHP],[\1$ver_suffix]/" "$vfile"
-    else
-        vfile=configure.in
-        sed -i.orig "s/^PHP_EXTRA_VERSION=\"\(.*\)\"\$/PHP_EXTRA_VERSION=\"\1$ver_suffix\"/" "$vfile"
-    fi
-    sed -i.orig -e "s/^#define PHP_EXTRA_VERSION \"\(.*\)\"/#define PHP_EXTRA_VERSION \"\1$ver_suffix\"/" \
-        -e "s/^#define PHP_VERSION \"\(.*\)\"/#define PHP_VERSION \"\1$ver_suffix\"/" main/php_version.h
-    rm -f "$vfile.orig" main/php_version.h.orig
-    if [ "$(grep -c -- "$ver_suffix" "$vfile")" != 1 ] || [ "$(grep -c -- "$ver_suffix" main/php_version.h)" != 2 ]; then
-        echo "sync: $target: cannot add the version suffix" >&2
-        return 1
-    fi
+    # Build id in the `php -v` banner only. PHP_VERSION is left at the upstream
+    # value, so phpversion(), version_compare() and "PHP x.y.z" parsers are not
+    # disturbed. configure regenerates main/php_version.h from configure.ac/.in, so
+    # the PHP_FORK_BUILD macro is emitted there (right after PHP_VERSION_ID). The
+    # banner format string then appends it by C string-literal concatenation, so no
+    # printf argument changes. (This step runs on the CI runner / a Linux clone with
+    # GNU sed, never on the FreeBSD servers.)
+    [ -f configure.ac ] && vfile=configure.ac || vfile=configure.in
+    sed -i "/^echo \"#define PHP_VERSION_ID /a echo '#define PHP_FORK_BUILD \"$fork_build\"' >> php_version.h.new" "$vfile"
+    [ "$(grep -c 'PHP_FORK_BUILD' "$vfile")" = 1 ] || { echo "sync: $target: could not add PHP_FORK_BUILD to $vfile" >&2; return 1; }
+    # The banner lives in main/main.c (8.2+, shared by every SAPI) or, before that,
+    # in sapi/cli/php_cli.c. "$ver_banner" is empty if neither carries the string.
+    ver_banner=""
+    for f in main/main.c sapi/cli/php_cli.c; do
+        if grep -q '(built: %s %s)' "$f" 2>/dev/null; then
+            sed -i.orig 's/(built: %s %s)/(built: %s %s) (fork: " PHP_FORK_BUILD ")/' "$f"
+            rm -f "$f.orig"
+            ver_banner="$f"
+            break
+        fi
+    done
     git add -u
     {
-        echo "Mark the version as a FreeBSD build: $php_ver$ver_suffix"
-        echo
-        echo "php -v shows the build date and the upstream commit. The suffix starts"
-        echo "with a digit, so version_compare() ranks the build above $php_ver."
+        if [ -n "$ver_banner" ]; then
+            echo "Show the build id in the php -v banner: $php_ver (fork: $fork_build)"
+            echo
+            echo "php -v prints e.g. 'PHP $php_ver (cli) (built: ...) (fork: $fork_build)'."
+            echo "PHP_VERSION stays $php_ver, so phpversion() and version checks are"
+            echo "unchanged; the id (build date and upstream commit) rides in the banner"
+            echo "via string-literal concatenation of the new PHP_FORK_BUILD macro"
+            echo "(emitted into main/php_version.h by $vfile) in $ver_banner."
+        else
+            echo "Emit the PHP_FORK_BUILD macro: $fork_build"
+            echo
+            echo "The banner string was not found, so php -v is left unchanged."
+        fi
         if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
     } | git commit -q -F -
 
@@ -304,7 +319,7 @@ make_commits() {
         echo "Upstream-Ref: $url $up_ref"
         echo "Upstream-Commit: $up_commit"
         echo "Patchset: $patchset"
-        echo "PHP-Version: $php_ver$ver_suffix"
+        echo "Fork-Build: $fork_build"
         while IFS= read -r p; do echo "Backport: ${p##*/}"; done < "$bp_list"
         if [ -n "${EXTRA_TRAILERS:-}" ]; then printf '%s\n' "$EXTRA_TRAILERS"; fi
     } | git commit -q -F -
@@ -318,8 +333,8 @@ release_notes() {
     printf '| | |\n|---|---|\n'
     printf '| Upstream | %s @ [`%s`](%s/commit/%s) |\n' "$up_link" "$(short "$up_commit")" "$up_web" "$up_commit"
     printf '| Branch commit | [`%s`](https://github.com/%s/commit/%s) |\n' "$(short "$new_tip")" "$gh_repo" "$new_tip"
-    if [ -n "${ver_suffix:-}" ]; then
-        printf '| `php -v` | `PHP %s` |\n' "$php_ver$ver_suffix"
+    if [ -n "${fork_build:-}" ]; then
+        printf '| `php -v` | `PHP %s (...) (fork: %s)` |\n' "$php_ver" "$fork_build"
     fi
     printf '| Tarball | `%s`, unpacks into `%s/` |\n' "$1" "$name"
     printf '| SHA-256 | `%s` |\n\n' "$sha"
@@ -340,8 +355,8 @@ latest_notes() {   # $1: tag of the dated release with the same tarball
     printf '| | |\n|---|---|\n'
     printf '| Tarball | `php-%s-fbsd-latest.tar.xz`, unpacks into `%s/` |\n' "$target" "$name"
     printf '| SHA-256 | `%s` |\n' "$sha"
-    if [ -n "${ver_suffix:-}" ]; then
-        printf '| `php -v` | `PHP %s` |\n' "$php_ver$ver_suffix"
+    if [ -n "${fork_build:-}" ]; then
+        printf '| `php -v` | `PHP %s (...) (fork: %s)` |\n' "$php_ver" "$fork_build"
     fi
     printf '| Same tarball as | [`%s`](https://github.com/%s/releases/tag/%s): upstream commit and the FreeBSD ports patches, applied and not applied |\n' \
         "$1" "$gh_repo" "$1"
@@ -429,7 +444,7 @@ build_target() {
     # The suffix starts with a digit, so that version_compare() ranks the build above
     # the plain upstream version (a leading letter would rank it below, like "-dev").
     # No dots: configure splits the version at them.
-    ver_suffix="-$today-fbsd-$(short "$up_commit" 8)"
+    fork_build="$today-fbsd-$(short "$up_commit" 8)"
     log "$target: building $branch from $up_ref @ $(short "$up_commit") (PHP $php_ver)"
 
     wt="$(mktemp -d)"
@@ -490,8 +505,7 @@ refresh_notes() {
     name="$(printf '%s\n' "$assets" | sed -n 's/^[0-9]* \(.*\)\.tar\.xz$/\1/p' | head -1)"
     php_ver="${name#php-}"
     php_ver="${php_ver%%-fbsd-*}"
-    full_ver="$(printf '%s\n' "$msg" | sed -n 's/^PHP-Version: //p')"
-    ver_suffix="${full_ver#"$php_ver"}"
+    fork_build="$(printf '%s\n' "$msg" | sed -n 's/^Fork-Build: //p')"
     sha_id="$(printf '%s\n' "$assets" | awk -v f="$name.tar.xz.sha256" '$2 == f {print $1}')"
     sha="$(gh api -H 'Accept: application/octet-stream' "repos/$gh_repo/releases/assets/$sha_id" | cut -c1-64)"
     [ "${#sha}" = 64 ] || { log "$target: cannot read the SHA-256 of $tag"; return 1; }
