@@ -282,6 +282,50 @@ if (class_exists('Imagick')) {
     $v = Imagick::getVersion();
     check('imagick', substr($blob, 1, 3) === 'PNG', 'imagick ' . phpversion('imagick') . ', ' . $v['versionString']);
 }
+if (function_exists('igbinary_serialize')) {
+    $data = array('a' => 1, 'b' => array(1.5, 'x', true), 'c' => null);
+    check('igbinary', igbinary_unserialize(igbinary_serialize($data)) === $data, 'igbinary ' . phpversion('igbinary'));
+    if (class_exists('Redis') && defined('Redis::SERIALIZER_IGBINARY') && port_open(6379)) {
+        $r = new Redis();
+        $r->connect('127.0.0.1', 6379, 2);
+        $r->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
+        $r->set('build-test-ig', $data);
+        check('redis with igbinary', $r->get('build-test-ig') === $data, 'serializer igbinary');
+    }
+    if (class_exists('Memcached') && defined('Memcached::HAVE_IGBINARY') && Memcached::HAVE_IGBINARY && port_open(11211)) {
+        $m = new Memcached();
+        $m->addServer('127.0.0.1', 11211);
+        $m->setOption(Memcached::OPT_SERIALIZER, Memcached::SERIALIZER_IGBINARY);
+        $m->set('build-test-ig', $data);
+        check('memcached with igbinary', $m->get('build-test-ig') === $data, 'serializer igbinary');
+    }
+}
+if (extension_loaded('swoole')) {
+    $res = array();
+    Swoole\Coroutine\run(function () use (&$res) {
+        $chan = new Swoole\Coroutine\Channel(2);
+        Swoole\Coroutine::create(function () use ($chan) {
+            Swoole\Coroutine::sleep(0.01);
+            $chan->push('from coroutine');
+        });
+        $res[] = $chan->pop(2.0);
+    });
+    check('swoole', $res === array('from coroutine'), 'swoole ' . phpversion('swoole') . ', coroutine and channel');
+    if (extension_loaded('openssl')) {
+        check('swoole with openssl', defined('SWOOLE_SSL'), 'SWOOLE_SSL defined');
+    }
+}
+// mysqlnd uses OpenSSL itself (RSA for sha256 and caching_sha2 auth) when PHP is
+// built --with-openssl; an extension that resets PHP_OPENSSL in configure breaks it.
+if (extension_loaded('mysqlnd') && extension_loaded('openssl')) {
+    ob_start();
+    $re = new ReflectionExtension('mysqlnd');
+    $re->info();
+    $mi = ob_get_clean();
+    if (preg_match('/extended SSL => (.+)/', $mi, $mm)) {
+        check('mysqlnd extended SSL', trim($mm[1]) === 'supported', trim($mm[1]));
+    }
+}
 check('opcache loaded', extension_loaded('Zend OPcache') ? true : null, extension_loaded('Zend OPcache') ? '' : 'not loaded');
 
 foreach (glob("$tmp/*") as $f) {
