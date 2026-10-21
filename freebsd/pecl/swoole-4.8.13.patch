@@ -1,0 +1,35 @@
+Description: Build inside php-src as ext/swoole (bundled by this fork): drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (swoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); and drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer.
+Origin: azsupport
+
+--- a/config.m4
++++ b/config.m4
+@@ -31,10 +31,10 @@
+   [AS_HELP_STRING([--enable-sockets],
+     [Do you have sockets extension?])], [no], [no])
+ 
+-PHP_ARG_ENABLE([openssl],
+-  [enable openssl support],
+-  [AS_HELP_STRING([--enable-openssl],
+-    [Use openssl])], [no], [no])
++dnl Inside php-src the option --enable-openssl of swoole sets PHP_OPENSSL, the
++dnl variable of --with-openssl, back to "no" when it is not given, and mysqlnd
++dnl (config9.m4) then builds without its OpenSSL code. Without it, swoole uses
++dnl OpenSSL when PHP is built --with-openssl, as swoole 6.2 does.
+ 
+ PHP_ARG_ENABLE([brotli],
+   [enable brotli support],
+@@ -803,11 +803,9 @@
+ 
+     CXXFLAGS="$CXXFLAGS -Wall -Wno-unused-function -Wno-deprecated -Wno-deprecated-declarations"
+ 
+-    if test "$SW_OS" = "CYGWIN" || test "$SW_OS" = "MINGW"; then
+-        CXXFLAGS="$CXXFLAGS -std=gnu++11"
+-    else
+-        CXXFLAGS="$CXXFLAGS -std=c++11"
+-    fi
++    dnl Inside php-src CXXFLAGS is shared by all C++ code, and a -std=c++11 at its
++    dnl end would win over the C++17 that ext/intl needs with ICU 75 and newer: the
++    dnl compiler default (gnu++17 since clang 16) or a -std in CXXFLAGS applies.
+ 
+     if test "$SW_CPU" = "arm"; then
+         PHP_ADD_LIBRARY(atomic, 1, SWOOLE_SHARED_LIBADD)

@@ -204,6 +204,8 @@ pecl_option() {   # configure option (markdown) of a bundled extension
         memcached) echo '`--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl` (package `libmemcached`)' ;;
         memcache) echo '`--enable-memcache`' ;;
         imagick) echo '`--with-imagick=/usr/local` (package `ImageMagick7` or `ImageMagick7-nox11`)' ;;
+        igbinary) echo '`--enable-igbinary`; the igbinary serializer of redis and memcached: `--enable-redis-igbinary`, `--enable-memcached-igbinary`' ;;
+        swoole) echo '`--enable-swoole` (OpenSSL when PHP is built `--with-openssl`; brotli compression with the package `brotli`)' ;;
         *) echo "\`--enable-$1\`" ;;
     esac
 }

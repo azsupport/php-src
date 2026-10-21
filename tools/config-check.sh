@@ -29,12 +29,68 @@
 # compared: the installed build does not record them. PHP 5.6 records options with
 # spaces in a broken quoting ('CFLAGS=-O3 '-pipe' '-march=...''); both sources are
 # split the way the shell would, so such an option stays one option.
+# Without a config.nice the environment comes from /etc/make.conf, as for the
+# ports: its CFLAGS, -march=$CPUTYPE, LIBS=-lpthread (LINKTHR of lang/phpXY).
+# In both modes the -march is the one of /etc/make.conf of this server (CPUTYPE,
+# or a -march= in its CFLAGS), so a config.nice from a server with another CPU
+# does not bring its -march along; a -march that needs CPU features this CPU has
+# not (cc -march=native) gives a warning, PHP built with it would stop with
+# "Illegal instruction".
 #
 # Exit status: 0 same options, 1 different (or no config.nice to compare with),
 # 2 usage or read error.
 
 set -u
 out="${OUT:-./config.installed.sh}"
+mk_conf="${MAKE_CONF:-/etc/make.conf}"
+
+# A variable of make.conf (VAR=, ?=, := and += lines; comments dropped).
+mc_get() {
+    [ -r "$mk_conf" ] || return 0
+    awk -v v="$1" '
+        { sub(/#.*/, "") }
+        $0 ~ "^[ \t]*" v "[ \t]*[?:]?=" { s = $0; sub("^[ \t]*" v "[ \t]*[?:]?=[ \t]*", "", s); val = s; have = 1; next }
+        $0 ~ "^[ \t]*" v "[ \t]*\\+=" { s = $0; sub("^[ \t]*" v "[ \t]*\\+=[ \t]*", "", s); val = val " " s; have = 1 }
+        END { if (have) { sub(/[ \t]+$/, "", val); print val } }
+    ' "$mk_conf"
+}
+
+# CFLAGS as the ports build with them on this server: CFLAGS of make.conf (or
+# -O2 -pipe), -march=$CPUTYPE, and the ports' -fstack-protector-strong and
+# -fno-strict-aliasing.
+mc_cflags() {
+    c="$(mc_get CFLAGS)"
+    t="$(mc_get CPUTYPE)"
+    printf '%s' "${c:--O2 -pipe}${t:+ -march=$t} -fstack-protector-strong -fno-strict-aliasing"
+}
+
+# The -march of this server: CPUTYPE of make.conf, else a -march= in its CFLAGS.
+mc_march() {
+    t="$(mc_get CPUTYPE)"
+    [ -n "$t" ] || t="$(mc_get CFLAGS | tr -s ' \t' '\n\n' | sed -n 's/^-march=//p' | tail -n 1)"
+    printf '%s' "$t"
+}
+
+# The -march= values in CFLAGS/CXXFLAGS lines of the given files.
+march_in() {
+    cat "$@" 2>/dev/null | grep -E "^'?C(XX)?FLAGS=" | tr -s " '\"" '\n\n\n' |
+        sed -n 's/^-march=//p' | sort -u | tr '\n' ' ' | sed 's/ *$//'
+}
+
+# The CPU features that -march=$1 turns on and this CPU has not (by the compiler's
+# -march=native): PHP built with them stops with "Illegal instruction" here.
+cpu_lacks() {
+    feats() {
+        "${CC:-cc}" "-march=$1" -dM -E - < /dev/null 2>/dev/null |
+            sed -n -E 's/^#define __(SSE4_2|POPCNT|AVX|AVX2|BMI|BMI2|FMA|F16C|LZCNT|MOVBE|AVX512F|AVX512BW|AVX512CD|AVX512DQ|AVX512VL)__ 1$/\1/p' |
+            LC_ALL=C sort -u
+    }
+    [ -n "$1" ] && [ "$1" != native ] || return 0
+    feats "$1" > "$tmp/cpu_need"
+    feats native > "$tmp/cpu_have"
+    [ -s "$tmp/cpu_need" ] && [ -s "$tmp/cpu_have" ] || return 0
+    LC_ALL=C comm -23 "$tmp/cpu_need" "$tmp/cpu_have" | tr '\n' ' ' | sed 's/ *$//'
+}
 
 # --pkg: the ./configure options for a hand build that replaces the PHP installed
 # as FreeBSD packages (lang/phpXY, its phpXY-* extension packages, mod_phpXY), in
@@ -42,7 +98,6 @@ out="${OUT:-./config.installed.sh}"
 if [ "${1:-}" = "--pkg" ]; then
     [ $# -le 2 ] || { sed -n 's/^# \{0,1\}//; 7,10p' "$0" >&2; exit 2; }
     pkg="${PKG:-pkg}"
-    mk_conf="${MAKE_CONF:-/etc/make.conf}"
     lb="${LOCALBASE:-/usr/local}"
     tmp="$(mktemp -d)" || exit 2
     trap 'rm -rf "$tmp"' EXIT INT TERM
@@ -143,6 +198,8 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             pecl-memcached) echo "--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl" ;;
             pecl-memcache) echo "--enable-memcache" ;;
             pecl-imagick) echo "--with-imagick=/usr/local" ;;
+            pecl-igbinary) echo "--enable-igbinary" ;;
+            pecl-swoole) echo "--enable-swoole" ;;
             pecl-*) echo "PECL extension, not part of ./configure: build it later with $prefix/bin/phpize"; return 1 ;;
             *) echo "not an extension of the PHP sources (a tool, or one this script does not know)"; return 1 ;;
         esac
@@ -187,7 +244,7 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
         elif [ "$fam" = 8 ] && [ "$minor" -ge 4 ]; then add --with-openssl-argon2; fi
     fi
 
-    # The extension packages.
+    # The extension packages (igbinary first: redis and memcached use it when present).
     "$pkg" query -g '%n' "php$short-*" 2>/dev/null | sort > "$tmp/ext_pkgs"
     n_ext=0
     while IFS= read -r p; do
@@ -203,20 +260,15 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             printf '  %-24s %s\n' "$p" "$f" >> "$tmp/skip"
         fi
     done < "$tmp/ext_pkgs"
+    if grep -qx "php$short-pecl-igbinary" "$tmp/ext_pkgs"; then
+        grep -qx -- "--enable-redis" "$tmp/opts" && add --enable-redis-igbinary
+        grep -qx -- "--enable-memcached" "$tmp/opts" && add --enable-memcached-igbinary
+    fi
 
     # CFLAGS: those of /etc/make.conf plus -march=$CPUTYPE, as for the ports.
-    mc_get() {
-        [ -r "$mk_conf" ] || return 0
-        awk -v v="$1" '
-            { sub(/#.*/, "") }
-            $0 ~ "^[ \t]*" v "[ \t]*[?:]?=" { s = $0; sub("^[ \t]*" v "[ \t]*[?:]?=[ \t]*", "", s); val = s; have = 1; next }
-            $0 ~ "^[ \t]*" v "[ \t]*\\+=" { s = $0; sub("^[ \t]*" v "[ \t]*\\+=[ \t]*", "", s); val = val " " s; have = 1 }
-            END { if (have) { sub(/[ \t]+$/, "", val); print val } }
-        ' "$mk_conf"
-    }
     mc_cflags="$(mc_get CFLAGS)"
     cputype="$(mc_get CPUTYPE)"
-    cflags="${mc_cflags:--O2 -pipe}${cputype:+ -march=$cputype} -fstack-protector-strong -fno-strict-aliasing"
+    cflags="$(mc_cflags)"
     cxxflags="$cflags"
     [ -n "$intl" ] && [ "$fam" != 5 ] && cxxflags="-std=c++17 $cflags"
 
@@ -241,6 +293,13 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
     printf 'packages:   %s %s%s, %s extension packages\n' "$want" "$pkgver" "${modphp:+, $modphp}" "$n_ext"
     printf 'port opts:  %s\n' "$(tr '\n' ',' < "$tmp/core" | sed 's/,$//; s/,/, /g')"
     printf 'make.conf:  CPUTYPE=%s, CFLAGS=%s (%s)\n' "${cputype:-unset}" "${mc_cflags:-unset}" "$mk_conf"
+    m="$(mc_march)"
+    lacks="$(cpu_lacks "$m")"
+    if [ -n "$lacks" ]; then
+        echo
+        echo "WARNING: -march=$m needs $lacks, which this CPU does not have:"
+        echo "         PHP built with it stops with \"Illegal instruction\" here. Check CPUTYPE in $mk_conf."
+    fi
     echo
     echo "extension packages and their options:"
     cat "$tmp/map"
@@ -374,6 +433,33 @@ if [ -n "$nice" ]; then
     [ -s "$tmp/nice" ] || { echo "config-check: no configure options found in $nice" >&2; exit 2; }
 fi
 
+# Without a config.nice the environment comes from /etc/make.conf, as for the
+# ports: its CFLAGS with -march=$CPUTYPE, and -lpthread (LINKTHR of lang/phpXY).
+if [ -z "$nice" ]; then
+    cf="$(mc_cflags)"
+    cxf="$cf"
+    case "$ver" in
+        5.*) ;;
+        *) grep -q -e '^--enable-intl' "$tmp/installed" && cxf="-std=c++17 $cf" ;;
+    esac
+    printf "CFLAGS='%s'\nCXXFLAGS='%s'\nLIBS='-lpthread'\n" "$cf" "$cxf" > "$tmp/env"
+fi
+
+# -march: /etc/make.conf of this server decides (CPUTYPE, or a -march= in its
+# CFLAGS), so that a config.nice from a server with another CPU does not bring
+# its -march along. The CFLAGS options that PHP 5.6 records go the same way.
+march_note=""
+mm="$(mc_march)"
+old_march="$(march_in "$tmp/env" "$tmp/installed_order")"
+if [ -n "$mm" ] && [ -n "$old_march" ] && [ "$old_march" != "$mm" ]; then
+    for f in "$tmp/env" "$tmp/installed_order"; do
+        sed -E "/^'?C(XX)?FLAGS=/ s/-march=[^ '\"]+/-march=$mm/g" "$f" > "$f.new" && mv "$f.new" "$f"
+    done
+    march_note="-march=$old_march of ${nice:-?} replaced with -march=$mm (CPUTYPE of $mk_conf)"
+fi
+cur_march="$(march_in "$tmp/env" "$tmp/installed_order" | awk '{ print $NF }')"
+lacks="$(cpu_lacks "$cur_march")"
+
 printf 'installed:   %s\n             %s\n             %s options, from %s\n' \
     "$php" "${version:-?}" "$(wc -l < "$tmp/installed" | tr -d ' ')" "$how"
 if [ -n "$nice" ]; then
@@ -387,8 +473,21 @@ LC_ALL=C comm -23 "$tmp/installed" "$tmp/nice" > "$tmp/only_installed"
 LC_ALL=C comm -13 "$tmp/installed" "$tmp/nice" > "$tmp/only_nice"
 if [ -s "$tmp/env" ]; then
     echo
-    echo "environment in config.nice (not recorded by the installed build, not compared):"
+    if [ -n "$nice" ]; then
+        echo "environment in config.nice (not recorded by the installed build, not compared):"
+    else
+        echo "environment from $mk_conf (no config.nice):"
+    fi
     sed 's/^/  /' "$tmp/env"
+fi
+if [ -n "$march_note" ]; then
+    echo
+    echo "march: $march_note"
+fi
+if [ -n "$lacks" ]; then
+    echo
+    echo "WARNING: -march=$cur_march needs $lacks, which this CPU does not have:"
+    echo "         PHP built with it stops with \"Illegal instruction\" here. Check CPUTYPE in $mk_conf."
 fi
 if [ -n "$nice" ] && [ -s "$tmp/only_installed" ]; then
     echo
@@ -409,9 +508,12 @@ out="$out_dir/$out_name"
     echo "#!/bin/sh"
     echo "# Written by config-check.sh on $(date '+%d.%m.%Y %H:%M'): the configure options of"
     echo "# $php (${version:-?}), from $how."
-    if [ -s "$tmp/env" ]; then
+    if [ -n "$nice" ] && [ -s "$tmp/env" ]; then
         echo "# The environment lines come from $nice (the installed build does not record them)."
+    elif [ -s "$tmp/env" ]; then
+        echo "# The environment lines come from $mk_conf (no config.nice)."
     fi
+    [ -n "$march_note" ] && echo "# $march_note."
     echo "# Run from inside the new PHP source tree: sh $out"
     echo
     sed 's/$/ \\/' "$tmp/env"
@@ -422,15 +524,49 @@ out="$out_dir/$out_name"
 chmod +x "$out" 2>/dev/null || true
 
 # Shared PECL modules of the installed PHP that this source tree bundles in ext/:
-# only a hint, they are built in only when their option is added.
+# only a hint, they are built in only when their option is added. The features a
+# module was built with ("php --ri": serializers, compression, swoole's hooks) are
+# offered too, where the bundled version has an option for them (its config.m4).
 "$php" -m 2>/dev/null | tr 'A-Z' 'a-z' > "$tmp/modules"
 : > "$tmp/pecl_hint"
-for m in redis memcached memcache imagick; do
+: > "$tmp/pecl_note"
+knows() { grep -q -e "\[$2\]" -e "($2," "ext/$1/config.m4" 2>/dev/null; }
+ri_row() { sed -n "s/^$2 => //p" "$tmp/ri_$1" | head -n 1; }
+for m in redis memcached memcache imagick igbinary swoole; do
     [ -f "ext/$m/config.m4" ] || [ -f "ext/$m/config9.m4" ] || continue
     grep -qx "$m" "$tmp/modules" || continue
     grep -q -e "--enable-$m\$" -e "--enable-$m=" -e "--with-$m" "$tmp/installed" && continue
+    "$php" --ri "$m" > "$tmp/ri_$m" 2>/dev/null
     case "$m" in
-        memcached) o="--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl" ;;
+        redis)
+            o="--enable-redis"
+            ser=", $(ri_row redis 'Available serializers'),"
+            cmp=", $(ri_row redis 'Available compression'),"
+            case "$ser" in *", igbinary,"*) knows redis redis-igbinary && o="$o --enable-redis-igbinary" ;; esac
+            case "$ser" in *", msgpack,"*) echo "redis: the msgpack serializer needs the msgpack extension, which is not bundled" >> "$tmp/pecl_note" ;; esac
+            case "$cmp" in *", lzf,"*) knows redis redis-lzf && o="$o --enable-redis-lzf --with-liblzf" ;; esac
+            case "$cmp" in *", zstd,"*) knows redis redis-zstd && o="$o --enable-redis-zstd" ;; esac
+            case "$cmp" in *", lz4,"*) knows redis redis-lz4 && o="$o --enable-redis-lz4 --with-liblz4" ;; esac
+            ;;
+        memcached)
+            o="--enable-memcached --with-libmemcached-dir=/usr/local"
+            [ "$(ri_row memcached 'SASL support')" = yes ] || o="$o --disable-memcached-sasl"
+            [ "$(ri_row memcached 'igbinary support')" = yes ] && o="$o --enable-memcached-igbinary"
+            [ "$(ri_row memcached 'json support')" = yes ] && o="$o --enable-memcached-json"
+            [ "$(ri_row memcached 'zstd support')" = yes ] && knows memcached zstd && o="$o --with-zstd"
+            [ "$(ri_row memcached 'msgpack support')" = yes ] &&
+                echo "memcached: the msgpack serializer needs the msgpack extension, which is not bundled" >> "$tmp/pecl_note"
+            ;;
+        swoole)
+            o="--enable-swoole"
+            for pair in curl-native:swoole-curl c-ares:cares zstd:zstd http2:http2 json:swoole-json \
+                coroutine_pgsql:swoole-pgsql coroutine_postgresql:swoole-pgsql coroutine_sqlite:swoole-sqlite; do
+                [ -n "$(ri_row swoole "${pair%%:*}")" ] && knows swoole "${pair#*:}" && o="$o --enable-${pair#*:}"
+            done
+            for row in coroutine_odbc coroutine_oracle coroutine_firebird; do
+                [ -n "$(ri_row swoole "$row")" ] && echo "swoole: $row was enabled; add its --with-swoole-... option by hand (./configure --help)" >> "$tmp/pecl_note"
+            done
+            ;;
         imagick) o="--with-imagick=/usr/local" ;;
         *) o="--enable-$m" ;;
     esac
@@ -441,13 +577,14 @@ if [ -s "$tmp/pecl_hint" ]; then
     echo "loaded as shared modules (extension=... in php.ini), bundled in this tree; to build them in,"
     echo "add the options after the script (sh config.installed.sh <options>) and remove the extension= lines:"
     cat "$tmp/pecl_hint"
+    [ -s "$tmp/pecl_note" ] && sed 's/^/  note: /' "$tmp/pecl_note"
 fi
 
 echo
 if [ -z "$nice" ]; then
-    echo "RESULT: nothing to compare with; written from the installed build alone."
-    echo "        CFLAGS and other environment settings are not recorded by the installed"
-    echo "        build: give the old config.nice as the second argument to carry them over."
+    echo "RESULT: nothing to compare with; written from the installed build, with CFLAGS and"
+    echo "        LIBS from $mk_conf. To carry over the environment of the old build instead,"
+    echo "        give its config.nice as the second argument."
     rc=1
 elif [ ! -s "$tmp/only_installed" ] && [ ! -s "$tmp/only_nice" ]; then
     echo "RESULT: same options; config.nice matches the installed build."

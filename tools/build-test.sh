@@ -26,7 +26,7 @@ dist="$top/dist"
 deps() {
     # libmemcached, ImageMagick7-nox11: bundled PECL memcached and imagick; memcached and
     # redis: servers for the smoke checks of the PECL extensions
-    pkgs="pkgconf libmemcached ImageMagick7-nox11 memcached redis"
+    pkgs="pkgconf libmemcached ImageMagick7-nox11 memcached redis brotli"
     for t in "$@"; do
         case "$t" in
             5.6) pkgs="$pkgs libxml2 curl jpeg-turbo png freetype2 gettext-runtime libiconv libmcrypt pcre apache24 perl5" ;;
@@ -76,7 +76,8 @@ preset() {
                 --enable-session --enable-tokenizer --with-xmlrpc --enable-xmlwriter --enable-zip \
                 --with-zlib=/usr --enable-sockets \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
-                --enable-memcache --with-imagick=/usr/local
+                --enable-memcache --with-imagick=/usr/local \
+                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary
             ;;
         7.4)
             CFLAGS="-O3 -pipe -march=$march -fstack-protector-strong -fno-strict-aliasing"
@@ -94,7 +95,8 @@ preset() {
                 --with-external-pcre=/usr/local --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
-                --enable-memcache --with-imagick=/usr/local
+                --enable-memcache --with-imagick=/usr/local \
+                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-swoole
             ;;
         8.*)
             v="$(echo "$1" | tr -d .)"
@@ -113,7 +115,8 @@ preset() {
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --enable-sockets \
                 --enable-intl --enable-fileinfo --with-zip --enable-xmlwriter --enable-exif \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
-                --enable-memcache --with-imagick=/usr/local
+                --enable-memcache --with-imagick=/usr/local \
+                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-swoole
             ;;
         *) return 1 ;;
     esac
