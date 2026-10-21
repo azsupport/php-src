@@ -36,6 +36,9 @@
 #include "mbfilter_utf8_mobile.h"
 #include "mbfilter_sjis_mobile.h"
 
+/* defined in mbfilter_utf8.c */
+int mbfl_filt_put_invalid_char(int c, mbfl_convert_filter *filter);
+
 extern int mbfl_filt_ident_utf8(int c, mbfl_identify_filter *filter);
 extern int mbfl_filt_conv_utf8_wchar_flush(mbfl_convert_filter *filter);
 

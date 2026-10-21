@@ -67,7 +67,10 @@ dnl Check for broken sprintf()
 dnl
 AC_DEFUN([AC_ZEND_BROKEN_SPRINTF],[
   AC_CACHE_CHECK(whether sprintf is broken, ac_cv_broken_sprintf,[
-    AC_TRY_RUN([main() {char buf[20];exit(sprintf(buf,"testing 123")!=11); }],[
+    AC_TRY_RUN([
+#include <stdio.h>
+#include <stdlib.h>
+int main() {char buf[20];exit(sprintf(buf,"testing 123")!=11); }],[
       ac_cv_broken_sprintf=no
     ],[
       ac_cv_broken_sprintf=yes

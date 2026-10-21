@@ -51,6 +51,9 @@
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <openssl/pkcs12.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/provider.h>
+#endif
 
 /* Common */
 #include <time.h>
@@ -1153,6 +1156,30 @@ PHP_MINIT_FUNCTION(openssl)
 
 	SSL_load_error_strings();
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	/* PHP 5.6 relies on algorithms that OpenSSL 3 moved into its "legacy"
+	 * provider: RC4 (the default cipher of openssl_seal()), Blowfish, DES,
+	 * RC2 (openssl_pkcs7_encrypt(), PKCS#12 files), CAST5, MD4 and others.
+	 * Load "legacy", and "default" with it, because loading any provider
+	 * explicitly turns off the implicit loading of "default". openssl.cnf is
+	 * read before this (default since OpenSSL 1.1.1). A missing legacy module
+	 * is not fatal: those algorithms then stay unavailable. The static
+	 * pointers keep a module reload (Apache graceful restart) from loading
+	 * them again; they are never unloaded, as other users of OpenSSL in the
+	 * same process (mod_ssl) may rely on "default". */
+	{
+		static OSSL_PROVIDER *php_openssl_provider_default = NULL;
+		static OSSL_PROVIDER *php_openssl_provider_legacy = NULL;
+		if (!php_openssl_provider_default) {
+			php_openssl_provider_default = OSSL_PROVIDER_load(NULL, "default");
+		}
+		if (!php_openssl_provider_legacy) {
+			php_openssl_provider_legacy = OSSL_PROVIDER_load(NULL, "legacy");
+		}
+		ERR_clear_error();
+	}
+#endif
+
 	/* register a resource id number with OpenSSL so that we can map SSL -> stream structures in
 	 * OpenSSL callbacks */
 	ssl_stream_data_index = SSL_get_ex_new_index(0, "PHP stream index", NULL, NULL, NULL);
@@ -1201,7 +1228,9 @@ PHP_MINIT_FUNCTION(openssl)
 	REGISTER_LONG_CONSTANT("PKCS7_NOSIGS", PKCS7_NOSIGS, CONST_CS|CONST_PERSISTENT);
 
 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_PADDING", RSA_PKCS1_PADDING, CONST_CS|CONST_PERSISTENT);
+#ifdef RSA_SSLV23_PADDING
 	REGISTER_LONG_CONSTANT("OPENSSL_SSLV23_PADDING", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);
+#endif
 	REGISTER_LONG_CONSTANT("OPENSSL_NO_PADDING", RSA_NO_PADDING, CONST_CS|CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_OAEP_PADDING", RSA_PKCS1_OAEP_PADDING, CONST_CS|CONST_PERSISTENT);
 
@@ -3231,6 +3260,25 @@ PHP_FUNCTION(openssl_csr_get_public_key)
 	}
 
 	tpubkey=X509_REQ_get_pubkey(csr);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	/* Since OpenSSL 1.1 the CSR keeps the key that was assigned to it, private
+	 * part included, so the "public" key would still hold the private key.
+	 * Round-trip it through PEM to keep only the public part, as PHP 8.1
+	 * does (php_openssl_extract_public_key()). */
+	if (tpubkey) {
+		EVP_PKEY *pub_only = NULL;
+		BIO *bio = BIO_new(BIO_s_mem());
+		if (bio && PEM_write_bio_PUBKEY(bio, tpubkey)) {
+			pub_only = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
+		}
+		BIO_free(bio);
+		EVP_PKEY_free(tpubkey);
+		tpubkey = pub_only;
+	}
+#endif
+	if (tpubkey == NULL) {
+		RETURN_FALSE;
+	}
 	RETVAL_RESOURCE(zend_list_insert(tpubkey, le_key TSRMLS_CC));
 	return;
 }
