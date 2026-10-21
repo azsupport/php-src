@@ -5,11 +5,15 @@
 # config.installed.sh, is always written to the current directory; run that one.
 #
 # Usage (FreeBSD /bin/sh; from csh run it with sh):
+#   sh config-check.sh /usr/local/php81
 #   sh config-check.sh /usr/local/php81 /root/php-8.1.34/config.nice
-#   sh config-check.sh /usr/local/php81/bin/php          # uses ./config.nice
 #
 #   The first argument is a php, php-fpm or php-cgi binary, or an install prefix
 #   (bin/php, sbin/php-fpm or bin/php-cgi inside it is used).
+#   The second argument is the config.nice of the old build. Without it,
+#   ./config.nice is used, or else the newest php-<version>/config.nice or
+#   php-<version>-*/config.nice next to the current directory or in $HOME, where
+#   <version> is the installed version (php-8.1.34, php-8.1.34-fbsd-20261021-...).
 #   Run it from inside the new PHP source tree, then: sh config.installed.sh
 #   OUT=/path/file.sh overrides where the script goes (default: ./config.installed.sh).
 #
@@ -17,9 +21,12 @@
 # php.ini, so a broken shared extension does not get in the way) or, failing that,
 # from php-config --configure-options next to the binary. Environment lines of
 # config.nice (CFLAGS=... and the like) are shown and carried over, but not
-# compared: the installed build does not record them.
+# compared: the installed build does not record them. PHP 5.6 records options with
+# spaces in a broken quoting ('CFLAGS=-O3 '-pipe' '-march=...''); both sources are
+# split the way the shell would, so such an option stays one option.
 #
-# Exit status: 0 same options, 1 different, 2 usage or read error.
+# Exit status: 0 same options, 1 different (or no config.nice to compare with),
+# 2 usage or read error.
 
 set -u
 
@@ -28,7 +35,7 @@ if [ $# -lt 1 ] || [ $# -gt 2 ]; then
     exit 2
 fi
 target="$1"
-nice="${2:-./config.nice}"
+nice="${2:-}"
 out="${OUT:-./config.installed.sh}"
 
 if [ -d "$target" ]; then
@@ -41,17 +48,24 @@ else
     php="$target"
 fi
 [ -x "$php" ] || { echo "config-check: $php is not an executable file" >&2; exit 2; }
-[ -r "$nice" ] || { echo "config-check: cannot read $nice" >&2; exit 2; }
 
 tmp="$(mktemp -d)" || exit 2
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-# One option per line, without quotes and without the ./configure path itself.
+# One option per line, split like the shell splits words (quotes removed, adjacent
+# quoted parts joined; xargs only parses, it runs nothing but printf). Falls back
+# to taking every '...' group if xargs rejects the quoting. The ./configure path
+# itself is dropped.
 to_lines() {
-    case "$1" in
-        *\'*) printf '%s\n' "$1" | grep -o "'[^']*'" | sed "s/^'//; s/'\$//" ;;
-        *) printf '%s\n' "$1" | tr -s '[:blank:]' '\n' ;;
-    esac | grep -v -e '^$' -e '^[^-].*configure$'
+    if ! printf '%s\n' "$1" | xargs -n 1 printf '%s\n' > "$tmp/split" 2>/dev/null; then
+        echo "config-check: warning: unbalanced quotes in the options from ${2:-?}" \
+             "(a PHP 5.6 value that ends in a space?); options with spaces may come out split" >&2
+        case "$1" in
+            *\'*) printf '%s\n' "$1" | grep -o "'[^']*'" | sed "s/^'//; s/'\$//" ;;
+            *) printf '%s\n' "$1" | tr -s '[:blank:]' '\n' ;;
+        esac > "$tmp/split"
+    fi
+    grep -v -e '^$' -e '^[^-].*configure$' "$tmp/split"
 }
 
 # Installed build.
@@ -65,22 +79,65 @@ if [ -z "$line" ]; then
     fi
 fi
 [ -n "$line" ] || { echo "config-check: no configure options from $php (php -i failed, no php-config)" >&2; exit 2; }
-to_lines "$line" | LC_ALL=C sort -u > "$tmp/installed"
+to_lines "$line" "$how" > "$tmp/installed_order"
+LC_ALL=C sort -u "$tmp/installed_order" > "$tmp/installed"
 version="$("$php" -n -v 2>/dev/null | head -1)"
+ver="$(printf '%s\n' "$version" | awk '{print $2}')"
 
-# config.nice: quoted lines ending in " \" are the configure path and its options,
-# NAME='value' lines before them are environment settings.
-awk -v q="'" '
-    { sub(/[[:space:]]*\\$/, "") }
-    /^[A-Za-z_][A-Za-z0-9_]*=/ { print > ENVF; next }
-    substr($0, 1, 1) == q && substr($0, length($0), 1) == q { print substr($0, 2, length($0) - 2) }
-' ENVF="$tmp/env" "$nice" | grep -v -e '^$' -e '^[^-].*configure$' | LC_ALL=C sort -u > "$tmp/nice"
-[ -f "$tmp/env" ] || : > "$tmp/env"
-[ -s "$tmp/nice" ] || { echo "config-check: no configure options found in $nice" >&2; exit 2; }
+# The old build's config.nice: given, ./config.nice, or found next to this tree.
+found=""
+if [ -z "$nice" ]; then
+    if [ -r ./config.nice ]; then
+        nice=./config.nice
+    elif [ -n "$ver" ]; then
+        here="$(pwd)"
+        for d in .. "${HOME:-/root}"; do
+            [ -d "$d" ] || continue
+            for f in "$d/php-$ver/config.nice" "$d/php-$ver"-*/config.nice; do
+                [ -r "$f" ] || continue
+                [ "$(cd "$(dirname "$f")" && pwd)" = "$here" ] && continue
+                printf '%s\n' "$f"
+            done
+        done > "$tmp/candidates"
+        if [ -s "$tmp/candidates" ]; then
+            # newest first; the list has no spaces in practice (php-<version>* names)
+            # shellcheck disable=SC2046
+            nice="$(ls -t $(cat "$tmp/candidates") | head -1)"
+            found=" (newest config.nice of PHP $ver found here; give another one as the second argument)"
+        fi
+    fi
+fi
+if [ -n "$nice" ] && [ ! -r "$nice" ]; then
+    echo "config-check: cannot read $nice" >&2
+    exit 2
+fi
+
+# config.nice: NAME='value' lines before the configure line are environment
+# settings; everything from the configure line on (continuation lines joined)
+# holds the configure path and its options.
+: > "$tmp/env"
+: > "$tmp/nice"
+if [ -n "$nice" ]; then
+    awk -v q="'" '
+        { sub(/[[:space:]]*\\$/, "") }
+        !opts && /^[A-Za-z_][A-Za-z0-9_]*=/ { print > ENVF; next }
+        !opts && substr($0, 1, 1) == q { opts = 1 }
+        opts && $0 != "\"$@\"" { printf "%s ", $0 > ARGF }
+    ' ENVF="$tmp/env" ARGF="$tmp/nice_args" "$nice"
+    if [ -f "$tmp/nice_args" ]; then
+        to_lines "$(cat "$tmp/nice_args")" "$nice" | LC_ALL=C sort -u > "$tmp/nice"
+    fi
+    [ -s "$tmp/nice" ] || { echo "config-check: no configure options found in $nice" >&2; exit 2; }
+fi
 
 printf 'installed:   %s\n             %s\n             %s options, from %s\n' \
     "$php" "${version:-?}" "$(wc -l < "$tmp/installed" | tr -d ' ')" "$how"
-printf 'config.nice: %s\n             %s options\n' "$nice" "$(wc -l < "$tmp/nice" | tr -d ' ')"
+if [ -n "$nice" ]; then
+    printf 'config.nice: %s%s\n             %s options\n' "$nice" "$found" "$(wc -l < "$tmp/nice" | tr -d ' ')"
+else
+    printf 'config.nice: none found (no ./config.nice, no php-%s/config.nice next to this tree or in %s)\n' \
+        "${ver:-?}" "${HOME:-/root}"
+fi
 
 LC_ALL=C comm -23 "$tmp/installed" "$tmp/nice" > "$tmp/only_installed"
 LC_ALL=C comm -13 "$tmp/installed" "$tmp/nice" > "$tmp/only_nice"
@@ -89,7 +146,7 @@ if [ -s "$tmp/env" ]; then
     echo "environment in config.nice (not recorded by the installed build, not compared):"
     sed 's/^/  /' "$tmp/env"
 fi
-if [ -s "$tmp/only_installed" ]; then
+if [ -n "$nice" ] && [ -s "$tmp/only_installed" ]; then
     echo
     echo "only in the installed build (missing in config.nice):"
     sed 's/^/  /' "$tmp/only_installed"
@@ -115,13 +172,18 @@ out="$out_dir/$out_name"
     echo
     sed 's/$/ \\/' "$tmp/env"
     echo "'./configure' \\"
-    to_lines "$line" | sed "s/'/'\\\\''/g; s/^/'/; s/\$/' \\\\/"
+    sed "s/'/'\\\\''/g; s/^/'/; s/\$/' \\\\/" "$tmp/installed_order"
     echo '"$@"'
 } > "$out" || { echo "config-check: cannot write $out" >&2; exit 2; }
 chmod +x "$out" 2>/dev/null || true
 
 echo
-if [ ! -s "$tmp/only_installed" ] && [ ! -s "$tmp/only_nice" ]; then
+if [ -z "$nice" ]; then
+    echo "RESULT: nothing to compare with; written from the installed build alone."
+    echo "        CFLAGS and other environment settings are not recorded by the installed"
+    echo "        build: give the old config.nice as the second argument to carry them over."
+    rc=1
+elif [ ! -s "$tmp/only_installed" ] && [ ! -s "$tmp/only_nice" ]; then
     echo "RESULT: same options; config.nice matches the installed build."
     rc=0
 else
