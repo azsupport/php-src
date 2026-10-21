@@ -46,10 +46,13 @@ set -eu
 # Bump when the generated branch content changes (commit layout, README block),
 # so that every branch is rebuilt once. Tooling-only changes must not bump it;
 # wording changes of the README block reach a branch with its next rebuild.
-layout_version=4
+layout_version=5
 
 main_dir="$(cd "$(dirname "$0")/.." && pwd)"
 conf="$main_dir/freebsd/targets.conf"
+# PECL extensions bundled into ext/<name>, and fixes for their sources.
+pecl_conf="$main_dir/freebsd/pecl.conf"
+pecl_patches="$main_dir/freebsd/pecl"
 gh_repo="${GH_REPO:-${GITHUB_REPOSITORY:-azsupport/php-src}}"
 dist_dir="${DIST_DIR:-$(pwd)/.sync-dist}"
 local_only=0 force=0 release=1 check_only=0 notes_only=0
@@ -77,7 +80,9 @@ today_human="$(date -u +%d.%m.%Y)"
 
 # Interim backports applied to the target being processed (one path per line).
 bp_list="$(mktemp)"
-trap 'rm -f "$bp_list"' EXIT
+# PECL extensions of the target being processed ("name version url commit" lines).
+pecl_list="$(mktemp)"
+trap 'rm -f "$bp_list" "$pecl_list"' EXIT
 
 log() { printf '[sync] %s\n' "$*"; }
 short() { printf '%s' "$1" | cut -c1-"${2:-12}"; }
@@ -93,6 +98,10 @@ patchset_of() {
         cat "$patch_dir"/patch-*
         for c in "$patch_dir"/compat-*.patch; do if [ -f "$c" ]; then cat "$c"; fi; done
         for b in "$patch_dir"/backport-*.patch; do if [ -f "$b" ]; then cat "$b"; fi; done
+        pecl_entries
+        pecl_entries | while read -r n v u c; do
+            if [ -f "$pecl_patches/$n-$v.patch" ]; then cat "$pecl_patches/$n-$v.patch"; fi
+        done
         echo "$target $url $ref $port $portrev layout=$layout_version"
     } | sha256_of
 }
@@ -184,6 +193,50 @@ backports_notes() {   # $1: line prefix
     done < "$bp_list"
 }
 
+# PECL extensions bundled into ext/<name> for the target (freebsd/pecl.conf).
+pecl_entries() {
+    if [ -f "$pecl_conf" ]; then awk -v t="$target" '$1 == t { print $2, $3, $4, $5 }' "$pecl_conf"; fi
+}
+has_pecl() { [ -n "$(pecl_entries)" ]; }
+pecl_option() {   # configure option (markdown) of a bundled extension
+    case "$1" in
+        redis) echo '`--enable-redis`' ;;
+        memcached) echo '`--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl` (package `libmemcached`)' ;;
+        memcache) echo '`--enable-memcache`' ;;
+        imagick) echo '`--with-imagick=/usr/local` (package `ImageMagick7` or `ImageMagick7-nox11`)' ;;
+        *) echo "\`--enable-$1\`" ;;
+    esac
+}
+pecl_notes() {   # $1: line prefix
+    pecl_entries | while read -r n v u c; do
+        pp="$pecl_patches/$n-$v.patch"
+        extra=""
+        if [ -f "$pp" ]; then extra="; patch \`${pp##*/}\`: $(sed -n 's/^Description: //p' "$pp" | head -1)"; fi
+        printf '%s- %s %s ([%s @ `%s`](%s/tree/%s)): %s%s\n' "$1" "$n" "$v" "${u#https://github.com/}" \
+            "$(short "$c")" "$u" "$c" "$(pecl_option "$n")" "$extra"
+    done
+}
+# Copy one PECL extension (name version url commit) into ext/<name> of the worktree.
+pecl_fetch() {
+    if [ -e "ext/$1" ]; then echo "sync: $target: ext/$1 exists upstream" >&2; return 1; fi
+    pd="$(mktemp -d)"
+    git -C "$pd" init -q
+    if ! git -C "$pd" fetch -q --depth 1 "$3" "$4" || [ "$(git -C "$pd" rev-parse FETCH_HEAD)" != "$4" ]; then
+        echo "sync: $target: cannot fetch $1 $2 ($3 @ $4)" >&2
+        rm -rf "$pd"
+        return 1
+    fi
+    mkdir -p "ext/$1"
+    git -C "$pd" archive FETCH_HEAD | tar -x -C "ext/$1"
+    rm -rf "$pd"
+    (cd "ext/$1" && rm -rf .github .circleci .travis.yml .cirrus.yml .appveyor.yml appveyor.yml .gitmodules .gitignore)
+    pp="$pecl_patches/$1-$2.patch"
+    if [ -f "$pp" ] && ! (cd "ext/$1" && patch -p1 -N -s -f < "$pp"); then
+        echo "sync: $target: ${pp##*/} does not apply" >&2
+        return 1
+    fi
+}
+
 # README header for a target; uses the variables set in build_target().
 readme_header() {
     upstream_info
@@ -209,6 +262,10 @@ EOF
     if has_compat; then
         printf '>\n> **Build compatibility patches by azsupport** (commit "Apply build compatibility patches"):\n>\n'
         compat_notes "> "
+    fi
+    if has_pecl; then
+        printf '>\n> **Bundled PECL extensions** (commit "Bundle PECL extensions"), built only when enabled with their option:\n>\n'
+        pecl_notes "> "
     fi
     cat <<EOF
 >
@@ -307,6 +364,26 @@ make_commits() {
             if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
         } | git commit -q -F -
     fi
+    # PECL extensions (freebsd/pecl.conf), copied into ext/<name> at the commit of
+    # their release tag: built only when enabled with their configure option.
+    pecl_entries > "$pecl_list"
+    if [ -s "$pecl_list" ]; then
+        while read -r n v u c; do pecl_fetch "$n" "$v" "$u" "$c" || return 1; done < "$pecl_list"
+        git add -A ext
+        {
+            echo "Bundle PECL extensions"
+            echo
+            echo "Sources in ext/<name> at the commit of the release tag; built only when"
+            echo "enabled with their configure option:"
+            while read -r n v u c; do
+                echo "- $n $v: $u @ $c"
+                if [ -f "$pecl_patches/$n-$v.patch" ]; then
+                    echo "  Patch: $n-$v.patch: $(sed -n 's/^Description: //p' "$pecl_patches/$n-$v.patch" | head -1)"
+                fi
+            done < "$pecl_list"
+            if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
+        } | git commit -q -F -
+    fi
     # Build id in the `php -v` banner only. PHP_VERSION is left at the upstream
     # value, so phpversion(), version_compare() and "PHP x.y.z" parsers are not
     # disturbed. configure regenerates main/php_version.h from configure.ac/.in, so
@@ -385,7 +462,11 @@ release_notes() {
         printf '\n### Interim security backports\n\nBy azsupport, carried only until the upstream branch has its own fix; not reviewed upstream:\n\n'
         backports_notes ""
     fi
-    printf '\n### Build\n\nExtract, then in the new directory check the configure options of the installed build with [`tools/config-check.sh`](https://github.com/%s/blob/HEAD/tools/config-check.sh) (`sh config-check.sh /usr/local/phpXY /root/php-X.Y.Z/config.nice`, then `sh config.installed.sh`), then `make` and `make install`. See the [README](https://github.com/%s#readme).\n' "$gh_repo" "$gh_repo"
+    if has_pecl; then
+        printf '\n### Bundled PECL extensions\n\nIn `ext/` (commit "Bundle PECL extensions"), built only when enabled with their option:\n\n'
+        pecl_notes ""
+    fi
+    printf '\n### Build\n\nExtract, then in the new directory write the configure options of the installed PHP with [`tools/config-check.sh`](https://github.com/%s/blob/HEAD/tools/config-check.sh) (`sh config-check.sh /usr/local/phpXY`, or `sh config-check.sh --pkg` where PHP comes from packages), run `sh config.installed.sh` (extra options, such as those of the bundled PECL extensions, go after it), then `make` and `make install`. Copy-paste blocks per version are in the [README](https://github.com/%s#building-on-freebsd-from-a-release-tarball).\n' "$gh_repo" "$gh_repo"
 }
 
 # Notes of the moving release: a pointer to the dated release, which carries the
