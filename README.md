@@ -21,6 +21,16 @@ Provided as is, without warranty.
 | [`freebsd/7.4`](https://github.com/azsupport/php-src/tree/freebsd/7.4) | 7.4.33 + backports | Remi Collet, [`PHP-7.4-security-backports`](https://github.com/remicollet/php-src-security/tree/PHP-7.4-security-backports) | end of life 28.11.2022 | [freebsd-7.4-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-7.4-latest) |
 | [`freebsd/5.6`](https://github.com/azsupport/php-src/tree/freebsd/5.6) | 5.6.40 + backports | Remi Collet, [`PHP-5.6-security-backports-openssl11`](https://github.com/remicollet/php-src-security/tree/PHP-5.6-security-backports-openssl11) (builds with OpenSSL 1.1) | end of life 31.12.2018 | [freebsd-5.6-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-5.6-latest) |
 
+For the PHP security release of 21.10.2026 (CVE-2026-109618, CVE-2026-109619,
+[announcement](https://www.php.net/archive/2026.php)): `freebsd/8.2`, `freebsd/8.3`
+and `freebsd/8.4` carry the official fixed releases 8.2.35, 8.3.36 and 8.4.27.
+`freebsd/7.4` and `freebsd/8.1` carry the commit "Avoid state corruption via bailout"
+(Arnaud Le Blanc) from Remi Collet's branches, the minimal source backport that the
+PHP security team provided for 7.4, 8.0 and 8.1. It is smaller than the complete fix
+of 8.2+ (for example, it disables session upload progress in the code), so keep the
+configuration mitigations from the announcement on these versions. `freebsd/5.6` has
+no fix for these vulnerabilities.
+
 Every branch is upstream plus exactly two commits:
 
 1. **Apply curated FreeBSD ports patches**: taken from `lang/phpXY` in the
@@ -29,7 +39,8 @@ Every branch is upstream plus exactly two commits:
    The same commit removes the upstream `.github/` directory, so that php-src's own
    CI does not run in this fork (release tarballs never contain it anyway).
 2. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
-   README, with the exact upstream commit (`Upstream-Commit:` trailer).
+   README with the exact upstream commit (`Upstream-Commit:` trailer) and the lists
+   of applied and not applied ports patches; the release notes carry the same lists.
 
 Remi Collet's branches are mirrored under their original names
 (`PHP-5.6-security-backports-openssl11`, `PHP-7.4-security-backports`,
@@ -37,12 +48,11 @@ Remi Collet's branches are mirrored under their original names
 `php-5.6.40`, `php-7.4.33`, `php-8.1.34`, `php-8.2.34`, `php-8.3.35` and
 `php-8.4.26` were mirrored once on 21.10.2026; newer official tags are not mirrored,
 because pushing them would start php-src's tag-triggered CI here, but their full
-history is part of the `freebsd/8.x` branches. `master` is the untouched fork point
-of php/php-src and is not used.
+history is part of the `freebsd/8.x` branches.
 
-### Which FreeBSD ports patches are applied
+### FreeBSD ports patches: applied and not applied
 
-Only patches that matter for a monolithic build on FreeBSD:
+Only patches that matter for a monolithic build on FreeBSD are applied:
 
 - `sapi/fpm/config.m4` (5.6 to 8.3): FPM reports the listen queue via
   `SO_LISTENQLEN`; FreeBSD's `struct tcp_info` lacks the Linux fields.
@@ -54,15 +64,27 @@ Only patches that matter for a monolithic build on FreeBSD:
 - `sapi/fpm/www.conf.in` (7.4+): documents that IPv4-mapped addresses are
   disabled by default on FreeBSD.
 - `TSRM/TSRM.c` (8.1+): no Linux aarch64 TLS assembly on FreeBSD (no effect on amd64).
+- 5.6 only, `Zend/zend.h`: no `alloca()` in thread-safe (ZTS) builds on FreeBSD;
+  no effect on non-ZTS builds.
 - 5.6 only, `Zend/zend_compile.h`, `Zend/zend_execute.h`, `Zend/zend_list.[ch]`:
   pointer-arithmetic macros turned into inline functions (avoids undefined
   behaviour that newer clang miscompiles) and 64-bit resource list ids.
 
-Not applied: ports patches that only serve the ports' split-extension packaging
-(`configure.ac`, `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`,
-`ext/standard/image.c`, `ext/session/php_session.h`), other CPU architectures
-(PowerPC `sljit`/`xxhash`), LibreSSL, and the 8.4 `ext/pcre/php_pcre.h` include
-change, which can pick up a system `pcre2.h` instead of the bundled PCRE.
+Not applied, by kind:
+
+- the ports' split packaging, where every extension is a separate package:
+  `configure.ac` / `configure.in` (which also set the ports' PEAR `include_path`),
+  `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`, `ext/standard/image.c`,
+  `php_session.h`;
+- other CPU architectures: PowerPC `sljit` and `xxhash`;
+- `ext/openssl/openssl.c` for LibreSSL (8.4);
+- `ext/pcre/php_pcre.h` (8.4), which only affects `--with-external-pcre` builds;
+- 5.6: the experimental apache2filter SAPI and the ports' tweak of the configure
+  pthreads check;
+- the ports' rc.d scripts (`php-fpm.in`, `php_fpm.in`).
+
+The exact list for each version, one line per port file with the reason, is in
+`freebsd/patches/<version>/SKIPPED`, in the branch README and in the release notes.
 
 ## Building on FreeBSD from a release tarball
 
@@ -70,7 +92,7 @@ The `freebsd-<version>-latest` release always carries the newest tarball of a
 branch; dated releases (`freebsd-<version>-<YYYYMMDD>-<commit>`) are kept. The
 version string is the upstream one (for example `7.4.33`); a tarball unpacks into
 a directory that also carries the date and upstream commit, for example
-`php-7.4.33-fbsd-20261021-bd7e19b2/`.
+`php-7.4.33-fbsd-20261021-802c2107/`.
 
 ```sh
 cd /root
@@ -105,9 +127,11 @@ calls [`tools/sync.sh`](tools/sync.sh):
    bison and re2c) and publishes the releases.
 
 A run can also be started by hand (Actions, "Sync FreeBSD branches", "Run
-workflow"), optionally with `force` or a list of targets. Locally:
-`tools/sync.sh --local` in a clone of this repository builds the branches without
-pushing.
+workflow"), optionally with `force`, a list of targets, or `notes_only`, which
+rewrites the notes of the current releases without rebuilding anything. A second
+build of the same upstream commit on the same day replaces that day's dated
+release. Locally: `tools/sync.sh --local` in a clone of this repository builds the
+branches without pushing.
 
 ### Interim backports
 
