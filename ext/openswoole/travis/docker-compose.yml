@@ -1,0 +1,53 @@
+version: '3.4'
+services:
+  openswoole:
+    container_name: "openswoole"
+    image: "openswoole/php:${PHP_VERSION}"
+    volumes:
+      - "${TRAVIS_BUILD_DIR}:/swoole-src:rw"
+    working_dir: /swoole-src
+    ulimits:
+      core: -1
+    privileged: true
+    depends_on:
+      - mysql
+      - redis
+      - postgres
+      - h2demo
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      SWOOLE_BRANCH: "${TRAVIS_BRANCH}"
+    command: tail -f /etc/group
+  mysql:
+    container_name: "mysql"
+    image: "openswoole/mysql5"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: test
+      MYSQL_USER: swoole
+      MYSQL_PASSWORD: swoole
+  postgres:
+    container_name: "postgres"
+    image: postgres
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: test
+  redis:
+    container_name: "redis"
+    image: "openswoole/redis"
+    sysctls:
+        net.core.somaxconn: 65535
+  httpbin:
+    container_name: "httpbin"
+    image: "kennethreitz/httpbin"
+  h2demo:
+    container_name: "h2demo"
+    image: "openswoole/h2demo"
+  tinyproxy:
+    container_name: "tinyproxy"
+    image: "vimagick/tinyproxy"
+  socks5:
+    container_name: "socks5"
+    image: "xkuma/socks5"
