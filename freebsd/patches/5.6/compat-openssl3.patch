@@ -1,0 +1,106 @@
+Description: Build and run against OpenSSL 3 (FreeBSD 14/15 base): guard OPENSSL_SSLV23_PADDING (gone in OpenSSL 3), load the legacy provider for RC4 (the default of openssl_seal()), Blowfish, DES, RC2, CAST5 and MD4, let tls:// and STREAM_CRYPTO_METHOD_TLS_* negotiate TLS 1.0 to 1.3 (5.6 limits them to TLS 1.0, which OpenSSL 3 refuses at its default security level, so they could not connect), and return only the public part from openssl_csr_get_public_key() (that one also with OpenSSL 1.1, where 5.6 leaked the private part too).
+Origin: azsupport; padding guard and CSR public key extraction as in php-src PHP-8.1 ext/openssl/openssl.c, provider loading per OSSL_PROVIDER_load(3); tested against OpenSSL 3.5.6; tls:// range as in php-src PHP-7.2 and later
+
+diff --git a/ext/openssl/openssl.c b/ext/openssl/openssl.c
+index b6a79249b..a3cb1b0b6 100644
+--- a/ext/openssl/openssl.c
++++ b/ext/openssl/openssl.c
+@@ -51,6 +51,9 @@
+ #include <openssl/rand.h>
+ #include <openssl/ssl.h>
+ #include <openssl/pkcs12.h>
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#include <openssl/provider.h>
++#endif
+ 
+ /* Common */
+ #include <time.h>
+@@ -1153,6 +1156,30 @@ PHP_MINIT_FUNCTION(openssl)
+ 
+ 	SSL_load_error_strings();
+ 
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++	/* PHP 5.6 relies on algorithms that OpenSSL 3 moved into its "legacy"
++	 * provider: RC4 (the default cipher of openssl_seal()), Blowfish, DES,
++	 * RC2 (openssl_pkcs7_encrypt(), PKCS#12 files), CAST5, MD4 and others.
++	 * Load "legacy", and "default" with it, because loading any provider
++	 * explicitly turns off the implicit loading of "default". openssl.cnf is
++	 * read before this (default since OpenSSL 1.1.1). A missing legacy module
++	 * is not fatal: those algorithms then stay unavailable. The static
++	 * pointers keep a module reload (Apache graceful restart) from loading
++	 * them again; they are never unloaded, as other users of OpenSSL in the
++	 * same process (mod_ssl) may rely on "default". */
++	{
++		static OSSL_PROVIDER *php_openssl_provider_default = NULL;
++		static OSSL_PROVIDER *php_openssl_provider_legacy = NULL;
++		if (!php_openssl_provider_default) {
++			php_openssl_provider_default = OSSL_PROVIDER_load(NULL, "default");
++		}
++		if (!php_openssl_provider_legacy) {
++			php_openssl_provider_legacy = OSSL_PROVIDER_load(NULL, "legacy");
++		}
++		ERR_clear_error();
++	}
++#endif
++
+ 	/* register a resource id number with OpenSSL so that we can map SSL -> stream structures in
+ 	 * OpenSSL callbacks */
+ 	ssl_stream_data_index = SSL_get_ex_new_index(0, "PHP stream index", NULL, NULL, NULL);
+@@ -1201,7 +1228,9 @@ PHP_MINIT_FUNCTION(openssl)
+ 	REGISTER_LONG_CONSTANT("PKCS7_NOSIGS", PKCS7_NOSIGS, CONST_CS|CONST_PERSISTENT);
+ 
+ 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_PADDING", RSA_PKCS1_PADDING, CONST_CS|CONST_PERSISTENT);
++#ifdef RSA_SSLV23_PADDING
+ 	REGISTER_LONG_CONSTANT("OPENSSL_SSLV23_PADDING", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);
++#endif
+ 	REGISTER_LONG_CONSTANT("OPENSSL_NO_PADDING", RSA_NO_PADDING, CONST_CS|CONST_PERSISTENT);
+ 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_OAEP_PADDING", RSA_PKCS1_OAEP_PADDING, CONST_CS|CONST_PERSISTENT);
+ 
+@@ -3231,6 +3260,25 @@ PHP_FUNCTION(openssl_csr_get_public_key)
+ 	}
+ 
+ 	tpubkey=X509_REQ_get_pubkey(csr);
++#if OPENSSL_VERSION_NUMBER >= 0x10100000L
++	/* Since OpenSSL 1.1 the CSR keeps the key that was assigned to it, private
++	 * part included, so the "public" key would still hold the private key.
++	 * Round-trip it through PEM to keep only the public part, as PHP 8.1
++	 * does (php_openssl_extract_public_key()). */
++	if (tpubkey) {
++		EVP_PKEY *pub_only = NULL;
++		BIO *bio = BIO_new(BIO_s_mem());
++		if (bio && PEM_write_bio_PUBKEY(bio, tpubkey)) {
++			pub_only = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
++		}
++		BIO_free(bio);
++		EVP_PKEY_free(tpubkey);
++		tpubkey = pub_only;
++	}
++#endif
++	if (tpubkey == NULL) {
++		RETURN_FALSE;
++	}
+ 	RETVAL_RESOURCE(zend_list_insert(tpubkey, le_key TSRMLS_CC));
+ 	return;
+ }
+diff --git a/ext/openssl/xp_ssl.c b/ext/openssl/xp_ssl.c
+index d25c71768..3af61df02 100644
+--- a/ext/openssl/xp_ssl.c
++++ b/ext/openssl/xp_ssl.c
+@@ -1458,6 +1458,17 @@ int php_openssl_setup_crypto(php_stream *stream,
+ 	sslsock->is_client = cparam->inputs.method & STREAM_CRYPTO_IS_CLIENT;
+ 	method_flags = ((cparam->inputs.method >> 1) << 1);
+ 
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++	/* tls:// and STREAM_CRYPTO_METHOD_TLS_* mean TLS 1.0 only in PHP 5.6 (the
++	 * value of STREAM_CRYPTO_METHOD_TLSv1_0_*), and OpenSSL 3 refuses TLS 1.0 at
++	 * its default security level, so they could not connect at all. Accept TLS
++	 * 1.0 to 1.3 instead, as tls:// does in PHP 7.2 and later; TLS 1.0 itself
++	 * still works where openssl.cnf lowers the security level. */
++	if (method_flags == STREAM_CRYPTO_METHOD_TLSv1_0) {
++		method_flags = STREAM_CRYPTO_METHOD_TLSv1_0 | STREAM_CRYPTO_METHOD_TLSv1_1 | STREAM_CRYPTO_METHOD_TLSv1_2;
++	}
++#endif
++
+ 	/* Should we use a specific crypto method or is generic SSLv23 okay? */
+ 	if ((method_flags & (method_flags-1)) == 0) {
+ 		ssl_ctx_options = SSL_OP_ALL;

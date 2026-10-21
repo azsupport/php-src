@@ -1,0 +1,56 @@
+Description: Build against libxml2 2.12 and newer (FreeBSD 15.1 package: 2.15): drop ATTRIBUTE_UNUSED, which newer libxml2 headers no longer define, take a const xmlError in the structured error handler (libxml2 2.12) and a const xmlChar name in the DOM hash scanner (libxml2 2.9.8).
+Origin: azsupport; the same changes as remicollet PHP-7.4-security-backports ext/libxml/libxml.c and ext/dom/dom_iterators.c
+
+diff --git a/ext/dom/dom_iterators.c b/ext/dom/dom_iterators.c
+index 17f75bcc7..f204d090c 100644
+--- a/ext/dom/dom_iterators.c
++++ b/ext/dom/dom_iterators.c
+@@ -42,7 +42,11 @@ struct _notationIterator {
+ 	xmlNotation *notation;
+ };
+ 
++#if LIBXML_VERSION >= 20908
++static void itemHashScanner (void *payload, void *data, const xmlChar *name) /* {{{ */
++#else
+ static void itemHashScanner (void *payload, void *data, xmlChar *name) /* {{{ */
++#endif
+ {
+ 	nodeIterator *priv = (nodeIterator *)data;
+ 
+diff --git a/ext/libxml/libxml.c b/ext/libxml/libxml.c
+index 02453ffb3..9335c519c 100644
+--- a/ext/libxml/libxml.c
++++ b/ext/libxml/libxml.c
+@@ -426,7 +426,7 @@ php_libxml_input_buffer_create_filename(const char *URI, xmlCharEncoding enc)
+ static xmlOutputBufferPtr
+ php_libxml_output_buffer_create_filename(const char *URI,
+                               xmlCharEncodingHandlerPtr encoder,
+-                              int compression ATTRIBUTE_UNUSED)
++                              int compression)
+ {
+ 	xmlOutputBufferPtr ret;
+ 	xmlURIPtr puri;
+@@ -482,7 +482,11 @@ static int _php_libxml_free_error(xmlErrorPtr error)
+ 	return 1;
+ }
+ 
++#if LIBXML_VERSION >= 21200
++static void _php_list_set_error_structure(const xmlError *error, const char *msg)
++#else
+ static void _php_list_set_error_structure(xmlErrorPtr error, const char *msg)
++#endif
+ {
+ 	xmlError error_copy;
+ 	int ret;
+@@ -740,7 +744,11 @@ PHP_LIBXML_API void php_libxml_ctx_warning(void *ctx, const char *msg, ...)
+ 	va_end(args);
+ }
+ 
++#if LIBXML_VERSION >= 21200
++PHP_LIBXML_API void php_libxml_structured_error_handler(void *userData, const xmlError *error)
++#else
+ PHP_LIBXML_API void php_libxml_structured_error_handler(void *userData, xmlErrorPtr error)
++#endif
+ {
+ 	_php_list_set_error_structure(error, NULL);
+ 

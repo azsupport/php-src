@@ -1,0 +1,42 @@
+Description: Find FreeType through pkg-config (freetype2.pc) when freetype-config is missing: FreeType 2.9.1 and newer no longer install it, and the FreeBSD freetype2 package ships only freetype2.pc, so --with-freetype-dir failed with "freetype-config not found". Also builds the bundled GD with FreeType in that case, so imagettftext() and imagettfbbox() draw text and return the bounding box.
+Origin: azsupport; PHP 7.4 switched ext/gd to pkg-config the same way
+
+diff --git a/ext/gd/config.m4 b/ext/gd/config.m4
+index e643e5273..e24eb02cd 100644
+--- a/ext/gd/config.m4
++++ b/ext/gd/config.m4
+@@ -193,12 +193,20 @@ AC_DEFUN([PHP_GD_FREETYPE2],[
+     done
+ 
+     if test -z "$FREETYPE2_DIR"; then
+-      AC_MSG_ERROR([freetype-config not found.])
++      dnl freetype 2.9.1 and newer no longer install freetype-config by default
++      dnl (the FreeBSD freetype2 package ships only freetype2.pc): use pkg-config.
++      AC_PATH_PROG(PKG_CONFIG, pkg-config, no)
++      if test "$PKG_CONFIG" != "no" && $PKG_CONFIG --exists freetype2; then
++        FREETYPE2_CFLAGS=`$PKG_CONFIG --cflags freetype2`
++        FREETYPE2_LIBS=`$PKG_CONFIG --libs freetype2`
++      else
++        AC_MSG_ERROR([freetype-config not found, and pkg-config knows no freetype2.])
++      fi
++    else
++      FREETYPE2_CFLAGS=`$FREETYPE2_CONFIG --cflags`
++      FREETYPE2_LIBS=`$FREETYPE2_CONFIG --libs`
+     fi
+ 
+-    FREETYPE2_CFLAGS=`$FREETYPE2_CONFIG --cflags`
+-    FREETYPE2_LIBS=`$FREETYPE2_CONFIG --libs`
+-
+     PHP_EVAL_INCLINE($FREETYPE2_CFLAGS)
+     PHP_EVAL_LIBLINE($FREETYPE2_LIBS, GD_SHARED_LIBADD)
+     AC_DEFINE(USE_GD_IMGSTRTTF, 1, [ ])
+@@ -318,7 +326,8 @@ dnl enable the support in bundled GD library
+     GDLIB_CFLAGS="$GDLIB_CFLAGS -DHAVE_XPM"
+   fi
+ 
+-  if test -n "$FREETYPE2_DIR"; then
++  dnl FREETYPE2_DIR stays empty when FreeType was found through pkg-config
++  if test -n "$FREETYPE2_LIBS"; then
+     AC_DEFINE(HAVE_GD_FREETYPE,   1, [ ])
+     AC_DEFINE(ENABLE_GD_TTF, 1, [ ])
+     GDLIB_CFLAGS="$GDLIB_CFLAGS -DHAVE_LIBFREETYPE -DENABLE_GD_TTF"
