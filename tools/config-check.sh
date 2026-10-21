@@ -37,9 +37,9 @@
 # not (cc -march=native) gives a warning, PHP built with it would stop with
 # "Illegal instruction".
 # Shared PECL modules that the source tree bundles (redis, memcached, memcache,
-# imagick, igbinary, swoole) are not added to the script: the report ends with the
-# command that builds them in, with the features they were built with (php --ri),
-# and lists the extension= lines to remove after make install.
+# imagick, igbinary, swoole, openswoole) are not added to the script: the report
+# ends with the command that builds them in, with the features they were built
+# with (php --ri), and lists the extension= lines to remove after make install.
 #
 # Exit status: 0 same options, 1 different (or no config.nice to compare with),
 # 2 usage or read error.
@@ -204,6 +204,7 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             pecl-imagick) echo "--with-imagick=/usr/local" ;;
             pecl-igbinary) echo "--enable-igbinary" ;;
             pecl-swoole) echo "--enable-swoole" ;;
+            pecl-openswoole) echo "--enable-openswoole" ;;
             pecl-*) echo "PECL extension, not part of ./configure: build it later with $prefix/bin/phpize"; return 1 ;;
             *) echo "not an extension of the PHP sources (a tool, or one this script does not know)"; return 1 ;;
         esac
@@ -540,7 +541,7 @@ chmod +x "$out" 2>/dev/null || true
 : > "$tmp/ini_lines"
 knows() { grep -q -e "\[$2\]" -e "($2," "ext/$1/config.m4" 2>/dev/null; }
 ri_row() { sed -n "s/^$2 => //p" "$tmp/ri_$1" | head -n 1; }
-for m in igbinary redis memcached memcache imagick swoole; do
+for m in igbinary redis memcached memcache imagick swoole openswoole; do
     grep -qx "$m" "$tmp/modules" || continue
     grep -q -e "--enable-$m\$" -e "--enable-$m=" -e "--with-$m" "$tmp/installed" && continue
     if [ ! -d ext/standard ]; then
@@ -573,14 +574,15 @@ for m in igbinary redis memcached memcache imagick swoole; do
             [ "$(ri_row memcached 'msgpack support')" = yes ] &&
                 echo "memcached: the msgpack serializer needs the msgpack extension, which is not bundled" >> "$tmp/pecl_note"
             ;;
-        swoole)
-            o="--enable-swoole"
+        swoole | openswoole)
+            o="--enable-$m"
             for pair in curl-native:swoole-curl c-ares:cares zstd:zstd http2:http2 json:swoole-json \
                 coroutine_pgsql:swoole-pgsql coroutine_postgresql:swoole-pgsql coroutine_sqlite:swoole-sqlite; do
-                [ -n "$(ri_row swoole "${pair%%:*}")" ] && knows swoole "${pair#*:}" && o="$o --enable-${pair#*:}"
+                [ -n "$(ri_row "$m" "${pair%%:*}")" ] && knows "$m" "${pair#*:}" && o="$o --enable-${pair#*:}"
             done
+            [ -n "$(ri_row "$m" postgresql)" ] && knows "$m" postgres && o="$o --with-postgres"
             for row in coroutine_odbc coroutine_oracle coroutine_firebird; do
-                [ -n "$(ri_row swoole "$row")" ] && echo "swoole: $row was enabled; add its --with-swoole-... option by hand (./configure --help)" >> "$tmp/pecl_note"
+                [ -n "$(ri_row "$m" "$row")" ] && echo "$m: $row was enabled; add its --with-swoole-... option by hand (./configure --help)" >> "$tmp/pecl_note"
             done
             ;;
         imagick) o="--with-imagick=/usr/local" ;;

@@ -300,7 +300,8 @@ if (function_exists('igbinary_serialize')) {
         check('memcached with igbinary', $m->get('build-test-ig') === $data, 'serializer igbinary');
     }
 }
-if (extension_loaded('swoole')) {
+$sw = extension_loaded('openswoole') ? 'openswoole' : (extension_loaded('swoole') ? 'swoole' : '');
+if ($sw !== '') {
     $res = array();
     Swoole\Coroutine\run(function () use (&$res) {
         $chan = new Swoole\Coroutine\Channel(2);
@@ -310,9 +311,9 @@ if (extension_loaded('swoole')) {
         });
         $res[] = $chan->pop(2.0);
     });
-    check('swoole', $res === array('from coroutine'), 'swoole ' . phpversion('swoole') . ', coroutine and channel');
+    check($sw, $res === array('from coroutine'), "$sw " . phpversion($sw) . ', coroutine and channel');
     if (extension_loaded('openssl')) {
-        check('swoole with openssl', defined('SWOOLE_SSL'), 'SWOOLE_SSL defined');
+        check("$sw with openssl", defined('SWOOLE_SSL'), 'SWOOLE_SSL defined');
     }
 }
 // mysqlnd uses OpenSSL itself (RSA for sha256 and caching_sha2 auth) when PHP is
