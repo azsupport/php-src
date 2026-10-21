@@ -197,7 +197,10 @@ for target in "$@"; do
     make -k -j"$ncpu" > "$out/make.log" 2>&1
     mrc=$?
     echo "make:     exit $mrc, $(( $(date +%s) - start ))s, $(grep -c 'warning:' "$out/make.log") warnings" >> "$sum"
-    grep -E ' error:|Error [0-9]+|undefined reference|cannot find' "$out/make.log" | head -n 40 > "$out/errors.txt"
+    grep -E ' error:|Error [0-9]+|\*\*\* Error code|undefined reference|cannot find|^make(\[[0-9]+\])?: ' "$out/make.log" |
+        head -n 40 > "$out/errors.txt"
+    # a failure without compiler errors (make itself, BSD make on a GNU-only construct): its last lines
+    if [ ! -s "$out/errors.txt" ] && [ "$mrc" != 0 ]; then tail -n 20 "$out/make.log" > "$out/errors.txt"; fi
     if [ "$mrc" != 0 ] || [ ! -x sapi/cli/php ]; then
         echo "result:   FAIL (build; first errors in errors.txt)" >> "$sum"
         say "$target: FAIL in make: $(head -n 1 "$out/errors.txt")"
