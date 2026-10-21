@@ -1,0 +1,52 @@
+Description: Generate the 5.6 parsers with bison 3.6 and newer (the release tarballs use bison 3.8) like the official 5.6.40 tarball: keep the detailed parse errors ("syntax error, unexpected '{', expecting '('"), because these bison versions ignore the YYERROR_VERBOSE macro of the 5.6 grammars and report only "syntax error" for scripts and INI files, and keep the official token numbers (T_VARIABLE 312, T_OPEN_TAG 376 and so on), because they number T_POW and T_POW_EQUAL by their %token line, which moved most T_* values by 1 or 2. The freebsd/5.6 tarballs made before this patch had both differences.
+Origin: azsupport; %define parse.error verbose, as in the php-src PHP-7.0 and later grammars; token numbers checked against ext/tokenizer/tests/bug60097.phpt
+
+diff --git a/Zend/zend_ini_parser.y b/Zend/zend_ini_parser.y
+index ad8a84dd2..a44ce3c11 100644
+--- a/Zend/zend_ini_parser.y
++++ b/Zend/zend_ini_parser.y
+@@ -265,6 +265,7 @@ ZEND_API int zend_parse_ini_string(char *str, zend_bool unbuffered_errors, int s
+ 
+ %expect 0
+ %pure_parser
++%define parse.error verbose
+ 
+ %token TC_SECTION
+ %token TC_RAW
+diff --git a/Zend/zend_language_parser.y b/Zend/zend_language_parser.y
+index 0920eeb9e..ebf0ab954 100644
+--- a/Zend/zend_language_parser.y
++++ b/Zend/zend_language_parser.y
+@@ -46,6 +46,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
+ 
+ %pure_parser
+ %expect 3
++%define parse.error verbose
+ 
+ %code requires {
+ #ifdef ZTS
+@@ -84,6 +85,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
+ %token T_XOR_EQUAL    "^= (T_XOR_EQUAL)"
+ %token T_SL_EQUAL     "<<= (T_SL_EQUAL)"
+ %token T_SR_EQUAL     ">>= (T_SR_EQUAL)"
++%token T_POW_EQUAL    "**= (T_POW_EQUAL)"
+ %left '?' ':'
+ %left T_BOOLEAN_OR
+ %token T_BOOLEAN_OR   "|| (T_BOOLEAN_OR)"
+@@ -119,6 +121,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
+ %token T_OBJECT_CAST "(object) (T_OBJECT_CAST)"
+ %token T_BOOL_CAST   "(bool) (T_BOOL_CAST)"
+ %token T_UNSET_CAST  "(unset) (T_UNSET_CAST)"
++%token T_POW          "** (T_POW)"
+ %right '['
+ %nonassoc T_NEW T_CLONE
+ %token T_NEW       "new (T_NEW)"
+@@ -214,8 +217,6 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
+ %token T_DIR             "__DIR__ (T_DIR)"
+ %token T_NS_SEPARATOR    "\\ (T_NS_SEPARATOR)"
+ %token T_ELLIPSIS        "... (T_ELLIPSIS)"
+-%token T_POW             "** (T_POW)"
+-%token T_POW_EQUAL       "**= (T_POW_EQUAL)"
+ 
+ %% /* Rules */
+ 

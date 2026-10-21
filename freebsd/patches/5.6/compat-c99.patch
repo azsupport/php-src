@@ -1,0 +1,365 @@
+Description: Build with clang 16 and newer (FreeBSD 14/15 base: clang 19) and gcc 14 and newer, which reject implicit int, implicit function declarations and mismatched function pointer types. Fixes the configure test programs that failed silently and gave wrong results (getaddrinfo, so no IPv6 name resolution; readdir_r and fopencookie types, which then broke the build; pread/pwrite; write(2) to stdout; Zend MM alignment; sprintf/snprintf; crypt; libcurl SSL) and the sources that stopped compiling (mbstring UTF-8-Mobile, fileinfo file_replace(), zip mkstemp(), zlib module globals).
+Origin: azsupport; configure results checked against a run with those errors turned into warnings: identical main/php_config.h
+
+diff --git a/Zend/Zend.m4 b/Zend/Zend.m4
+index 945409eb1..e408676e7 100644
+--- a/Zend/Zend.m4
++++ b/Zend/Zend.m4
+@@ -111,6 +111,7 @@ AC_MSG_CHECKING(whether double cast to long preserves least significant bits)
+ 
+ AC_TRY_RUN([
+ #include <limits.h>
++#include <stdlib.h>
+ 
+ int main()
+ {
+@@ -248,6 +249,7 @@ AC_MSG_CHECKING(for MM alignment and log values)
+ 
+ AC_TRY_RUN([
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ typedef union _mm_align_test {
+   void *ptr;
+@@ -300,6 +302,7 @@ AC_TRY_RUN([
+ #include <sys/mman.h>
+ #include <stdlib.h>
+ #include <stdio.h>
++#include <unistd.h>
+ #ifndef MAP_ANON
+ # ifdef MAP_ANONYMOUS
+ #  define MAP_ANON MAP_ANONYMOUS
+@@ -345,6 +348,7 @@ AC_TRY_RUN([
+ #include <sys/mman.h>
+ #include <stdlib.h>
+ #include <stdio.h>
++#include <unistd.h>
+ #ifndef MAP_ANON
+ # ifdef MAP_ANONYMOUS
+ #  define MAP_ANON MAP_ANONYMOUS
+diff --git a/Zend/acinclude.m4 b/Zend/acinclude.m4
+index 7fa8c9994..6e37d6416 100644
+--- a/Zend/acinclude.m4
++++ b/Zend/acinclude.m4
+@@ -67,7 +67,10 @@ dnl Check for broken sprintf()
+ dnl
+ AC_DEFUN([AC_ZEND_BROKEN_SPRINTF],[
+   AC_CACHE_CHECK(whether sprintf is broken, ac_cv_broken_sprintf,[
+-    AC_TRY_RUN([main() {char buf[20];exit(sprintf(buf,"testing 123")!=11); }],[
++    AC_TRY_RUN([
++#include <stdio.h>
++#include <stdlib.h>
++int main() {char buf[20];exit(sprintf(buf,"testing 123")!=11); }],[
+       ac_cv_broken_sprintf=no
+     ],[
+       ac_cv_broken_sprintf=yes
+diff --git a/acinclude.m4 b/acinclude.m4
+index 3db743820..ab2bc34c3 100644
+--- a/acinclude.m4
++++ b/acinclude.m4
+@@ -1170,7 +1170,7 @@ AC_CACHE_CHECK(for type of reentrant time-related functions, ac_cv_time_r_type,[
+ AC_TRY_RUN([
+ #include <time.h>
+ 
+-main() {
++int main() {
+ char buf[27];
+ struct tm t;
+ time_t old = 0;
+@@ -1186,7 +1186,7 @@ return (1);
+ ],[
+   AC_TRY_RUN([
+ #include <time.h>
+-main() {
++int main() {
+   struct tm t, *s;
+   time_t old = 0;
+   char buf[27], *p;
+@@ -1223,8 +1223,9 @@ AC_DEFUN([PHP_DOES_PWRITE_WORK],[
+ #include <fcntl.h>
+ #include <unistd.h>
+ #include <errno.h>
++#include <stdlib.h>
+ $1
+-    main() {
++    int main() {
+     int fd = open("conftest_in", O_WRONLY|O_CREAT, 0600);
+ 
+     if (fd < 0) exit(1);
+@@ -1253,8 +1254,9 @@ AC_DEFUN([PHP_DOES_PREAD_WORK],[
+ #include <fcntl.h>
+ #include <unistd.h>
+ #include <errno.h>
++#include <stdlib.h>
+ $1
+-    main() {
++    int main() {
+     char buf[3]; 
+     int fd = open("conftest_in", O_RDONLY);
+     if (fd < 0) exit(1);
+@@ -1362,12 +1364,13 @@ AC_DEFUN([PHP_READDIR_R_TYPE],[
+ #define _REENTRANT
+ #include <sys/types.h>
+ #include <dirent.h>
++#include <stdlib.h>
+ 
+ #ifndef PATH_MAX
+ #define PATH_MAX 1024
+ #endif
+ 
+-main() {
++int main() {
+   DIR *dir;
+   char entry[sizeof(struct dirent)+PATH_MAX];
+   struct dirent *pentry = (struct dirent *) &entry;
+@@ -1483,7 +1486,10 @@ dnl Check for broken sprintf(), C99 conformance
+ dnl
+ AC_DEFUN([PHP_AC_BROKEN_SPRINTF],[
+   AC_CACHE_CHECK(whether sprintf is broken, ac_cv_broken_sprintf,[
+-    AC_TRY_RUN([main() {char buf[20];exit(sprintf(buf,"testing 123")!=11); }],[
++    AC_TRY_RUN([
++#include <stdio.h>
++#include <stdlib.h>
++int main() {char buf[20];exit(sprintf(buf,"testing 123")!=11); }],[
+       ac_cv_broken_sprintf=no
+     ],[
+       ac_cv_broken_sprintf=yes
+@@ -1506,8 +1512,9 @@ dnl
+ AC_DEFUN([PHP_AC_BROKEN_SNPRINTF],[
+   AC_CACHE_CHECK(whether snprintf is broken, ac_cv_broken_snprintf,[
+     AC_TRY_RUN([
+-#define NULL (0L)
+-main() {
++#include <stdio.h>
++#include <stdlib.h>
++int main() {
+   char buf[20];
+   int res = 0;
+   res = res || (snprintf(buf, 2, "marcus") != 6); 
+@@ -1707,6 +1714,8 @@ AC_DEFUN([PHP_BROKEN_GLIBC_FOPEN_APPEND], [
+   AC_CACHE_VAL(_cv_have_broken_glibc_fopen_append,[
+   AC_TRY_RUN([
+ #include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
+ int main(int argc, char *argv[])
+ {
+   FILE *fp;
+@@ -1774,6 +1783,7 @@ dnl even newer glibcs have a different seeker definition...
+ AC_TRY_RUN([
+ #define _GNU_SOURCE
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ struct cookiedata {
+   __off64_t pos;
+@@ -1790,7 +1800,7 @@ int seeker(void *cookie, __off64_t *position, int whence)
+ 
+ cookie_io_functions_t funcs = {reader, writer, seeker, closer};
+ 
+-main() {
++int main() {
+   struct cookiedata g = { 0 };
+   FILE *fp = fopencookie(&g, "r", funcs);
+ 
+@@ -1907,7 +1917,7 @@ AC_DEFUN([PHP_CHECK_FUNC_LIB],[
+   if test "$found" = "yes"; then
+     ac_libs=$LIBS
+     LIBS="$LIBS -l$2"
+-    AC_TRY_RUN([main() { return (0); }],[found=yes],[found=no],[found=no])
++    AC_TRY_RUN([int main(void) { return (0); }],[found=yes],[found=no],[found=no])
+     LIBS=$ac_libs
+   fi
+ 
+@@ -2643,9 +2653,9 @@ uname -a:   `uname -a`
+ 
+ X
+     cat >conftest.$ac_ext <<X
+-main()
++int main(void)
+ {
+-  exit(0);
++  return 0;
+ }
+ X
+     (eval echo \"$ac_link\"; eval $ac_link && ./conftest) >>$1 2>&1
+@@ -2883,7 +2893,7 @@ AC_DEFUN([PHP_TEST_WRITE_STDOUT],[
+ 
+ #define TEXT "This is the test message -- "
+ 
+-main()
++int main()
+ {
+   int n;
+ 
+diff --git a/build/libtool.m4 b/build/libtool.m4
+index f7f516429..cfab0930a 100644
+--- a/build/libtool.m4
++++ b/build/libtool.m4
+@@ -945,6 +945,7 @@ else
+ #endif
+ 
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ #ifdef RTLD_GLOBAL
+ #  define LT_DLGLOBAL		RTLD_GLOBAL
+diff --git a/configure.in b/configure.in
+index cd1223033..6c84b2526 100644
+--- a/configure.in
++++ b/configure.in
+@@ -701,6 +701,8 @@ AC_CACHE_CHECK([for getaddrinfo], ac_cv_func_getaddrinfo,
+   AC_TRY_RUN([
+ #include <netdb.h>
+ #include <sys/types.h>
++#include <stdlib.h>
++#include <string.h>
+ #ifndef AF_INET
+ # include <sys/socket.h>
+ #endif
+diff --git a/ext/curl/config.m4 b/ext/curl/config.m4
+index 2f82c3485..a5fe3380f 100644
+--- a/ext/curl/config.m4
++++ b/ext/curl/config.m4
+@@ -62,6 +62,7 @@ if test "$PHP_CURL" != "no"; then
+     AC_MSG_CHECKING([for openssl support in libcurl])
+     AC_TRY_RUN([
+ #include <curl/curl.h>
++#include <strings.h>
+ 
+ int main(int argc, char *argv[])
+ {
+@@ -89,6 +90,7 @@ int main(int argc, char *argv[])
+     AC_MSG_CHECKING([for gnutls support in libcurl])
+     AC_TRY_RUN([
+ #include <curl/curl.h>
++#include <strings.h>
+ 
+ int main(int argc, char *argv[])
+ {
+diff --git a/ext/fileinfo/libmagic/funcs.c b/ext/fileinfo/libmagic/funcs.c
+index 16cf30afc..071e76fb1 100644
+--- a/ext/fileinfo/libmagic/funcs.c
++++ b/ext/fileinfo/libmagic/funcs.c
+@@ -437,6 +437,7 @@ file_printedlen(const struct magic_set *ms)
+ 	return ms->o.buf == NULL ? 0 : strlen(ms->o.buf);
+ }
+ 
++protected int
+ file_replace(struct magic_set *ms, const char *pat, const char *rep)
+ {
+ 	zval *patt;
+diff --git a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c b/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
+index f9b643c17..1d584eebc 100644
+--- a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
++++ b/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
+@@ -36,6 +36,9 @@
+ #include "mbfilter_utf8_mobile.h"
+ #include "mbfilter_sjis_mobile.h"
+ 
++/* defined in mbfilter_utf8.c */
++int mbfl_filt_put_invalid_char(int c, mbfl_convert_filter *filter);
++
+ extern int mbfl_filt_ident_utf8(int c, mbfl_identify_filter *filter);
+ extern int mbfl_filt_conv_utf8_wchar_flush(mbfl_convert_filter *filter);
+ 
+diff --git a/ext/standard/config.m4 b/ext/standard/config.m4
+index 6e0c92197..985cfdd5e 100644
+--- a/ext/standard/config.m4
++++ b/ext/standard/config.m4
+@@ -7,6 +7,8 @@ AC_CACHE_CHECK([whether flush should be called explicitly after a buffered io],
+ AC_TRY_RUN( [
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
+ 
+ int main(int argc, char **argv)
+ {
+@@ -69,6 +71,9 @@ AC_CACHE_CHECK(for standard DES crypt, ac_cv_crypt_des,[
+ #include <crypt.h>
+ #endif
+ 
++#include <stdlib.h>
++#include <string.h>
++
+ int main() {
+ #if HAVE_CRYPT
+ 	char *encrypted = crypt("rasmuslerdorf","rl");
+@@ -94,6 +99,9 @@ AC_CACHE_CHECK(for extended DES crypt, ac_cv_crypt_ext_des,[
+ #include <crypt.h>
+ #endif
+ 
++#include <stdlib.h>
++#include <string.h>
++
+ int main() {
+ #if HAVE_CRYPT
+ 	char *encrypted = crypt("rasmuslerdorf","_J9..rasm");
+@@ -119,6 +127,9 @@ AC_TRY_RUN([
+ #include <crypt.h>
+ #endif
+ 
++#include <stdlib.h>
++#include <string.h>
++
+ int main() {
+ #if HAVE_CRYPT
+ 	char salt[15], answer[40];
+@@ -154,6 +165,9 @@ AC_TRY_RUN([
+ #include <crypt.h>
+ #endif
+ 
++#include <stdlib.h>
++#include <string.h>
++
+ int main() {
+ #if HAVE_CRYPT
+ 	char salt[30], answer[70];
+@@ -186,6 +200,9 @@ AC_TRY_RUN([
+ #include <crypt.h>
+ #endif
+ 
++#include <stdlib.h>
++#include <string.h>
++
+ int main() {
+ #if HAVE_CRYPT
+ 	char salt[21], answer[21+86];
+@@ -217,6 +234,9 @@ AC_TRY_RUN([
+ #include <crypt.h>
+ #endif
+ 
++#include <stdlib.h>
++#include <string.h>
++
+ int main() {
+ #if HAVE_CRYPT
+ 	char salt[21], answer[21+43];
+diff --git a/ext/zip/lib/mkstemp.c b/ext/zip/lib/mkstemp.c
+index 843d5e361..2c95998a2 100644
+--- a/ext/zip/lib/mkstemp.c
++++ b/ext/zip/lib/mkstemp.c
+@@ -43,6 +43,9 @@
+ #endif
+ #include <stdio.h>
+ #include <stdlib.h>
++#ifndef _WIN32
++#include <unistd.h>
++#endif
+ 
+ #ifndef O_BINARY
+ #define O_BINARY 0
+diff --git a/ext/zlib/zlib.c b/ext/zlib/zlib.c
+index 47dc3acf6..b6d3484e9 100644
+--- a/ext/zlib/zlib.c
++++ b/ext/zlib/zlib.c
+@@ -1032,7 +1032,7 @@ zend_module_entry php_zlib_module_entry = {
+ 	PHP_MINFO(zlib),
+ 	"2.0",
+ 	PHP_MODULE_GLOBALS(zlib),
+-	ZEND_MODULE_GLOBALS_CTOR_N(zlib),
++	PHP_GINIT(zlib),
+ 	NULL,
+ 	NULL,
+ 	STANDARD_MODULE_PROPERTIES_EX
