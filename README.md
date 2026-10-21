@@ -109,6 +109,17 @@ workflow"), optionally with `force` or a list of targets. Locally:
 `tools/sync.sh --local` in a clone of this repository builds the branches without
 pushing.
 
+### Interim backports
+
+If an end-of-life branch needs a security fix before Remi Collet publishes one,
+a git-format patch (`-p1`, with `Description:` and `Origin:` lines on top) can be
+put into `freebsd/patches/<version>/backport-*.patch`. It is applied as a third
+commit, "Backport security fixes", and flagged in the branch README. Once the
+upstream branch contains the same change (the patch applies in reverse), it is
+skipped automatically, so the branch falls back to upstream's own fix.
+
+### Token
+
 The workflow pushes with the repository secret `SYNC_TOKEN` when it exists: a
 fine-grained personal access token limited to this repository with **Contents**
 and **Workflows** read/write. The default `GITHUB_TOKEN` is used otherwise, but it
