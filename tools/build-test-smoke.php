@@ -14,11 +14,35 @@ $tmp = sys_get_temp_dir() . '/build-test-smoke-' . getmypid();
 function check($name, $ok, $detail = '')
 {
     echo ($ok === null ? 'skip ' : ($ok ? 'ok ' : 'FAIL ')), $name, $detail !== '' ? ': ' . $detail : '', "\n";
+    reset_error();
+}
+function info($name, $detail)
+{
+    echo 'info ', $name, ': ', $detail, "\n";
+    reset_error();
 }
 function last_error()
 {
     $e = error_get_last();
-    return $e ? $e['message'] : '';
+    $m = $e ? $e['message'] : '';
+    if (function_exists('openssl_error_string')) {
+        while (($o = openssl_error_string()) !== false) {
+            $m .= ($m === '' ? '' : '; ') . $o;
+        }
+    }
+    return $m;
+}
+function reset_error()
+{
+    if (function_exists('error_clear_last')) {
+        error_clear_last();
+    } else {
+        @trigger_error('', E_USER_NOTICE);
+    }
+    if (function_exists('openssl_error_string')) {
+        while (openssl_error_string() !== false) {
+        }
+    }
 }
 
 // Parser: detailed syntax errors.
@@ -56,18 +80,31 @@ check('https:// with certificate check', $html !== false && strlen($html) > 1000
 
 // OpenSSL: legacy algorithms, openssl_seal() default, CSR public key.
 if (extension_loaded('openssl')) {
+    // 5.6 and 7.4 load the OpenSSL 3 legacy provider themselves (compat-openssl3.patch);
+    // 8.x relies on openssl.cnf for that, so there the result is only shown.
+    $legacy_required = PHP_MAJOR_VERSION < 8;
     $methods = array_map('strtolower', openssl_get_cipher_methods());
     $legacy = array('rc4', 'bf-cbc', 'des-cbc', 'rc2-cbc', 'cast5-cbc', 'des-ede3-cbc');
     $missing = array_diff($legacy, $methods);
-    check('OpenSSL legacy ciphers listed', !$missing, OPENSSL_VERSION_TEXT . ($missing ? '; missing ' . implode(' ', $missing) : ''));
+    $detail = OPENSSL_VERSION_TEXT . ($missing ? '; missing ' . implode(' ', $missing) : '; all listed');
+    if ($legacy_required) {
+        check('OpenSSL legacy ciphers listed', !$missing, $detail);
+    } else {
+        info('OpenSSL legacy ciphers (not loaded by PHP 8)', $detail);
+    }
     foreach (array('bf-cbc' => 8, 'des-cbc' => 8, 'rc2-cbc' => 8, 'cast5-cbc' => 8, 'rc4' => 0) as $m => $ivlen) {
+        if (!$legacy_required && !in_array($m, $methods)) {
+            continue;
+        }
         $iv = str_repeat("\1", $ivlen);
         $enc = @openssl_encrypt('secret data', $m, 'k3y-k3y-k3y-k3y!', OPENSSL_RAW_DATA, $iv);
         $dec = $enc === false ? false : @openssl_decrypt($enc, $m, 'k3y-k3y-k3y-k3y!', OPENSSL_RAW_DATA, $iv);
         check("openssl_encrypt $m", $dec === 'secret data', $dec === 'secret data' ? 'round trip' : last_error());
     }
     $md4 = @openssl_digest('abc', 'md4');
-    check('openssl_digest md4', $md4 === 'a448017aaf21d8525fc10ae87aa6729d', (string)$md4);
+    if ($legacy_required || $md4 !== false) {
+        check('openssl_digest md4', $md4 === 'a448017aaf21d8525fc10ae87aa6729d', $md4 === false ? last_error() : (string)$md4);
+    }
     $key = openssl_pkey_new(array('private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA));
     $det = openssl_pkey_get_details($key);
     $pub = openssl_pkey_get_public($det['key']);
