@@ -1,0 +1,21 @@
+Description: Build the bundled oniguruma of ext/mbstring when the oniguruma package is installed (7.4 and 8.x need it): the package's oniguruma.h 6.x in /usr/local/include came before the bundled 5.9 headers in the include path, and php_mbregex.c did not compile ("incomplete definition of type 'php_mb_regex_t'"). The bundled headers now go first.
+Origin: azsupport; found by the FreeBSD 15.1 build test, PHP_ADD_INCLUDE(dir, 1) prepends
+
+diff --git a/ext/mbstring/config.m4 b/ext/mbstring/config.m4
+index 25bf23876..e60b18926 100644
+--- a/ext/mbstring/config.m4
++++ b/ext/mbstring/config.m4
+@@ -38,9 +38,11 @@ AC_DEFUN([PHP_MBSTRING_EXTENSION], [
+     PHP_ADD_BUILD_DIR([$ext_builddir/$dir], 1)
+   done
+   
++  dnl The bundled headers go first: with the oniguruma package installed, its
++  dnl oniguruma.h in /usr/local/include would otherwise shadow the bundled one.
+   for dir in $PHP_MBSTRING_EXTRA_INCLUDES; do
+-    PHP_ADD_INCLUDE([$ext_srcdir/$dir])
+-    PHP_ADD_INCLUDE([$ext_builddir/$dir])
++    PHP_ADD_INCLUDE([$ext_srcdir/$dir], 1)
++    PHP_ADD_INCLUDE([$ext_builddir/$dir], 1)
+   done
+ 
+   if test "$ext_shared" = "no"; then
