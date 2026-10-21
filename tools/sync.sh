@@ -30,6 +30,10 @@
 
 set -eu
 
+# Bump when the generated branch content changes (README block, commit layout),
+# so that every branch is rebuilt once. Tooling-only changes must not bump it.
+layout_version=2
+
 main_dir="$(cd "$(dirname "$0")/.." && pwd)"
 conf="$main_dir/freebsd/targets.conf"
 gh_repo="${GH_REPO:-${GITHUB_REPOSITORY:-azsupport/php-src}}"
@@ -207,7 +211,7 @@ build_target() {
     up_commit="${resolved%% *}" up_ref="${resolved#* }"
     [ -n "$up_commit" ] && [ "$up_commit" != "$resolved" ] || { log "$target: cannot resolve $ref"; return 1; }
 
-    patchset="$( { cat "$patch_dir"/patch-* "$main_dir/tools/sync.sh"; echo "$target $url $ref $port $portrev"; } | sha256_of)"
+    patchset="$( { cat "$patch_dir"/patch-*; echo "$target $url $ref $port $portrev layout=$layout_version"; } | sha256_of)"
 
     # Up to date? Decided from ls-remote + API before any large fetch.
     if [ "$force" = 0 ] && [ "$local_only" = 0 ] && msg="$(current_message "$branch" 2>/dev/null)"; then
@@ -238,6 +242,9 @@ build_target() {
 
     [ "$local_only" = 1 ] && return 0
 
+    # The old tip (one commit) shares most blobs with the new tree; having it locally
+    # keeps the push small even when the fork lacks the new upstream history.
+    git fetch -q --depth=1 origin "+refs/heads/$branch:refs/sync/current/$target" 2>/dev/null || true
     git push -q -f origin "refs/heads/$branch:refs/heads/$branch"
     log "$target: pushed $branch"
     # Best effort: keep the mirror of Remi's branch under its original name. Official
