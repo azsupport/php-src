@@ -1,4 +1,6 @@
 #!/bin/sh
+# shellcheck disable=SC2016
+# (backticks in the printf formats below are markdown, not command substitution)
 # sync.sh - maintain the freebsd/<target> branches of azsupport/php-src.
 #
 # For every target in freebsd/targets.conf:
@@ -13,12 +15,18 @@
 #   5. build a release tarball (tools/makedist.sh) and publish it as a GitHub
 #      release, plus a moving "freebsd-<target>-latest" release.
 #
+# The branch README and the release notes list the ports patches that are applied
+# and, with the reason from freebsd/patches/<target>/SKIPPED, the ones that are not.
+#
 # Usage: run inside a git clone of azsupport/php-src (remote 'origin'):
-#   tools/sync.sh [--local] [--force] [--no-release] [target ...]
+#   tools/sync.sh [--local] [--force] [--no-release] [--check] [--notes] [target ...]
 #     --local       build branches locally only: no push, no releases
 #     --force       rebuild even if nothing changed upstream
 #     --no-release  push branches but do not build tarballs or releases
-#     --check       only report which targets are up to date (no fetch, no push)
+#     --check       only report which targets are up to date (no fetch, no push);
+#                   with --notes, print the notes instead of updating the releases
+#     --notes       only rewrite the notes of the releases of the current branch
+#                   tips (no rebuild); the tips must carry the current patch set
 #
 # Environment:
 #   FETCH_DEPTH     limit the upstream fetch depth (default: full history, which
@@ -31,21 +39,23 @@
 
 set -eu
 
-# Bump when the generated branch content changes (README block, commit layout),
-# so that every branch is rebuilt once. Tooling-only changes must not bump it.
+# Bump when the generated branch content changes (commit layout, README block),
+# so that every branch is rebuilt once. Tooling-only changes must not bump it;
+# wording changes of the README block reach a branch with its next rebuild.
 layout_version=2
 
 main_dir="$(cd "$(dirname "$0")/.." && pwd)"
 conf="$main_dir/freebsd/targets.conf"
 gh_repo="${GH_REPO:-${GITHUB_REPOSITORY:-azsupport/php-src}}"
 dist_dir="${DIST_DIR:-$(pwd)/.sync-dist}"
-local_only=0 force=0 release=1 check_only=0
+local_only=0 force=0 release=1 check_only=0 notes_only=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --local) local_only=1; release=0 ;;
         --check) check_only=1; release=0 ;;
         --force) force=1 ;;
         --no-release) release=0 ;;
+        --notes) notes_only=1; release=0 ;;
         -*) echo "sync: unknown option $1" >&2; exit 2 ;;
         *) break ;;
     esac
@@ -61,11 +71,25 @@ export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}"
 today="$(date -u +%Y%m%d)"
 today_human="$(date -u +%d.%m.%Y)"
 
+# Interim backports applied to the target being processed (one path per line).
+bp_list="$(mktemp)"
+trap 'rm -f "$bp_list"' EXIT
+
 log() { printf '[sync] %s\n' "$*"; }
 short() { printf '%s' "$1" | cut -c1-"${2:-12}"; }
 
 sha256_of() {   # SHA-256 of stdin
     if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -c1-64; else sha256 -q; fi
+}
+
+# Hash of everything a branch build is made of. SKIPPED is documentation only and
+# deliberately not part of it.
+patchset_of() {
+    {
+        cat "$patch_dir"/patch-*
+        for b in "$patch_dir"/backport-*.patch; do if [ -f "$b" ]; then cat "$b"; fi; done
+        echo "$target $url $ref $port $portrev layout=$layout_version"
+    } | sha256_of
 }
 
 # Print "<commit-sha> <full-ref>" for a target's upstream (tags are peeled).
@@ -97,20 +121,51 @@ current_message() {
     gh api "repos/$gh_repo/git/commits/$tip" --jq .message
 }
 
-# README header for a target; uses the variables set in build_target().
-readme_header() {
+# Upstream description for the README and the release notes.
+upstream_info() {
+    up_web="${url%.git}"
     case "$up_ref" in
         refs/tags/*)
             up_name="${up_ref#refs/tags/}"
             summary="Official PHP $php_ver release ([php/php-src](https://github.com/php/php-src), tag \`$up_name\`) plus a few FreeBSD ports patches, for building PHP by hand on FreeBSD."
-            up_link="[php/php-src \`$up_name\`](https://github.com/php/php-src/tree/$up_name)"
             ;;
         *)
             up_name="${up_ref#refs/heads/}"
             summary="PHP $target is end-of-life upstream. This branch follows Remi Collet's community security backports ([remicollet/php-src-security](https://github.com/remicollet/php-src-security), branch \`$up_name\`) and adds a few FreeBSD ports patches, for building PHP $target by hand on FreeBSD."
-            up_link="[remicollet/php-src-security \`$up_name\`](https://github.com/remicollet/php-src-security/tree/$up_name)"
             ;;
     esac
+    up_link="[${up_web#https://github.com/} \`$up_name\`]($up_web/tree/$up_name)"
+}
+
+port_url() { printf 'https://github.com/freebsd/freebsd-ports/tree/%s/lang/%s/files' "$portrev" "$port"; }
+
+# Applied and not applied ports files as markdown lists. $1 is a line prefix
+# ("> " inside the README block); the reasons come from SKIPPED.
+ports_notes() {
+    printf '%s**Applied** (commit "Apply curated FreeBSD ports patches"):\n%s\n' "$1" "${1% }"
+    for p in "$patch_dir"/patch-*; do
+        printf '%s- `%s` (`%s`): %s\n' "$1" "${p##*/}" \
+            "$(grep -m1 '^+++ ' "$p" | awk '{print $2}')" \
+            "$(sed -n 's/^Description: //p' "$p" | head -1)"
+    done
+    if [ -f "$patch_dir/SKIPPED" ]; then
+        printf '%s\n%s**Not applied:**\n%s\n' "${1% }" "$1" "${1% }"
+        grep -vE '^[[:space:]]*(#|$)' "$patch_dir/SKIPPED" | while IFS= read -r line; do
+            printf '%s- `%s`: %s\n' "$1" "${line%%: *}" "${line#*: }"
+        done
+    fi
+}
+
+backports_notes() {   # $1: line prefix
+    while IFS= read -r p; do
+        printf '%s- %s (%s)\n' "$1" \
+            "$(sed -n 's/^Description: //p' "$p" | head -1)" "$(sed -n 's/^Origin: //p' "$p" | head -1)"
+    done < "$bp_list"
+}
+
+# README header for a target; uses the variables set in build_target().
+readme_header() {
+    upstream_info
     cat <<EOF
 <!-- freebsd-notes:start -->
 > [!IMPORTANT]
@@ -122,42 +177,38 @@ readme_header() {
 > |---|---|
 > | Upstream | $up_link @ \`$(short "$up_commit")\` |
 > | PHP version | $php_ver |
-> | FreeBSD patches | curated from freebsd-ports \`lang/$port\` @ \`$portrev\` (below) |
+> | FreeBSD patches | from freebsd-ports \`lang/$port\` @ \`$portrev\`: applied and not applied, below |
 > | Ready-to-build tarball | [freebsd-$target-latest](https://github.com/$gh_repo/releases/tag/freebsd-$target-latest): \`configure\` and parsers are pre-generated, no autoconf/bison/re2c needed |
-> | Updated | $today_human (UTC), automatically by [tools/sync.sh](https://github.com/$gh_repo/blob/main/tools/sync.sh) |
+> | Updated | $today_human (UTC), automatically by [tools/sync.sh](https://github.com/$gh_repo/blob/HEAD/tools/sync.sh) |
 >
-> FreeBSD ports patches applied on top of upstream (commit "Apply curated FreeBSD ports patches"):
+> **FreeBSD ports patches** from freebsd-ports [\`lang/$port\` @ \`$portrev\`]($(port_url)):
+>
 EOF
-    for p in "$patch_dir"/patch-*; do
-        file="$(grep -m1 '^+++ ' "$p" | awk '{print $2}')"
-        desc="$(sed -n 's/^Description: //p' "$p" | head -1)"
-        printf '> - `%s`: %s\n' "$file" "$desc"
-    done
-    if [ -s "$wt/.sync-backports" ]; then
-        cat <<EOF
+    ports_notes "> "
+    cat <<EOF
 >
+> The upstream \`.github/\` CI configuration is removed so that php-src CI does not
+> run in this fork. Provided as is, without warranty.
+EOF
+    if [ -s "$bp_list" ]; then
+        cat <<EOF
+
 > [!WARNING]
 > **Interim security backports by azsupport** (commit "Backport security fixes"),
 > carried only until the upstream branch has its own fix; not reviewed upstream:
+>
 EOF
-        while IFS= read -r p; do
-            desc="$(sed -n 's/^Description: //p' "$p" | head -1)"
-            origin="$(sed -n 's/^Origin: //p' "$p" | head -1)"
-            printf '> - %s (%s)\n' "$desc" "$origin"
-        done < "$wt/.sync-backports"
+        backports_notes "> "
     fi
     cat <<EOF
->
-> Ports patches that only serve the ports' split-extension packaging, other CPU
-> architectures or LibreSSL are intentionally not applied. The upstream \`.github/\`
-> CI configuration is removed so that php-src CI does not run in this fork.
-> Provided as is, without warranty. The original PHP README follows.
+
+The original PHP README follows.
 <!-- freebsd-notes:end -->
 
 EOF
 }
 
-# Apply patches and create the two commits in worktree $wt (runs with set -e).
+# Apply patches and create the commits in worktree $wt (runs with set -e).
 make_commits() {
     cd "$wt"
     for p in "$patch_dir"/patch-*; do
@@ -182,7 +233,7 @@ make_commits() {
 
     # Optional interim backports (-p1, git format), skipped once upstream has them.
     # -f (not -t): -t guesses "reversed" patches and would fake the -R check.
-    : > .sync-backports
+    : > "$bp_list"
     for p in "$patch_dir"/backport-*.patch; do
         [ -f "$p" ] || continue
         if patch -p1 -R --dry-run -s -f < "$p" >/dev/null 2>&1; then
@@ -193,9 +244,9 @@ make_commits() {
             echo "sync: $target: ${p##*/} does not apply" >&2
             return 1
         fi
-        echo "$p" >> .sync-backports
+        echo "$p" >> "$bp_list"
     done
-    if [ -s .sync-backports ]; then
+    if [ -s "$bp_list" ]; then
         git add -u
         {
             echo "Backport security fixes"
@@ -204,12 +255,11 @@ make_commits() {
             while IFS= read -r p; do
                 echo "- ${p##*/}: $(sed -n 's/^Description: //p' "$p" | head -1)"
                 echo "  Origin: $(sed -n 's/^Origin: //p' "$p" | head -1)"
-            done < .sync-backports
+            done < "$bp_list"
             if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
         } | git commit -q -F -
     fi
-    readme_header > README.md.new     # reads the untracked .sync-backports list
-    rm -f .sync-backports
+    readme_header > README.md.new
     cat README.md >> README.md.new
     mv README.md.new README.md
     git add README.md
@@ -219,21 +269,52 @@ make_commits() {
         echo "Upstream-Ref: $url $up_ref"
         echo "Upstream-Commit: $up_commit"
         echo "Patchset: $patchset"
+        while IFS= read -r p; do echo "Backport: ${p##*/}"; done < "$bp_list"
         if [ -n "${EXTRA_TRAILERS:-}" ]; then printf '%s\n' "$EXTRA_TRAILERS"; fi
     } | git commit -q -F -
+}
+
+# Release notes; $1 is the tarball file name. Needs php_ver, name, sha, new_tip.
+release_notes() {
+    upstream_info
+    printf 'PHP %s for FreeBSD from branch [`%s`](https://github.com/%s/tree/%s), not an official PHP release.\n\n' \
+        "$php_ver" "$branch" "$gh_repo" "$branch"
+    printf '| | |\n|---|---|\n'
+    printf '| Upstream | %s @ [`%s`](%s/commit/%s) |\n' "$up_link" "$(short "$up_commit")" "$up_web" "$up_commit"
+    printf '| Branch commit | [`%s`](https://github.com/%s/commit/%s) |\n' "$(short "$new_tip")" "$gh_repo" "$new_tip"
+    printf '| Tarball | `%s`, unpacks into `%s/` |\n' "$1" "$name"
+    printf '| SHA-256 | `%s` |\n\n' "$sha"
+    printf '### FreeBSD ports patches\n\nFrom freebsd-ports [`lang/%s` @ `%s`](%s).\n\n' "$port" "$portrev" "$(port_url)"
+    ports_notes ""
+    if [ -s "$bp_list" ]; then
+        printf '\n### Interim security backports\n\nBy azsupport, carried only until the upstream branch has its own fix; not reviewed upstream:\n\n'
+        backports_notes ""
+    fi
+    printf '\n### Build\n\nExtract, then in the new directory run `sh /root/php-X.Y.Z/config.nice` (the configure options of your previous build) or `./configure` with your options, then `make` and `make install`. See the [README](https://github.com/%s#readme).\n' "$gh_repo"
+}
+
+latest_notes() {   # $1: tag of the dated release with the same tarball
+    printf 'Moving release: always the newest build of `%s`; same tarball as the dated release [`%s`](https://github.com/%s/releases/tag/%s).\n\n' \
+        "$branch" "$1" "$gh_repo" "$1"
+    release_notes "php-$target-fbsd-latest.tar.xz"
 }
 
 publish_release() {
     short8="$(short "$up_commit" 8)"
     name="php-$php_ver-fbsd-$today-$short8"
+    tag="freebsd-$target-$today-$short8"
     sh "$main_dir/tools/makedist.sh" "refs/heads/$branch" "$dist_dir" "$name"
     sha="$(cut -c1-64 "$dist_dir/$name.tar.xz.sha256")"
-    notes="$(printf 'PHP %s for FreeBSD, branch `%s`.\n\nUpstream: %s `%s` @ `%s`\n\nSHA-256 (%s.tar.xz): `%s`\n\nBuild: extract, run `./configure` with your usual options (or `sh config.nice` from your previous build), `make`, `make install`. See the [README](https://github.com/%s/tree/main#readme).' \
-        "$php_ver" "$branch" "$url" "$up_ref" "$up_commit" "$name" "$sha" "$gh_repo")"
-    gh release create "freebsd-$target-$today-$short8" \
+    # A second build of the same upstream commit on the same day (changed patch set
+    # or --force) replaces that day's dated release.
+    if gh api "repos/$gh_repo/releases/tags/$tag" >/dev/null 2>&1; then
+        log "$target: replacing release $tag"
+        gh release delete "$tag" --repo "$gh_repo" --yes --cleanup-tag
+    fi
+    gh release create "$tag" \
         "$dist_dir/$name.tar.xz" "$dist_dir/$name.tar.xz.sha256" \
         --repo "$gh_repo" --target "$new_tip" --latest=false \
-        --title "PHP $php_ver for FreeBSD ($target, $today_human)" --notes "$notes"
+        --title "PHP $php_ver for FreeBSD ($target, $today_human)" --notes "$(release_notes "$name.tar.xz")"
     latest="php-$target-fbsd-latest"
     cp "$dist_dir/$name.tar.xz" "$dist_dir/$latest.tar.xz"
     sed "s/  $name\\.tar\\.xz\$/  $latest.tar.xz/" "$dist_dir/$name.tar.xz.sha256" > "$dist_dir/$latest.tar.xz.sha256"
@@ -242,7 +323,7 @@ publish_release() {
         "$dist_dir/$latest.tar.xz" "$dist_dir/$latest.tar.xz.sha256" \
         --repo "$gh_repo" --target "$new_tip" --latest=false \
         --title "PHP $target for FreeBSD: latest ($php_ver, $today_human)" \
-        --notes "$(printf 'Moving release: always the newest build of `%s`.\nThe tarball unpacks into `%s/`.\n\n%s' "$branch" "$name" "$notes")"
+        --notes "$(latest_notes "$tag")"
     rm -f "$dist_dir/$latest.tar.xz" "$dist_dir/$latest.tar.xz.sha256"
     log "$target: released $name"
 }
@@ -256,11 +337,7 @@ build_target() {
     up_commit="${resolved%% *}" up_ref="${resolved#* }"
     [ -n "$up_commit" ] && [ "$up_commit" != "$resolved" ] || { log "$target: cannot resolve $ref"; return 1; }
 
-    patchset="$( {
-        cat "$patch_dir"/patch-*
-        for b in "$patch_dir"/backport-*.patch; do if [ -f "$b" ]; then cat "$b"; fi; done
-        echo "$target $url $ref $port $portrev layout=$layout_version"
-    } | sha256_of)"
+    patchset="$(patchset_of)"
 
     # Up to date? Decided from ls-remote + API before any large fetch.
     if [ "$force" = 0 ] && [ "$local_only" = 0 ] && msg="$(current_message "$branch" 2>/dev/null)"; then
@@ -314,6 +391,45 @@ build_target() {
     if [ "$release" = 1 ]; then publish_release; fi
 }
 
+# --notes: rewrite the notes of the releases built from the current branch tip.
+refresh_notes() {
+    target="$1" url="$2" ref="$3" port="$4" portrev="$5"
+    patch_dir="$main_dir/freebsd/patches/$target"
+    branch="freebsd/$target"
+    new_tip="$(git ls-remote origin "refs/heads/$branch" | awk 'NR == 1 {print $1}')"
+    [ -n "$new_tip" ] || { log "$target: no branch $branch"; return 1; }
+    msg="$(gh api "repos/$gh_repo/git/commits/$new_tip" --jq .message)"
+    if [ "$(printf '%s\n' "$msg" | sed -n 's/^Patchset: //p')" != "$(patchset_of)" ]; then
+        log "$target: $branch was built from another patch set, rebuild it instead"
+        return 1
+    fi
+    up_ref="$(printf '%s\n' "$msg" | sed -n 's/^Upstream-Ref: [^ ]* //p')"
+    up_commit="$(printf '%s\n' "$msg" | sed -n 's/^Upstream-Commit: //p')"
+    printf '%s\n' "$msg" | sed -n "s#^Backport: #$patch_dir/#p" > "$bp_list"
+    tags="$(gh api "repos/$gh_repo/releases?per_page=100" \
+        --jq ".[] | select(.target_commitish == \"$new_tip\") | .tag_name" | grep "^freebsd-$target-" || true)"
+    tag="$(printf '%s\n' "$tags" | grep -v -- '-latest$' | head -1)"
+    [ -n "$tag" ] || { log "$target: no release of $branch @ $(short "$new_tip")"; return 1; }
+    assets="$(gh api "repos/$gh_repo/releases/tags/$tag" --jq '.assets[] | "\(.id) \(.name)"')"
+    name="$(printf '%s\n' "$assets" | sed -n 's/^[0-9]* \(.*\)\.tar\.xz$/\1/p' | head -1)"
+    php_ver="${name#php-}"
+    php_ver="${php_ver%%-fbsd-*}"
+    sha_id="$(printf '%s\n' "$assets" | awk -v f="$name.tar.xz.sha256" '$2 == f {print $1}')"
+    sha="$(gh api -H 'Accept: application/octet-stream' "repos/$gh_repo/releases/assets/$sha_id" | cut -c1-64)"
+    [ "${#sha}" = 64 ] || { log "$target: cannot read the SHA-256 of $tag"; return 1; }
+    if [ "$check_only" = 1 ]; then
+        release_notes "$name.tar.xz"
+        log "$target: would update the notes of $tag and freebsd-$target-latest"
+        return 0
+    fi
+    gh release edit "$tag" --repo "$gh_repo" --notes "$(release_notes "$name.tar.xz")" >/dev/null
+    log "$target: notes of $tag updated"
+    if printf '%s\n' "$tags" | grep -qx -- "freebsd-$target-latest"; then
+        gh release edit "freebsd-$target-latest" --repo "$gh_repo" --notes "$(latest_notes "$tag")" >/dev/null
+        log "$target: notes of freebsd-$target-latest updated"
+    fi
+}
+
 failed=""
 targets="$(grep -vE '^[[:space:]]*(#|$)' "$conf")"
 IFS_SAVE="$IFS"
@@ -328,7 +444,11 @@ for line in $targets; do
         case " $want " in *" $t "*) ;; *) continue ;; esac
     fi
     set +e
-    (set -e; build_target "$@")
+    if [ "$notes_only" = 1 ]; then
+        (set -e; refresh_notes "$@")
+    else
+        (set -e; build_target "$@")
+    fi
     rc=$?
     set -e
     [ "$rc" = 0 ] || { log "$t: FAILED"; failed="$failed $t"; }

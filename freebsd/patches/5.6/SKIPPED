@@ -1,0 +1,10 @@
+# FreeBSD ports files of lang/php56 that are NOT applied, with the reason.
+# Format: "<port file>: <reason>"; listed in the branch README and in the release notes.
+# Documentation only: editing this file does not rebuild the branch.
+patch-TSRM_threads.m4: ports build tweak of the configure pthreads check (no thread is created); the upstream check works on FreeBSD
+patch-acinclude.m4: ports split packaging (core and every extension built as separate packages); not needed when extensions are built into PHP
+patch-configure.in: ports build layout: split packaging (ext/php_config.h include, no "Nothing to build" and pthreads checks) and the ports' PEAR include_path; the upstream defaults of a hand build are kept
+patch-ext_standard_image.c: ports split packaging (zlib as a separate package); with zlib built in (`--with-zlib`), getimagesize() already supports SWC upstream
+patch-ext_zlib_config0.m4: ports split packaging (`--with-zlib-dir` alone must not enable the zlib extension in the core package)
+patch-sapi_apache2filter_config.m4: the experimental apache2filter SAPI is not used; apache2handler gets the same change
+php-fpm.in: the rc.d script of the port, not a source patch; your own rc.d scripts stay in use

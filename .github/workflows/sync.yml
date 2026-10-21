@@ -17,6 +17,10 @@ on:
         description: 'Space-separated targets, e.g. "7.4 8.4" (empty = all)'
         type: string
         default: ''
+      notes_only:
+        description: 'Only rewrite the notes of the current releases (no rebuild)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -33,10 +37,10 @@ jobs:
       # SYNC_TOKEN: fine-grained token for this repository only, with "Contents" and
       # "Workflows" read/write. GITHUB_TOKEN may not push upstream history that touches
       # .github/workflows, so without SYNC_TOKEN some updates can be rejected.
-      - name: Check out main
+      # No fixed ref: scheduled runs use the default branch, whatever its name.
+      - name: Check out the default branch
         uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 1
           token: ${{ secrets.SYNC_TOKEN || github.token }}
 
@@ -57,5 +61,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
           FORCE_FLAG: ${{ inputs.force && '--force' || '' }}
+          NOTES_FLAG: ${{ inputs.notes_only && '--notes' || '' }}
           TARGETS: ${{ inputs.targets }}
-        run: sh tools/sync.sh $FORCE_FLAG $TARGETS
+        run: sh tools/sync.sh $NOTES_FLAG $FORCE_FLAG $TARGETS
