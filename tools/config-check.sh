@@ -1,8 +1,8 @@
 #!/bin/sh
 # config-check.sh - before reusing a config.nice for a rebuild, compare its
 # ./configure options with those of the PHP build that is actually installed.
-# The installed build wins: when the options differ, a config script with the
-# installed build's options is written to the current directory.
+# The installed build wins: a config script with the installed build's options,
+# config.installed.sh, is always written to the current directory; run that one.
 #
 # Usage (FreeBSD /bin/sh; from csh run it with sh):
 #   sh config-check.sh /usr/local/php81 /root/php-8.1.34/config.nice
@@ -10,8 +10,8 @@
 #
 #   The first argument is a php, php-fpm or php-cgi binary, or an install prefix
 #   (bin/php, sbin/php-fpm or bin/php-cgi inside it is used).
-#   OUT=/path/file.sh overrides where the script with the installed options goes
-#   (default: ./config.installed.sh).
+#   Run it from inside the new PHP source tree, then: sh config.installed.sh
+#   OUT=/path/file.sh overrides where the script goes (default: ./config.installed.sh).
 #
 # The installed options come from "<binary> -n -i" (Configure Command; -n skips
 # php.ini, so a broken shared extension does not get in the way) or, failing that,
@@ -19,7 +19,7 @@
 # config.nice (CFLAGS=... and the like) are shown and carried over, but not
 # compared: the installed build does not record them.
 #
-# Exit status: 0 same options, 1 different (script written), 2 usage or read error.
+# Exit status: 0 same options, 1 different, 2 usage or read error.
 
 set -u
 
@@ -89,11 +89,6 @@ if [ -s "$tmp/env" ]; then
     echo "environment in config.nice (not recorded by the installed build, not compared):"
     sed 's/^/  /' "$tmp/env"
 fi
-if [ ! -s "$tmp/only_installed" ] && [ ! -s "$tmp/only_nice" ]; then
-    echo
-    echo "RESULT: same options; config.nice reproduces the installed build."
-    exit 0
-fi
 if [ -s "$tmp/only_installed" ]; then
     echo
     echo "only in the installed build (missing in config.nice):"
@@ -126,6 +121,13 @@ out="$out_dir/$out_name"
 chmod +x "$out" 2>/dev/null || true
 
 echo
-echo "RESULT: different. The installed build wins; written: $out"
-echo "  run it instead of config.nice from inside the new source tree: sh $out"
-exit 1
+if [ ! -s "$tmp/only_installed" ] && [ ! -s "$tmp/only_nice" ]; then
+    echo "RESULT: same options; config.nice matches the installed build."
+    rc=0
+else
+    echo "RESULT: different; the installed build wins."
+    rc=1
+fi
+echo "written: $out"
+echo "next, from inside the new source tree: sh $out"
+exit "$rc"
