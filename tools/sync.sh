@@ -18,6 +18,7 @@
 #     --local       build branches locally only: no push, no releases
 #     --force       rebuild even if nothing changed upstream
 #     --no-release  push branches but do not build tarballs or releases
+#     --check       only report which targets are up to date (no fetch, no push)
 #
 # Environment:
 #   FETCH_DEPTH     limit the upstream fetch depth (default: full history, which
@@ -38,10 +39,11 @@ main_dir="$(cd "$(dirname "$0")/.." && pwd)"
 conf="$main_dir/freebsd/targets.conf"
 gh_repo="${GH_REPO:-${GITHUB_REPOSITORY:-azsupport/php-src}}"
 dist_dir="${DIST_DIR:-$(pwd)/.sync-dist}"
-local_only=0 force=0 release=1
+local_only=0 force=0 release=1 check_only=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --local) local_only=1; release=0 ;;
+        --check) check_only=1; release=0 ;;
         --force) force=1 ;;
         --no-release) release=0 ;;
         -*) echo "sync: unknown option $1" >&2; exit 2 ;;
@@ -220,6 +222,10 @@ build_target() {
             log "$target: up to date ($up_ref @ $(short "$up_commit"))"
             return 0
         fi
+    fi
+    if [ "$check_only" = 1 ]; then
+        log "$target: would rebuild ($up_ref @ $(short "$up_commit"))"
+        return 0
     fi
 
     git fetch -q --no-tags ${FETCH_DEPTH:+--depth="$FETCH_DEPTH"} "$url" "+$up_ref:refs/sync/upstream/$target"
