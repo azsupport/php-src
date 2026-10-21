@@ -1753,6 +1753,19 @@ static void zend_mm_safe_error(zend_mm_heap *heap,
 		_zend_mm_free_int(heap, heap->reserve ZEND_FILE_LINE_CC ZEND_FILE_LINE_EMPTY_CC);
 		heap->reserve = NULL;
 	}
+	/* azsupport CVE-2026-109618 hardening for PHP 5.6 (no upstream fix): on memory
+	 * exhaustion, terminate this worker instead of unwinding via longjmp() out of a
+	 * possibly half-initialized request. Mirrors the hard-OOM _exit() of PHP 8.2+.
+	 * The worker is respawned by php-fpm / the Apache MPM. */
+	fprintf(stderr, "\nFatal error: ");
+	fprintf(stderr, format, limit,
+#if ZEND_DEBUG
+		filename, lineno,
+#endif
+		size);
+	fprintf(stderr, "\n");
+	fflush(stderr);
+	_exit(137);
 	if (heap->overflow == 0) {
 		const char *error_filename;
 		uint error_lineno;
