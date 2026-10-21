@@ -43,8 +43,8 @@ Every branch is upstream plus these commits, in this order:
    [Build compatibility patches](#build-compatibility-patches).
 3. **Backport security fixes** (only while there is one, now 5.6): see
    [Interim backports](#interim-backports).
-4. **Bundle PECL extensions**: redis, memcached, memcache, imagick, igbinary and
-   swoole in `ext/`, built only when enabled, see
+4. **Bundle PECL extensions**: redis, memcached, memcache, imagick, igbinary,
+   swoole and OpenSwoole in `ext/`, built only when enabled, see
    [Bundled PECL extensions](#bundled-pecl-extensions).
 5. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
    appended to the banner by C string-literal concatenation, so `php -v` shows the
@@ -287,12 +287,12 @@ The branches and tarballs carry these PECL extensions in `ext/`, so they are bui
 into PHP like the bundled ones and need no `phpize` or `extension=` line. Nothing
 changes unless their option is given:
 
-| PHP | redis | memcached | memcache | imagick | igbinary | swoole |
-|---|---|---|---|---|---|---|
-| 8.2, 8.3, 8.4 | 6.3.0 | 3.4.0 | 8.2 | 3.8.1 | 3.2.16 | 6.2.3 |
-| 8.1 | 6.3.0 | 3.4.0 | 8.2 | 3.8.1 | 3.2.16 | 6.1.10 |
-| 7.4 | 6.3.0 | 3.4.0 | 4.0.5.2 | 3.8.1 | 3.2.16 | 4.8.13 |
-| 5.6 | 4.3.0 | 2.2.0 | 3.0.8 | 3.8.1 | 2.0.8 | |
+| PHP | redis | memcached | memcache | imagick | igbinary | swoole | OpenSwoole |
+|---|---|---|---|---|---|---|---|
+| 8.2, 8.3, 8.4 | 6.3.0 | 3.4.0 | 8.2 | 3.8.1 | 3.2.16 | 6.2.3 | |
+| 8.1 | 6.3.0 | 3.4.0 | 8.2 | 3.8.1 | 3.2.16 | 6.1.10 | 4.12.1 |
+| 7.4 | 6.3.0 | 3.4.0 | 4.0.5.2 | 3.8.1 | 3.2.16 | 4.8.13 | 4.12.1 |
+| 5.6 | 4.3.0 | 2.2.0 | 3.0.8 | 3.8.1 | 2.0.8 | | |
 
 | Extension | configure option | FreeBSD package |
 |---|---|---|
@@ -302,20 +302,29 @@ changes unless their option is given:
 | [imagick](https://pecl.php.net/package/imagick) | `--with-imagick=/usr/local` | `ImageMagick7` or `ImageMagick7-nox11` |
 | [igbinary](https://pecl.php.net/package/igbinary) | `--enable-igbinary`; for its use as the serializer of redis and memcached also `--enable-redis-igbinary` and `--enable-memcached-igbinary` | |
 | [swoole](https://pecl.php.net/package/swoole) (7.4 and newer) | `--enable-swoole`; it uses OpenSSL when PHP is built `--with-openssl` | `brotli` (optional, for brotli compression) |
+| [OpenSwoole](https://pecl.php.net/package/openswoole) (7.4 and 8.1) | `--enable-openswoole`; it uses OpenSSL when PHP is built `--with-openssl`; not together with `--enable-swoole` (configure stops) | |
 
 The versions are the newest stable PECL releases for each PHP version (memcache for
 5.6: 3.0.8, the release distributions shipped for PHP 5.5/5.6; its only stable 5.x
 release is 2.2.7 of 2012). The sources come from the upstream git repositories at the
 commit of the release tag, pinned in [`freebsd/pecl.conf`](freebsd/pecl.conf); the
 fixes that make them build inside php-src with clang 19 are in
-[`freebsd/pecl/`](freebsd/pecl). swoole is bundled from 7.4 on, not for 5.6. They
-need `--enable-session` (session handlers); on 5.6 and 7.4 redis also needs
-`--enable-json`, and on 5.6 `--enable-hash`. For swoole 4.8 and 6.1 (PHP 7.4 and 8.1)
-the patches drop the upstream `--enable-openssl`: inside php-src it reset the
-`--with-openssl` setting, and mysqlnd then built without its OpenSSL code (RSA for
-`caching_sha2_password`); they also drop the `-std=c++11`/`-std=c++14` that swoole
-appends to `CXXFLAGS`, which inside php-src would apply to ext/intl too (ICU 75 and
-newer need C++17).
+[`freebsd/pecl/`](freebsd/pecl). The extensions need `--enable-session` (session
+handlers); on 5.6 and 7.4 redis also needs `--enable-json`, and on 5.6
+`--enable-hash`.
+
+swoole is bundled from 7.4 on, not for 5.6. OpenSwoole, a fork of swoole, is the
+4.12 line for 7.4 and 8.1, the one the servers ran: OpenSwoole 22 and newer changed
+its API, so its newest release for 8.1 (22.1.2) would not be a drop-in replacement.
+Only one of the two can be built into a PHP. Upstream both are on by default
+(`--enable-swoole`, `--enable-openswoole`), which inside php-src would build them into
+every PHP configured without `--disable-all`; the patches make them off by default.
+For swoole 4.8 and 6.1 and for OpenSwoole (PHP 7.4 and 8.1) the patches also drop the
+upstream `--enable-openssl`: inside php-src it reset the `--with-openssl` setting, and
+mysqlnd then built without its OpenSSL code (RSA for `caching_sha2_password`); swoole
+and OpenSwoole now use OpenSSL when PHP is built `--with-openssl`. And they drop the
+`-std=c++11`/`-std=c++14` that swoole appends to `CXXFLAGS`, which inside php-src
+would apply to ext/intl too (ICU 75 and newer need C++17).
 
 With `--enable-memcached-igbinary`, igbinary becomes the default serializer of
 memcached (`memcached.serializer = igbinary`) for arrays and objects. A PHP built
