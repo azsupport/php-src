@@ -1,0 +1,27 @@
+Description: CVE-2026-109618 OOM hardening for PHP 5.6: _exit() the worker instead of longjmp() out of the memory-exhaustion handler (mirrors the hard-OOM _exit of PHP 8.2+). No upstream fix exists for 5.6.
+Origin: azsupport, modelled on the hard-OOM _exit() of php/php-src 8.2+ (GHSA-w8hw-w9fx-j79w); written against remicollet PHP-5.6-security-backports-openssl11 @ 5c2cc46b45cf, review when that branch gets its own fix
+
+diff --git a/Zend/zend_alloc.c b/Zend/zend_alloc.c
+index c7babe12b..e3d4f3e67 100644
+--- a/Zend/zend_alloc.c
++++ b/Zend/zend_alloc.c
+@@ -1753,6 +1753,19 @@ static void zend_mm_safe_error(zend_mm_heap *heap,
+ 		_zend_mm_free_int(heap, heap->reserve ZEND_FILE_LINE_CC ZEND_FILE_LINE_EMPTY_CC);
+ 		heap->reserve = NULL;
+ 	}
++	/* azsupport CVE-2026-109618 hardening for PHP 5.6 (no upstream fix): on memory
++	 * exhaustion, terminate this worker instead of unwinding via longjmp() out of a
++	 * possibly half-initialized request. Mirrors the hard-OOM _exit() of PHP 8.2+.
++	 * The worker is respawned by php-fpm / the Apache MPM. */
++	fprintf(stderr, "\nFatal error: ");
++	fprintf(stderr, format, limit,
++#if ZEND_DEBUG
++		filename, lineno,
++#endif
++		size);
++	fprintf(stderr, "\n");
++	fflush(stderr);
++	_exit(137);
+ 	if (heap->overflow == 0) {
+ 		const char *error_filename;
+ 		uint error_lineno;
