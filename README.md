@@ -38,11 +38,14 @@ Every branch is upstream plus exactly three commits:
    files with a description and origin line are in [`freebsd/patches/`](freebsd/patches).
    The same commit removes the upstream `.github/` directory, so that php-src's own
    CI does not run in this fork (release tarballs never contain it anyway).
-2. **Mark the version as a FreeBSD build**: `php -v` shows the upstream version
-   plus the build date and the upstream commit, for example
-   `PHP 7.4.33-20261021-fbsd-802c2107 (cli)`. The suffix starts with a digit, so
-   `version_compare()` ranks the build above 7.4.33 and below 7.4.34;
-   `PHP_VERSION_ID` stays 70433.
+2. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
+   appended to the banner by C string-literal concatenation, so `php -v` shows the
+   build date and upstream commit, for example
+   `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`. `PHP_VERSION`
+   stays the plain upstream `7.4.33`, so `phpversion()`, `version_compare()` and
+   `PHP x.y.z` parsers are not disturbed. On 8.2+ the banner is shared by every SAPI
+   (`php -v`, `php-fpm -v`); on 5.6/7.4 it is the CLI banner. `phpinfo()` shows the
+   plain version, not the build id.
 3. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
    README with the exact upstream commit (`Upstream-Commit:` trailer) and the lists
    of applied and not applied ports patches; the release notes carry the same lists.
@@ -98,9 +101,10 @@ The exact list for each version, one line per port file with the reason, is in
 The `freebsd-<version>-latest` release always carries the newest tarball of a
 branch; dated releases (`freebsd-<version>-<YYYYMMDD>-<commit>`) are kept. A tarball
 unpacks into a directory with the date and the upstream commit, for example
-`php-7.4.33-fbsd-20261021-802c2107/`, and the PHP built from it reports the same in
-`php -v`: `PHP 7.4.33-20261021-fbsd-802c2107`. Tarballs published before this was
-added (21.10.2026) report the plain upstream version.
+`php-7.4.33-fbsd-20261021-802c2107/`, and the PHP built from it shows the same in the
+`php -v` banner: `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`. The
+version itself stays `7.4.33`. Tarballs published before this was added (21.10.2026)
+have no `(fork: ...)` in the banner.
 
 ```sh
 cd /root
@@ -123,9 +127,9 @@ a `config.nice` may come from a configure run that was never installed. The
 installed build wins: the script lists the differences, if any, and always writes
 `config.installed.sh` with the installed build's options into the current directory.
 
-`php -v` then reports `PHP 7.4.33-20261021-fbsd-802c2107 (cli) ...`. The commands
-work in both `sh` and `csh`; the block has no comments on purpose, because an
-interactive csh does not treat `#` as a comment. `config.nice` is written by
+`php -v` then reports `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`.
+The commands work in both `sh` and `csh`; the block has no comments on purpose,
+because an interactive csh does not treat `#` as a comment. `config.nice` is written by
 `configure` into every build directory and re-runs `./configure` with the same
 options from the current directory. Restart php-fpm or Apache afterwards so that
 no worker keeps running the old binary.
