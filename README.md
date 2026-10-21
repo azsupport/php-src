@@ -43,8 +43,9 @@ Every branch is upstream plus these commits, in this order:
    [Build compatibility patches](#build-compatibility-patches).
 3. **Backport security fixes** (only while there is one, now 5.6): see
    [Interim backports](#interim-backports).
-4. **Bundle PECL extensions**: redis, memcached, memcache and imagick in `ext/`,
-   built only when enabled, see [Bundled PECL extensions](#bundled-pecl-extensions).
+4. **Bundle PECL extensions**: redis, memcached, memcache, imagick, igbinary and
+   swoole in `ext/`, built only when enabled, see
+   [Bundled PECL extensions](#bundled-pecl-extensions).
 5. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
    appended to the banner by C string-literal concatenation, so `php -v` shows the
    build date and upstream commit, for example
@@ -250,9 +251,17 @@ installed build does not record). It finds that file itself:
 `/root/php-<installed version>-fbsd-*/config.nice` from an earlier build of this
 fork; another one can be given as the second argument
 (`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`). Without any
-`config.nice` it still writes the script, but without `CFLAGS`. PHP 5.6 records
-options with spaces in a broken quoting (`'CFLAGS=-O3 '-pipe' ...''`); the script
-reads them as the shell would, as one option.
+`config.nice` it takes the environment from `/etc/make.conf`, as the ports do:
+`CFLAGS` with `-march=$CPUTYPE`, and `LIBS=-lpthread` (the `LINKTHR` option of
+`lang/phpXY`). PHP 5.6 records options with spaces in a broken quoting
+(`'CFLAGS=-O3 '-pipe' ...''`); the script reads them as the shell would, as one
+option.
+
+`-march` always comes from `/etc/make.conf` of the server the script runs on
+(`CPUTYPE`, or a `-march=` in its `CFLAGS`): a `-march` of a `config.nice` copied
+from a server with another CPU is replaced, and the report says so. When the CPU
+lacks what the `-march` needs (`x86-64-v4` needs AVX-512, `x86-64-v3` AVX2), the
+script warns: PHP built with it would stop with `Illegal instruction` there.
 
 Building straight from a branch also works, but then autoconf, bison and re2c
 are required (`./buildconf --force` first).
@@ -278,11 +287,12 @@ The branches and tarballs carry these PECL extensions in `ext/`, so they are bui
 into PHP like the bundled ones and need no `phpize` or `extension=` line. Nothing
 changes unless their option is given:
 
-| PHP | redis | memcached | memcache | imagick |
-|---|---|---|---|---|
-| 8.1, 8.2, 8.3, 8.4 | 6.3.0 | 3.4.0 | 8.2 | 3.8.1 |
-| 7.4 | 6.3.0 | 3.4.0 | 4.0.5.2 | 3.8.1 |
-| 5.6 | 4.3.0 | 2.2.0 | 3.0.8 | 3.8.1 |
+| PHP | redis | memcached | memcache | imagick | igbinary | swoole |
+|---|---|---|---|---|---|---|
+| 8.2, 8.3, 8.4 | 6.3.0 | 3.4.0 | 8.2 | 3.8.1 | 3.2.16 | 6.2.3 |
+| 8.1 | 6.3.0 | 3.4.0 | 8.2 | 3.8.1 | 3.2.16 | 6.1.10 |
+| 7.4 | 6.3.0 | 3.4.0 | 4.0.5.2 | 3.8.1 | 3.2.16 | 4.8.13 |
+| 5.6 | 4.3.0 | 2.2.0 | 3.0.8 | 3.8.1 | 2.0.8 | |
 
 | Extension | configure option | FreeBSD package |
 |---|---|---|
@@ -290,14 +300,30 @@ changes unless their option is given:
 | [memcached](https://pecl.php.net/package/memcached) | `--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl` | `libmemcached` |
 | [memcache](https://pecl.php.net/package/memcache) | `--enable-memcache` | |
 | [imagick](https://pecl.php.net/package/imagick) | `--with-imagick=/usr/local` | `ImageMagick7` or `ImageMagick7-nox11` |
+| [igbinary](https://pecl.php.net/package/igbinary) | `--enable-igbinary`; for its use as the serializer of redis and memcached also `--enable-redis-igbinary` and `--enable-memcached-igbinary` | |
+| [swoole](https://pecl.php.net/package/swoole) (7.4 and newer) | `--enable-swoole`; it uses OpenSSL when PHP is built `--with-openssl` | `brotli` (optional, for brotli compression) |
 
 The versions are the newest stable PECL releases for each PHP version (memcache for
 5.6: 3.0.8, the release distributions shipped for PHP 5.5/5.6; its only stable 5.x
 release is 2.2.7 of 2012). The sources come from the upstream git repositories at the
 commit of the release tag, pinned in [`freebsd/pecl.conf`](freebsd/pecl.conf); the
 fixes that make them build inside php-src with clang 19 are in
-[`freebsd/pecl/`](freebsd/pecl). They need `--enable-session` (session handlers);
-on 5.6 and 7.4 redis also needs `--enable-json`, and on 5.6 `--enable-hash`.
+[`freebsd/pecl/`](freebsd/pecl). swoole is bundled from 7.4 on, not for 5.6. They
+need `--enable-session` (session handlers); on 5.6 and 7.4 redis also needs
+`--enable-json`, and on 5.6 `--enable-hash`. For swoole 4.8 and 6.1 (PHP 7.4 and 8.1)
+the patches drop the upstream `--enable-openssl`: inside php-src it reset the
+`--with-openssl` setting, and mysqlnd then built without its OpenSSL code (RSA for
+`caching_sha2_password`); they also drop the `-std=c++11`/`-std=c++14` that swoole
+appends to `CXXFLAGS`, which inside php-src would apply to ext/intl too (ICU 75 and
+newer need C++17).
+
+With `--enable-memcached-igbinary`, igbinary becomes the default serializer of
+memcached (`memcached.serializer = igbinary`) for arrays and objects. A PHP built
+without igbinary cannot read such values, so while servers with and without it
+share one memcached, set `memcached.serializer = php` in `php.ini`. Values already
+stored with the php serializer stay readable either way. redis serializes nothing
+until `Redis::OPT_SERIALIZER` is set, so there igbinary is used only where the code
+asks for `Redis::SERIALIZER_IGBINARY`.
 
 To add them to a rebuild, put the options after `sh config.installed.sh`, for example
 `sh config.installed.sh --enable-redis --enable-memcache`, and remove the
