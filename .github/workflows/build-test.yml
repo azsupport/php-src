@@ -1,0 +1,65 @@
+name: Build test on FreeBSD
+
+# Builds the freebsd-<version>-latest release tarballs in a FreeBSD VM with the
+# configure options of our servers (tools/build-test.sh) and reports the result
+# on the run page: one annotation per version, details in the job summary.
+# Started by hand only: Actions, "Build test on FreeBSD", "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 'Versions, separated by spaces: 5.6 7.4 8.1 8.2 8.3 8.4'
+        required: true
+        default: '5.6 7.4'
+      release:
+        description: 'FreeBSD release'
+        required: true
+        default: '15.1'
+      tests:
+        description: 'Also run a part of the PHP test suite'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-test
+  cancel-in-progress: false
+
+jobs:
+  freebsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download the release tarballs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          mkdir -p dist
+          for t in $TARGETS; do
+            gh release download "freebsd-$t-latest" --repo "$GITHUB_REPOSITORY" --dir dist \
+              --pattern "php-$t-fbsd-latest.tar.xz" --pattern "php-$t-fbsd-latest.tar.xz.sha256"
+          done
+          cd dist && sha256sum -c ./*.sha256
+
+      - name: Build in FreeBSD ${{ inputs.release }}
+        uses: vmactions/freebsd-vm@v1
+        env:
+          TARGETS: ${{ inputs.targets }}
+          TESTS: ${{ inputs.tests && '--tests' || '' }}
+        with:
+          release: ${{ inputs.release }}
+          envs: 'TARGETS TESTS'
+          prepare: |
+            sh tools/build-test.sh --deps $TARGETS
+          run: |
+            sh tools/build-test.sh $TESTS $TARGETS || true
+
+      - name: Report
+        if: always()
+        run: sh tools/build-test-report.sh build-test-results
