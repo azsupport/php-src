@@ -26,13 +26,19 @@ Every branch is upstream plus exactly two commits:
 1. **Apply curated FreeBSD ports patches**: taken from `lang/phpXY` in the
    [FreeBSD ports collection](https://github.com/freebsd/freebsd-ports); the patch
    files with a description and origin line are in [`freebsd/patches/`](freebsd/patches).
+   The same commit removes the upstream `.github/` directory, so that php-src's own
+   CI does not run in this fork (release tarballs never contain it anyway).
 2. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
    README, with the exact upstream commit (`Upstream-Commit:` trailer).
 
-The pristine upstream refs are mirrored under their original names
+Remi Collet's branches are mirrored under their original names
 (`PHP-5.6-security-backports-openssl11`, `PHP-7.4-security-backports`,
-`PHP-8.1-security-backports`, tags `php-8.2.N`, `php-8.3.N`, `php-8.4.N`).
-`master` is the untouched fork point of php/php-src and is not used.
+`PHP-8.1-security-backports`) and kept current by the workflow. The release tags
+`php-5.6.40`, `php-7.4.33`, `php-8.1.34`, `php-8.2.34`, `php-8.3.35` and
+`php-8.4.26` were mirrored once on 21.10.2026; newer official tags are not mirrored,
+because pushing them would start php-src's tag-triggered CI here, but their full
+history is part of the `freebsd/8.x` branches. `master` is the untouched fork point
+of php/php-src and is not used.
 
 ### Which FreeBSD ports patches are applied
 
@@ -94,7 +100,7 @@ calls [`tools/sync.sh`](tools/sync.sh):
 1. resolves the upstream commit of every target in
    [`freebsd/targets.conf`](freebsd/targets.conf) with `git ls-remote`;
 2. skips targets whose branch already carries that commit and the same patch set;
-3. otherwise rebuilds `freebsd/<version>`, mirrors the upstream ref, generates a
+3. otherwise rebuilds `freebsd/<version>`, mirrors Remi's branch, generates a
    tarball with [`tools/makedist.sh`](tools/makedist.sh) (Ubuntu 24.04 autoconf,
    bison and re2c) and publishes the releases.
 
@@ -102,6 +108,12 @@ A run can also be started by hand (Actions, "Sync FreeBSD branches", "Run
 workflow"), optionally with `force` or a list of targets. Locally:
 `tools/sync.sh --local` in a clone of this repository builds the branches without
 pushing.
+
+The workflow pushes with the repository secret `SYNC_TOKEN` when it exists: a
+fine-grained personal access token limited to this repository with **Contents**
+and **Workflows** read/write. The default `GITHUB_TOKEN` is used otherwise, but it
+may not push upstream history that touches `.github/workflows`, so some updates of
+the `freebsd/8.x` branches could be rejected without `SYNC_TOKEN`.
 
 ## Credits and licenses
 

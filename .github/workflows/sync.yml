@@ -30,11 +30,23 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
+      # SYNC_TOKEN: fine-grained token for this repository only, with "Contents" and
+      # "Workflows" read/write. GITHUB_TOKEN may not push upstream history that touches
+      # .github/workflows, so without SYNC_TOKEN some updates can be rejected.
       - name: Check out main
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 1
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      - name: Token check
+        env:
+          HAS_SYNC_TOKEN: ${{ secrets.SYNC_TOKEN != '' }}
+        run: |
+          if [ "$HAS_SYNC_TOKEN" != "true" ]; then
+            echo "::warning::Secret SYNC_TOKEN is not set; pushes run with GITHUB_TOKEN and may be rejected when upstream history changes .github/workflows."
+          fi
 
       - name: Install generators
         run: |
@@ -43,7 +55,7 @@ jobs:
 
       - name: Sync branches and publish tarballs
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
           FORCE_FLAG: ${{ inputs.force && '--force' || '' }}
           TARGETS: ${{ inputs.targets }}
         run: sh tools/sync.sh $FORCE_FLAG $TARGETS
