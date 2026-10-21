@@ -39,7 +39,7 @@ jobs:
       # .github/workflows, so without SYNC_TOKEN some updates can be rejected.
       # No fixed ref: scheduled runs use the default branch, whatever its name.
       - name: Check out the default branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
           token: ${{ secrets.SYNC_TOKEN || github.token }}
