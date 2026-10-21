@@ -400,8 +400,9 @@ refresh_notes() {
     [ -n "$new_tip" ] || { log "$target: no branch $branch"; return 1; }
     msg="$(gh api "repos/$gh_repo/git/commits/$new_tip" --jq .message)"
     if [ "$(printf '%s\n' "$msg" | sed -n 's/^Patchset: //p')" != "$(patchset_of)" ]; then
-        log "$target: $branch was built from another patch set, rebuild it instead"
-        return 1
+        # The next regular run rebuilds it, with fresh notes.
+        log "$target: $branch waits for a rebuild (patch set changed), notes left as they are"
+        return 0
     fi
     up_ref="$(printf '%s\n' "$msg" | sed -n 's/^Upstream-Ref: [^ ]* //p')"
     up_commit="$(printf '%s\n' "$msg" | sed -n 's/^Upstream-Commit: //p')"
