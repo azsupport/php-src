@@ -24,7 +24,9 @@ work="$top/build-test"
 dist="$top/dist"
 
 deps() {
-    pkgs="pkgconf"
+    # libmemcached, ImageMagick7-nox11: bundled PECL memcached and imagick; memcached and
+    # redis: servers for the smoke checks of the PECL extensions
+    pkgs="pkgconf libmemcached ImageMagick7-nox11 memcached redis"
     for t in "$@"; do
         case "$t" in
             5.6) pkgs="$pkgs libxml2 curl jpeg-turbo png freetype2 gettext-runtime libiconv libmcrypt pcre apache24 perl5" ;;
@@ -72,7 +74,9 @@ preset() {
                 --enable-mysqlnd --with-mysql --with-mysql-sock=/tmp/mysql.sock --with-mysqli \
                 --enable-embedded-mysqli --enable-opcache --with-openssl=/usr --enable-phar \
                 --enable-session --enable-tokenizer --with-xmlrpc --enable-xmlwriter --enable-zip \
-                --with-zlib=/usr --enable-sockets
+                --with-zlib=/usr --enable-sockets \
+                --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
+                --enable-memcache --with-imagick=/usr/local
             ;;
         7.4)
             CFLAGS="-O3 -pipe -march=$march -fstack-protector-strong -fno-strict-aliasing"
@@ -88,7 +92,9 @@ preset() {
                 --enable-simplexml --enable-sockets --enable-tokenizer --enable-phar --enable-posix \
                 --enable-xml --with-zip --with-zlib --enable-gd --with-external-gd --with-webp \
                 --with-external-pcre=/usr/local --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
-                --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl
+                --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl \
+                --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
+                --enable-memcache --with-imagick=/usr/local
             ;;
         8.*)
             v="$(echo "$1" | tr -d .)"
@@ -105,7 +111,9 @@ preset() {
                 --enable-xml --with-zlib --enable-gd --with-external-gd --with-webp \
                 --with-external-pcre=/usr/local --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --enable-sockets \
-                --enable-intl --enable-fileinfo --with-zip --enable-xmlwriter --enable-exif
+                --enable-intl --enable-fileinfo --with-zip --enable-xmlwriter --enable-exif \
+                --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
+                --enable-memcache --with-imagick=/usr/local
             ;;
         *) return 1 ;;
     esac
@@ -124,6 +132,10 @@ test_dirs() {
                  ext/posix ext/readline ext/intl" ;;
     esac
 }
+
+# Local memcached and redis for the smoke checks of the bundled PECL extensions.
+if command -v memcached >/dev/null 2>&1; then memcached -d -u nobody -l 127.0.0.1 -p 11211 2>/dev/null || true; fi
+if command -v redis-server >/dev/null 2>&1; then redis-server --daemonize yes --bind 127.0.0.1 --port 6379 >/dev/null 2>&1 || true; fi
 
 rc=0
 for target in "$@"; do

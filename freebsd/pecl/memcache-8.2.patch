@@ -1,0 +1,42 @@
+Description: Build inside php-src as ext/memcache (bundled by this fork), not only with phpize: config9.m4 looked for its src/ sources under abs_srcdir, which is the PHP tree there, and its PHP version test could not find php_version.h, so configure stopped ("checking PHP version... unknown"); main/internal_functions.c needs ext/memcache/php_memcache.h for phpext_memcache_ptr. config9.m4 now uses PHP_EXT_SRCDIR(memcache), the extension directory in both cases, adds main/ for the version test, and a top-level php_memcache.h includes src/php_memcache.h.
+Origin: azsupport
+
+diff --git a/config9.m4 b/config9.m4
+index d48316f..a6a2454 100644
+--- a/config9.m4
++++ b/config9.m4
+@@ -64,10 +64,12 @@ if test "$PHP_MEMCACHE" != "no"; then
+   fi
+ 
+   AC_MSG_CHECKING(PHP version)
+-  if test -d $abs_srcdir/src ; then
++  dnl PHP_EXT_SRCDIR: the extension directory, also inside php-src (ext/memcache)
++  if test -d "PHP_EXT_SRCDIR(memcache)/src" ; then
+     dnl # only when for PECL, not for PHP
+     export OLD_CPPFLAGS="$CPPFLAGS"
+-    export CPPFLAGS="$CPPFLAGS $INCLUDES"
++    dnl main/: php_version.h inside php-src, where INCLUDES does not have it yet
++    export CPPFLAGS="$CPPFLAGS $INCLUDES -I$abs_srcdir/main"
+     AC_TRY_COMPILE([#include <php_version.h>], [
+ #if PHP_MAJOR_VERSION < 7
+   #error "PHP < 7"
+@@ -130,8 +132,8 @@ if test "$PHP_MEMCACHE" != "no"; then
+     PHP_NEW_EXTENSION(memcache, $SOURCES, $ext_shared)
+   fi
+ 
+-  if test ! -d $subdir; then
+-	mkdir $subdir
++  if test ! -d "PHP_EXT_BUILDDIR(memcache)/$subdir"; then
++	mkdir "PHP_EXT_BUILDDIR(memcache)/$subdir"
+   fi
+ 
+ dnl this is needed to build the extension with phpize and -Wall
+diff --git a/php_memcache.h b/php_memcache.h
+new file mode 100644
+index 0000000..0f1c1c1
+--- /dev/null
++++ b/php_memcache.h
+@@ -0,0 +1,3 @@
++/* Inside php-src (ext/memcache), main/internal_functions.c includes this file for
++ * phpext_memcache_ptr; the extension keeps its sources in src/. */
++#include "src/php_memcache.h"

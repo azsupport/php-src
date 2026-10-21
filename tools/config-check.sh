@@ -139,6 +139,10 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             xsl) if [ "$fam" = 5 ]; then echo "--with-xsl=/usr/local"; else echo "--with-xsl"; fi ;;
             zip) if [ "$fam" = 5 ]; then echo "--enable-zip"; else echo "--with-zip"; fi ;;
             zlib) if [ "$fam" = 5 ]; then echo "--with-zlib=/usr"; else echo "--with-zlib"; fi ;;
+            pecl-redis) echo "--enable-redis" ;;
+            pecl-memcached) echo "--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl" ;;
+            pecl-memcache) echo "--enable-memcache" ;;
+            pecl-imagick) echo "--with-imagick=/usr/local" ;;
             pecl-*) echo "PECL extension, not part of ./configure: build it later with $prefix/bin/phpize"; return 1 ;;
             *) echo "not an extension of the PHP sources (a tool, or one this script does not know)"; return 1 ;;
         esac
@@ -416,6 +420,28 @@ out="$out_dir/$out_name"
     echo '"$@"'
 } > "$out" || { echo "config-check: cannot write $out" >&2; exit 2; }
 chmod +x "$out" 2>/dev/null || true
+
+# Shared PECL modules of the installed PHP that this source tree bundles in ext/:
+# only a hint, they are built in only when their option is added.
+"$php" -m 2>/dev/null | tr 'A-Z' 'a-z' > "$tmp/modules"
+: > "$tmp/pecl_hint"
+for m in redis memcached memcache imagick; do
+    [ -f "ext/$m/config.m4" ] || [ -f "ext/$m/config9.m4" ] || continue
+    grep -qx "$m" "$tmp/modules" || continue
+    grep -q -e "--enable-$m\$" -e "--enable-$m=" -e "--with-$m" "$tmp/installed" && continue
+    case "$m" in
+        memcached) o="--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl" ;;
+        imagick) o="--with-imagick=/usr/local" ;;
+        *) o="--enable-$m" ;;
+    esac
+    printf '  %-10s %s\n' "$m" "$o" >> "$tmp/pecl_hint"
+done
+if [ -s "$tmp/pecl_hint" ]; then
+    echo
+    echo "loaded as shared modules (extension=... in php.ini), bundled in this tree; to build them in,"
+    echo "add the options after the script (sh config.installed.sh <options>) and remove the extension= lines:"
+    cat "$tmp/pecl_hint"
+fi
 
 echo
 if [ -z "$nice" ]; then

@@ -152,7 +152,7 @@ if (extension_loaded('gd')) {
 }
 
 // XML.
-if (extension_loaded('libxml')) {
+if (extension_loaded('libxml') && function_exists('simplexml_load_string')) {
     libxml_use_internal_errors(true);
     simplexml_load_string('<a><b></a>');
     $errs = libxml_get_errors();
@@ -233,6 +233,54 @@ if (function_exists('session_start')) {
     session_start();
     check('session files', isset($_SESSION['n']) && $_SESSION['n'] == 42);
     session_destroy();
+}
+// Bundled PECL extensions (built when enabled), against local servers if they run.
+function port_open($port)
+{
+    $f = @fsockopen('127.0.0.1', $port, $en, $es, 2);
+    if ($f) {
+        fclose($f);
+        return true;
+    }
+    return false;
+}
+if (class_exists('Redis')) {
+    if (port_open(6379)) {
+        $r = new Redis();
+        $r->connect('127.0.0.1', 6379, 2);
+        $r->set('build-test', 'redis value');
+        check('redis', $r->get('build-test') === 'redis value', 'phpredis ' . phpversion('redis') . ', set/get');
+    } else {
+        check('redis', null, 'phpredis ' . phpversion('redis') . ' loaded, no server on 6379');
+    }
+}
+if (class_exists('Memcached')) {
+    if (port_open(11211)) {
+        $m = new Memcached();
+        $m->addServer('127.0.0.1', 11211);
+        $m->set('build-test', 'memcached value');
+        check('memcached', $m->get('build-test') === 'memcached value', 'memcached ' . phpversion('memcached') . ', set/get');
+    } else {
+        check('memcached', null, 'memcached ' . phpversion('memcached') . ' loaded, no server on 11211');
+    }
+}
+if (class_exists('Memcache')) {
+    if (port_open(11211)) {
+        $m = new Memcache();
+        $m->connect('127.0.0.1', 11211);
+        $m->set('build-test-2', 'memcache value');
+        check('memcache', $m->get('build-test-2') === 'memcache value', 'memcache ' . phpversion('memcache') . ', set/get');
+    } else {
+        check('memcache', null, 'memcache ' . phpversion('memcache') . ' loaded, no server on 11211');
+    }
+}
+if (class_exists('Imagick')) {
+    $im = new Imagick();
+    $im->newImage(8, 8, new ImagickPixel('red'));
+    $im->setImageFormat('png');
+    $blob = $im->getImageBlob();
+    $v = Imagick::getVersion();
+    check('imagick', substr($blob, 1, 3) === 'PNG', 'imagick ' . phpversion('imagick') . ', ' . $v['versionString']);
 }
 check('opcache loaded', extension_loaded('Zend OPcache') ? true : null, extension_loaded('Zend OPcache') ? '' : 'not loaded');
 

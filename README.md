@@ -43,7 +43,9 @@ Every branch is upstream plus these commits, in this order:
    [Build compatibility patches](#build-compatibility-patches).
 3. **Backport security fixes** (only while there is one, now 5.6): see
    [Interim backports](#interim-backports).
-4. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
+4. **Bundle PECL extensions**: redis, memcached, memcache and imagick in `ext/`,
+   built only when enabled, see [Bundled PECL extensions](#bundled-pecl-extensions).
+5. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
    appended to the banner by C string-literal concatenation, so `php -v` shows the
    build date and upstream commit, for example
    `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`. `PHP_VERSION`
@@ -51,7 +53,7 @@ Every branch is upstream plus these commits, in this order:
    `PHP x.y.z` parsers are not disturbed. On 8.2+ the banner is shared by every SAPI
    (`php -v`, `php-fpm -v`); on 5.6/7.4 it is the CLI banner. `phpinfo()` shows the
    plain version, not the build id.
-5. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
+6. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
    README with the exact upstream commit (`Upstream-Commit:` trailer) and the lists
    of applied and not applied ports patches; the release notes carry the same lists.
 
@@ -269,6 +271,40 @@ on https://github.com/azsupport/php-src/actions/workflows/build-test.yml with
 branch, with the tarballs in `dist/`: `sh tools/build-test.sh --deps 5.6 7.4`
 installs the packages, `sh tools/build-test.sh --tests 5.6 7.4` builds and checks;
 the presets are in [`tools/build-test.sh`](tools/build-test.sh).
+
+### Bundled PECL extensions
+
+The branches and tarballs carry these PECL extensions in `ext/`, so they are built
+into PHP like the bundled ones and need no `phpize` or `extension=` line. Nothing
+changes unless their option is given:
+
+| PHP | redis | memcached | memcache | imagick |
+|---|---|---|---|---|
+| 8.1, 8.2, 8.3, 8.4 | 6.3.0 | 3.4.0 | 8.2 | 3.8.1 |
+| 7.4 | 6.3.0 | 3.4.0 | 4.0.5.2 | 3.8.1 |
+| 5.6 | 4.3.0 | 2.2.0 | 3.0.8 | 3.8.1 |
+
+| Extension | configure option | FreeBSD package |
+|---|---|---|
+| [redis](https://pecl.php.net/package/redis) | `--enable-redis` | |
+| [memcached](https://pecl.php.net/package/memcached) | `--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl` | `libmemcached` |
+| [memcache](https://pecl.php.net/package/memcache) | `--enable-memcache` | |
+| [imagick](https://pecl.php.net/package/imagick) | `--with-imagick=/usr/local` | `ImageMagick7` or `ImageMagick7-nox11` |
+
+The versions are the newest stable PECL releases for each PHP version (memcache for
+5.6: 3.0.8, the release distributions shipped for PHP 5.5/5.6; its only stable 5.x
+release is 2.2.7 of 2012). The sources come from the upstream git repositories at the
+commit of the release tag, pinned in [`freebsd/pecl.conf`](freebsd/pecl.conf); the
+fixes that make them build inside php-src with clang 19 are in
+[`freebsd/pecl/`](freebsd/pecl). They need `--enable-session` (session handlers);
+on 5.6 and 7.4 redis also needs `--enable-json`, and on 5.6 `--enable-hash`.
+
+To add them to a rebuild, put the options after `sh config.installed.sh`, for example
+`sh config.installed.sh --enable-redis --enable-memcache`, and remove the
+`extension=redis.so` lines of the old shared modules from `php.ini`.
+`config-check.sh` lists the shared modules of the installed PHP that the tree bundles,
+but does not add them on its own; with `--pkg`, the installed `phpXY-pecl-*` packages
+are converted like the other extension packages.
 
 ### OpenSSL
 

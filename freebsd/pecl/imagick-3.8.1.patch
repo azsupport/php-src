@@ -1,0 +1,30 @@
+Description: Build inside php-src as ext/imagick (bundled by this fork): buildconf runs in the top of the PHP tree, where m4_include of imagemagick.m4 finds no file, so config.m4 now includes ext/imagick/imagemagick.m4; and set the version that PECL packaging fills in ("@PACKAGE_VERSION@" in the git sources) to 3.8.1, for phpversion('imagick').
+Origin: azsupport
+
+diff --git a/config.m4 b/config.m4
+index e4eb18e..6d41f0c 100644
+--- a/config.m4
++++ b/config.m4
+@@ -11,7 +11,8 @@ if test "$ext_shared" != "yes" && test "$ext_shared" != "shared"; then
+   define('PHP_IMAGICK_STATIC', 1)
+   PHP_IMAGICK_STATIC=yes
+ fi
+-m4_include(ifdef('PHP_IMAGICK_STATIC',PHP_EXT_BUILDDIR(imagick)[/],)[imagemagick.m4])
++dnl inside php-src (bundled by azsupport/php-src), relative to the top of the tree
++m4_include([ext/imagick/imagemagick.m4])
+ 
+ # This line checks that ImageMagick is available, and
+ # meets our minimum supported version. TODO change to 6.7.0
+diff --git a/php_imagick.h b/php_imagick.h
+index b83d188..25a2370 100644
+--- a/php_imagick.h
++++ b/php_imagick.h
+@@ -25,7 +25,7 @@
+ #define PHP_IMAGICK_EXTNAME    "imagick"
+ // The version is deliberately left as 'PACKAGE_VERSION' in source code.
+ // It is only replaced with the actual version number that packaged through pecl.php.net
+-#define PHP_IMAGICK_VERSION    "@PACKAGE_VERSION@"
++#define PHP_IMAGICK_VERSION    "3.8.1"
+ #define PHP_IMAGICK_EXTNUM     30801
+ 
+ /* Import configure options when building 
