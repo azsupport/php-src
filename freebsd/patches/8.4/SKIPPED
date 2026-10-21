@@ -1,9 +1,8 @@
 # FreeBSD ports files of lang/php84 that are NOT applied, with the reason.
 # Format: "<port file>: <reason>"; listed in the branch README and in the release notes.
 # Documentation only: editing this file does not rebuild the branch.
-patch-configure.ac: ports build layout: split packaging (ext/php_config.h include, no pthreads check) and the ports' PEAR include_path; the upstream defaults of a hand build are kept
+patch-configure.ac: ports build layout: makes php_config.h include ext/php_config.h, which only the port's Makefile creates (a hand build fails without it), drops the configure pthreads check and sets the ports' PEAR include_path
 patch-ext_hash_xxhash_xxhash.h: PowerPC VSX (AltiVec) and s390x only; no effect on amd64
-patch-ext_pcre_php__pcre.h: only affects `--with-external-pcre` builds (`#include "pcre2.h"` becomes `<pcre2.h>`); the bundled PCRE and the upstream include work as is
 libressl-patch-ext_openssl_openssl.c: only for builds against LibreSSL (the port applies it only then)
-php_session.h: ports split packaging: a header the port copies into ext/session to build ext/soap as a separate package
+php_session.h: the full source tree has its own ext/session/php_session.h; the port's copy only serves building ext/soap as a separate package without the session sources
 php_fpm.in: the rc.d script of the port, not a source patch; your own rc.d scripts stay in use
