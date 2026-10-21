@@ -1,9 +1,10 @@
-BSD 2-Clause License (applies to the files of the 'main' branch: tools/,
-freebsd/targets.conf, .github/ and this README; PHP sources in the other
-branches keep their own licenses, see their LICENSE files; the patches in
-freebsd/patches/ come from the FreeBSD ports collection and keep its license)
+BSD 2-Clause License (applies to the files of the default branch 'master':
+tools/, freebsd/targets.conf, freebsd/patches/*/SKIPPED, .github/ and the
+README; PHP sources in the other branches keep their own licenses, see their
+LICENSE files; the patches in freebsd/patches/ come from the FreeBSD ports
+collection and keep its license)
 
-Copyright (c) 2026, aZ <github@azsupport.com>
+Copyright (c) 2026, aZ <github@azsupport.com>, https://azsupport.com/
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
