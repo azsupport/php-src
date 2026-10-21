@@ -134,8 +134,22 @@ test_dirs() {
 }
 
 # Local memcached and redis for the smoke checks of the bundled PECL extensions.
-if command -v memcached >/dev/null 2>&1; then memcached -d -u nobody -l 127.0.0.1 -p 11211 2>/dev/null || true; fi
-if command -v redis-server >/dev/null 2>&1; then redis-server --daemonize yes --bind 127.0.0.1 --port 6379 >/dev/null 2>&1 || true; fi
+# Fully detached (no inherited stdin/stdout/stderr), so that they cannot keep the
+# SSH session of the VM open, and stopped again at the end.
+if command -v memcached >/dev/null 2>&1; then
+    memcached -d -u nobody -l 127.0.0.1 -p 11211 -P /tmp/build-test-memcached.pid </dev/null >/dev/null 2>&1 || true
+fi
+if command -v redis-server >/dev/null 2>&1; then
+    redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --pidfile /tmp/build-test-redis.pid </dev/null >/dev/null 2>&1 || true
+fi
+stop_servers() {
+    for f in /tmp/build-test-memcached.pid /tmp/build-test-redis.pid; do
+        if [ -f "$f" ]; then kill "$(cat "$f")" 2>/dev/null || true; rm -f "$f"; fi
+    done
+}
+trap stop_servers EXIT INT TERM
+# Progress on stdout (the details go to build-test-results/<target>/).
+say() { printf '[build-test %s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
 rc=0
 for target in "$@"; do
@@ -143,6 +157,7 @@ for target in "$@"; do
     rm -rf "${out:?}" "${work:?}/$target"
     mkdir -p "$out" "$work/$target"
     sum="$out/summary.txt"
+    say "$target: unpack and configure"
     tarball="$dist/php-$target-fbsd-latest.tar.xz"
     {
         echo "target:   $target"
@@ -168,18 +183,21 @@ for target in "$@"; do
             ./configure $(cat "$out/configure-options.txt") > "$out/configure.log" 2>&1; then
         tail -n 40 "$out/configure.log" > "$out/configure-tail.txt"
         echo "result:   FAIL (configure: $(grep -i 'error' "$out/configure.log" | tail -1))" >> "$sum"
+        say "$target: FAIL in configure: $(grep -i 'error' "$out/configure.log" | tail -1)"
         rc=1; cd "$top" || exit 1; continue
     fi
     tail -n 40 "$out/configure.log" > "$out/configure-tail.txt"
     cp config.log "$out/config.log" 2>/dev/null
 
     start=$(date +%s)
+    say "$target: make -j$ncpu"
     make -k -j"$ncpu" > "$out/make.log" 2>&1
     mrc=$?
     echo "make:     exit $mrc, $(( $(date +%s) - start ))s, $(grep -c 'warning:' "$out/make.log") warnings" >> "$sum"
     grep -E ' error:|Error [0-9]+|undefined reference|cannot find' "$out/make.log" | head -n 40 > "$out/errors.txt"
     if [ "$mrc" != 0 ] || [ ! -x sapi/cli/php ]; then
         echo "result:   FAIL (build; first errors in errors.txt)" >> "$sum"
+        say "$target: FAIL in make: $(head -n 1 "$out/errors.txt")"
         rc=1; cd "$top" || exit 1; continue
     fi
 
@@ -193,6 +211,7 @@ for target in "$@"; do
     opcache=""
     [ -f modules/opcache.so ] && opcache="-d zend_extension=$src/modules/opcache.so"
     # shellcheck disable=SC2086
+    say "$target: smoke checks"
     "$php" -n $opcache "$top/tools/build-test-smoke.php" "$src" > "$out/smoke.txt" 2>&1
     echo "smoke:    $(grep -c '^ok ' "$out/smoke.txt") ok, $(grep -c '^FAIL ' "$out/smoke.txt") failed (smoke.txt)" >> "$sum"
 
@@ -205,7 +224,7 @@ for target in "$@"; do
         # shellcheck disable=SC2046,SC2086
         env NO_INTERACTION=1 REPORT_EXIT_STATUS=0 TEST_PHP_EXECUTABLE="$php" \
             timeout "${TEST_TIME_LIMIT:-1500}" \
-            "$php" -n run-tests.php -q $jobs $opcache $(test_dirs "$target") > "$out/run-tests.log" 2>&1
+            "$php" -n run-tests.php -q $jobs $opcache $(test_dirs "$target") > "$out/run-tests.log" < /dev/null 2>&1
         trc=$?
         if grep -q '^FAILED TEST SUMMARY' "$out/run-tests.log"; then
             sed -n '/^FAILED TEST SUMMARY/,/^=====/p' "$out/run-tests.log" | grep '\[' > "$out/tests.txt"
@@ -222,6 +241,7 @@ for target in "$@"; do
         fi
     fi
     echo "result:   OK" >> "$sum"
+    say "$target: OK ($(grep -c '^ok ' "$out/smoke.txt") smoke checks ok, $(grep -c '^FAIL ' "$out/smoke.txt") failed)"
     cd "$top" || exit 1
 done
 exit "$rc"
