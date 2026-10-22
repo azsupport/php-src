@@ -248,12 +248,15 @@ for target in "$@"; do
     echo "make:     exit $mrc, $(( $(date +%s) - start ))s, $(grep -c 'warning:' "$out/make.log") warnings" >> "$sum"
     # The include chain of the first error, then the errors, at most three per file,
     # so that one broken header repeated in every file that includes it does not hide
-    # the rest.
+    # the rest; the ">>>" lines of a linker error (where a duplicate or undefined
+    # symbol is defined and referenced) come with it.
     {
         grep -m 1 -B 8 ' error:' "$out/make.log" | grep -E '^In file included from|^ +from '
-        awk '/ error:/ { split($0, a, ":"); if (++n[a[1]] <= 3) print; next }
+        awk '/ error:/ { split($0, a, ":"); ctx = 0; if (++n[a[1]] <= 3) { print; if ($0 ~ /^(ld|ld\.lld): error:/) ctx = 6 } next }
+             /^>>> / { if (ctx > 0) { print; ctx-- } next }
+             { ctx = 0 }
              /Error [0-9]+|\*\*\* Error code|undefined reference|cannot find|^make(\[[0-9]+\])?: / { print }' "$out/make.log" |
-            awk '!seen[$0]++'
+            awk '/^>>> / { print; next } !seen[$0]++'
     } | head -n 40 > "$out/errors.txt"
     # a failure without compiler errors (make itself, BSD make on a GNU-only construct): its last lines
     if [ ! -s "$out/errors.txt" ] && [ "$mrc" != 0 ]; then tail -n 20 "$out/make.log" > "$out/errors.txt"; fi

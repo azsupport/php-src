@@ -160,10 +160,16 @@ b_libzip() {
 }
 b_png() { cm "$1" -DPNG_SHARED=OFF -DPNG_STATIC=ON -DPNG_TESTS=OFF -DPNG_TOOLS=OFF -DPNG_DEBUG_POSTFIX=""; }
 b_mozjpeg() {
-    # as the port (JPEG8 API, SIMD), without the tools' PNG input and TurboJPEG, which gd does not use
+    # as the port (JPEG8 API, SIMD), without the tools' PNG input and TurboJPEG, which gd does not use.
+    # Absolute install directories: the GNUInstallDirs of mozjpeg takes a relative one as relative to
+    # the current directory, so that CMAKE_INSTALL_LIBDIR=lib of cm put libjpeg.a, libjpeg.pc and its
+    # cmake files outside the bundle (only the headers and manual pages got in).
     cm "$1" -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_JPEG8=ON -DWITH_SIMD=ON -DREQUIRE_SIMD=OFF \
         -DWITH_ARITH_DEC=OFF -DWITH_ARITH_ENC=OFF -DWITH_12BIT=OFF -DWITH_JAVA=OFF -DWITH_JPEG7=OFF \
-        -DWITH_TURBOJPEG=OFF -DPNG_SUPPORTED=OFF -DWITH_MEM_SRCDST=ON -DFORCE_INLINE=ON
+        -DWITH_TURBOJPEG=OFF -DPNG_SUPPORTED=OFF -DWITH_MEM_SRCDST=ON -DFORCE_INLINE=ON \
+        -DCMAKE_INSTALL_LIBDIR="$P/lib" -DCMAKE_INSTALL_INCLUDEDIR="$P/include" \
+        -DCMAKE_INSTALL_BINDIR="$P/bin" -DCMAKE_INSTALL_MANDIR="$P/share/man" \
+        -DCMAKE_INSTALL_DOCDIR="$P/share/doc/mozjpeg"
 }
 b_webp() {
     at "$1" --enable-libwebpdecoder --enable-libwebpdemux --enable-libwebpmux --disable-gl --disable-sdl \
@@ -225,7 +231,32 @@ b_curl() {
         --disable-telnet --disable-tftp --disable-ldap --disable-ldaps \
         --without-gssapi --without-libssh2 --without-libssh \
         --disable-manual --disable-docs --without-zsh-functions-dir --without-fish-functions-dir \
-        ac_cv_func_SSLv2_client_method=no
+        ac_cv_func_SSLv2_client_method=no &&
+        curl_hide_nghttp2
+}
+
+# libcurl.a with libnghttp2.a linked into it and the nghttp2 symbols made local:
+# swoole and openswoole carry a copy of nghttp2 of their own (thirdparty/nghttp2),
+# which clashed with libnghttp2.a in a static link of PHP ("duplicate symbol:
+# nghttp2_strerror", huff_sym_table), and curl keeps the nghttp2 it was built with.
+# libcurl.pc no longer names libnghttp2.
+curl_hide_nghttp2() {
+    m="$work/libcurl-merged.o"
+    rm -f "$m"
+    ld -r -o "$m" --whole-archive "$P/lib/libcurl.a" "$P/lib/libnghttp2.a" --no-whole-archive || return 1
+    nm -g --defined-only "$m" | awk 'NF == 3 && $3 ~ /^(nghttp2_|sfparse_|huff_)/ { print $3 }' > "$work/nghttp2.syms"
+    [ -s "$work/nghttp2.syms" ] || { echo "curl_hide_nghttp2: no nghttp2 symbols in libcurl"; return 1; }
+    objcopy --localize-symbols="$work/nghttp2.syms" "$m" || return 1
+    if nm -g --defined-only "$m" | awk 'NF == 3 { print $3 }' | grep -q -E '^(nghttp2_|sfparse_|huff_)'; then
+        echo "curl_hide_nghttp2: nghttp2 symbols still global"; return 1
+    fi
+    rm -f "$P/lib/libcurl.a" && ar rcs "$P/lib/libcurl.a" "$m" || return 1
+    for pc in "$P/lib/pkgconfig/libcurl.pc" "$P/libdata/pkgconfig/libcurl.pc"; do
+        [ -f "$pc" ] || continue
+        sed -i '' -E -e '/^Libs.private:/ s/ ?-lnghttp2//' \
+            -e '/^Requires.private:/ { s/libnghttp2( *[<>=]+ *[^ ,]+)? *,? *//; s/, *$//; }' "$pc"
+    done
+    echo "curl_hide_nghttp2: $(wc -l < "$work/nghttp2.syms" | tr -d ' ') nghttp2 symbols local in libcurl.a"
 }
 
 # One library: fetch, check, extract and patch with the ports framework, then build.
@@ -240,7 +271,12 @@ build_one() {
         pmake "$port" patch || { echo "make patch failed"; exit 1; }
         src="$(pmake "$port" -V WRKSRC)"
         echo "== source: $src"
-        "b_$n" "$src"
+        : > "$work/stamp-$n"
+        "b_$n" "$src" || exit 1
+        # every library leaves a static archive of its own in lib/ (mozjpeg did not)
+        if [ -z "$(find "$P/lib" -maxdepth 1 -name '*.a' -newer "$work/stamp-$n" | head -n 1)" ]; then
+            echo "== no new static library of $n in $P/lib"; exit 1
+        fi
     ) > "$log" 2>&1
     rc=$?
     ver="$(pmake "$port" -V PKGVERSION 2>/dev/null)"
