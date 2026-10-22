@@ -1,9 +1,11 @@
 name: PHP dependencies for FreeBSD
 
-# Builds /usr/local/phpdeps (tools/build-deps.sh): the libraries PHP links
-# against, static and position independent, from the FreeBSD ports of
-# freebsd/deps.conf, and publishes it as the release phpdeps-fbsd<major>-latest
-# (phpdeps-fbsd<major>-amd64.tar.xz, .sha256 and the list of versions).
+# Builds /usr/local/phpdeps (tools/build-deps.sh): the libraries PHP links against,
+# static and position independent, from the FreeBSD ports of freebsd/deps.conf,
+# with the compiler flags of the servers (-O3 -pipe -fstack-protector-strong
+# -fno-strict-aliasing) for an x86-64 level, and publishes it as the release
+# phpdeps-fbsd<major>-latest (phpdeps-fbsd<major>-amd64-<level>.tar.xz, .sha256
+# and the list of versions), one job per level.
 # Started by hand: Actions, "PHP dependencies for FreeBSD", "Run workflow".
 
 on:
@@ -13,6 +15,15 @@ on:
         description: 'FreeBSD release'
         required: true
         default: '15.1'
+      cputype:
+        description: 'x86-64 level (-march, CPUTYPE of make.conf)'
+        type: choice
+        options: [both, x86-64-v3, x86-64-v2]
+        default: both
+      cflags:
+        description: 'CFLAGS of make.conf (the protections and -fPIC are added)'
+        required: true
+        default: '-O3 -pipe'
       publish:
         description: 'Publish the tarball when every library built'
         type: boolean
@@ -29,13 +40,22 @@ jobs:
   deps:
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        cputype: ${{ inputs.cputype == 'both' && fromJSON('["x86-64-v3", "x86-64-v2"]') || fromJSON(format('["{0}"]', inputs.cputype)) }}
+    name: deps (${{ matrix.cputype }})
     steps:
       - uses: actions/checkout@v5
 
       - name: Build in FreeBSD ${{ inputs.release }}
         uses: vmactions/freebsd-vm@v1
+        env:
+          PHPDEPS_CPUTYPE: ${{ matrix.cputype }}
+          PHPDEPS_CFLAGS: ${{ inputs.cflags }}
         with:
           release: ${{ inputs.release }}
+          envs: 'PHPDEPS_CPUTYPE PHPDEPS_CFLAGS'
           prepare: |
             sh tools/build-deps.sh --tools
           run: |
@@ -50,16 +70,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE: ${{ inputs.release }}
+          CPUTYPE: ${{ matrix.cputype }}
+          CFLAGS_IN: ${{ inputs.cflags }}
         run: |
           major="${RELEASE%%.*}"
+          level="${CPUTYPE#x86-64-}"
           tag="phpdeps-fbsd$major-latest"
-          name="phpdeps-fbsd$major-amd64"
+          name="phpdeps-fbsd$major-amd64-$level"
           dated="phpdeps-fbsd$major-$(date -u +%Y%m%d)"
-          notes="Static, position independent libraries for PHP on FreeBSD $major (amd64), built from the FreeBSD ports of freebsd/deps.conf. Extract with: tar -xf $name.tar.xz -C /usr/local (gives /usr/local/phpdeps). Versions: $name.VERSIONS.txt."
+          notes="Static, position independent libraries for PHP on FreeBSD $major (amd64), built from the FreeBSD ports of freebsd/deps.conf with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, one tarball per x86-64 level: phpdeps-fbsd$major-amd64-v3.tar.xz (-march=x86-64-v3, CPUs with AVX2) and phpdeps-fbsd$major-amd64-v2.tar.xz (-march=x86-64-v2). Extract the one of the server's CPUTYPE with: tar -xf phpdeps-fbsd$major-amd64-<level>.tar.xz -C /usr/local (gives /usr/local/phpdeps). Versions and flags: phpdeps-fbsd$major-amd64-<level>.VERSIONS.txt."
           for t in "$tag" "$dated"; do
             if ! gh release view "$t" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release create "$t" --repo "$GITHUB_REPOSITORY" --title "$t" --notes "$notes" --target "$GITHUB_SHA"
+              gh release create "$t" --repo "$GITHUB_REPOSITORY" --title "$t" --notes "$notes" --target "$GITHUB_SHA" ||
+                gh release view "$t" --repo "$GITHUB_REPOSITORY" >/dev/null
             fi
+            gh release edit "$t" --repo "$GITHUB_REPOSITORY" --notes "$notes"
             gh release upload "$t" --repo "$GITHUB_REPOSITORY" --clobber \
               "dist/$name.tar.xz" "dist/$name.tar.xz.sha256" "dist/$name.VERSIONS.txt"
           done

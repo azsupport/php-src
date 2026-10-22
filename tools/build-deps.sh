@@ -18,10 +18,19 @@
 # into PHPDEPS (default /usr/local/phpdeps), in DEPS_WORK (default
 # /var/tmp/phpdeps-work). Results go to deps-results/
 # (summary.txt, one log per library), the tarball to dist/
-# (phpdeps-fbsd<major>-amd64.tar.xz, extracted with tar -xf ... -C /usr/local).
+# (phpdeps-fbsd<major>-amd64-<level>.tar.xz, such as -v3 for -march=x86-64-v3,
+# extracted with tar -xf ... -C /usr/local).
+#
+# Compiler flags as on the servers: CPUTYPE and CFLAGS of /etc/make.conf (such as
+# CPUTYPE?=x86-64-v3 and CFLAGS=-O3 -pipe) with -fstack-protector-strong and
+# -fno-strict-aliasing, and -fPIC. PHPDEPS_CPUTYPE and PHPDEPS_CFLAGS (the inputs
+# of the workflow deps.yml) win over make.conf (MAKE_CONF, default /etc/make.conf);
+# without either: x86-64-v3 and -O3 -pipe. The build runs what it compiles
+# (configure tests, the data tools of ICU), so it stops at once on a CPU that
+# cannot run code of that level; PHP built against the bundle needs it too.
 #
 # Exit status: 0 everything built, 1 a library failed (the others are still
-# built where they can be), 2 usage.
+# built where they can be) or this CPU cannot run the level, 2 usage.
 
 set -u
 top="$(pwd)"
@@ -48,12 +57,31 @@ fi
 
 say() { printf '[build-deps %s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
-# The flags of every library: portable to any x86-64-v2 CPU (the PHP build adds
-# the -march of its server), position independent so that they can go into
-# libphp.so, and nothing from /usr/local: the base compiler does not search it,
-# pkg-config only sees the bundle and the base system.
+# A variable of make.conf (VAR=, ?=, := and += lines; comments dropped), as in
+# tools/config-check.sh.
+mk_conf="${MAKE_CONF:-/etc/make.conf}"
+mc_get() {
+    [ -r "$mk_conf" ] || return 0
+    awk -v v="$1" '
+        { sub(/#.*/, "") }
+        $0 ~ "^[ \t]*" v "[ \t]*[?:]?=" { s = $0; sub("^[ \t]*" v "[ \t]*[?:]?=[ \t]*", "", s); val = s; have = 1; next }
+        $0 ~ "^[ \t]*" v "[ \t]*\\+=" { s = $0; sub("^[ \t]*" v "[ \t]*\\+=[ \t]*", "", s); val = val " " s; have = 1 }
+        END { if (have) { sub(/[ \t]+$/, "", val); print val } }
+    ' "$mk_conf"
+}
+
+# The flags of every library: CPUTYPE and CFLAGS of the servers (see above), the
+# two protections, position independent so that they can go into libphp.so, and
+# nothing from /usr/local: the base compiler does not search it, pkg-config only
+# sees the bundle and the base system. A -march in CFLAGS gives way to CPUTYPE.
+cputype="${PHPDEPS_CPUTYPE:-$(mc_get CPUTYPE)}"
+cputype="${cputype:-x86-64-v3}"
+opt="${PHPDEPS_CFLAGS:-$(mc_get CFLAGS)}"
+# shellcheck disable=SC2086
+opt="$(printf '%s\n' ${opt:--O3 -pipe} | grep -v -e '^-march=' -e '^-fPIC$' | tr '\n' ' ' | sed 's/ *$//')"
+level="${cputype#x86-64-}"
 export CC=cc CXX=c++
-export CFLAGS="-O2 -pipe -march=x86-64-v2 -fPIC -fstack-protector-strong"
+export CFLAGS="$opt -march=$cputype -fstack-protector-strong -fno-strict-aliasing -fPIC"
 export CXXFLAGS="$CFLAGS"
 export CPPFLAGS="-I$P/include"
 export LDFLAGS="-L$P/lib"
@@ -139,9 +167,12 @@ b_libpsl() {
     # library dirs (not $P/lib) and fails, without it it tries -lunistring with the link
     # args below, which finds $P/lib/libunistring.a (the bundle has only static libraries,
     # and the static pkg-config gives the psl tool the libraries behind libidn2).
-    (cd "$1" && meson setup _phpdeps --prefix="$P" --libdir=lib -Ddefault_library=static -Db_staticpic=true \
+    # -Dc_args replaces the CFLAGS of the environment, so they go in there too, and the
+    # plain build type adds no flags of its own (meson's default, debug, is -O0 -g).
+    (cd "$1" && meson setup _phpdeps --prefix="$P" --libdir=lib --buildtype=plain \
+        -Ddefault_library=static -Db_staticpic=true \
         -Druntime=libidn2 -Dbuiltin=true -Ddocs=false \
-        -Dc_args="$CPPFLAGS" -Dc_link_args="$LDFLAGS" &&
+        -Dc_args="$CPPFLAGS $CFLAGS" -Dc_link_args="$LDFLAGS" &&
         ninja -C _phpdeps && ninja -C _phpdeps install)
 }
 b_nghttp2() { at "$1" --enable-lib-only; }
@@ -201,7 +232,7 @@ b_libmemcached() {
 b_libsodium() { at "$1"; }
 b_argon2() {
     # its Makefile builds static and shared, with -march=$(OPTTARGET) (native by default)
-    (cd "$1" && gmake -j"$ncpu" libargon2.a OPTTARGET=x86-64-v2 &&
+    (cd "$1" && gmake -j"$ncpu" libargon2.a OPTTARGET="$cputype" &&
         mkdir -p "$P/include" "$P/lib/pkgconfig" && cp include/argon2.h "$P/include/" &&
         cp libargon2.a "$P/lib/" &&
         printf '%s\n' "prefix=$P" 'libdir=${prefix}/lib' 'includedir=${prefix}/include' '' \
@@ -379,8 +410,8 @@ finish() {
 
 manifest() {
     {
-        echo "phpdeps for FreeBSD $major (amd64), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
-        echo "freebsd-ports $ports_commit; static, -fPIC, $CFLAGS"
+        echo "phpdeps for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
+        echo "freebsd-ports $ports_commit; static libraries, CFLAGS: $CFLAGS"
         echo
         while read -r n pkgname port; do
             printf '%-14s %-28s %s\n' "$n" "$pkgname" "$port"
@@ -392,10 +423,29 @@ manifest() {
 }
 
 mkdir -p "$res" "$work" "$dist"
+cpu_model="$(sysctl -n hw.model 2>/dev/null)"
 if [ $# -eq 0 ]; then
     set -- $libs_all
     rm -rf "$P"
     : > "$res/summary.txt"; : > "$res/built.txt"
+    printf 'flags:    %s\ncpu:      %s\n' "$CFLAGS" "${cpu_model:-?}" >> "$res/summary.txt"
+fi
+# This CPU has to run code of the level (configure tests, the data tools of ICU):
+# where it cannot, configure decides wrong without a word and ICU stops.
+cpu_feats() {
+    cc "-march=$1" -dM -E - < /dev/null 2>/dev/null |
+        sed -n -E 's/^#define __(SSE4_2|POPCNT|AVX|AVX2|BMI|BMI2|FMA|F16C|LZCNT|MOVBE|AVX512F|AVX512BW|AVX512CD|AVX512DQ|AVX512VL)__ 1$/\1/p' |
+        LC_ALL=C sort -u
+}
+cpu_feats "$cputype" > "$work/cpu-need"
+cpu_feats native > "$work/cpu-have"
+lacks="$(LC_ALL=C comm -23 "$work/cpu-need" "$work/cpu-have" | tr '\n' ' ' | sed 's/ *$//')"
+if [ ! -s "$work/cpu-need" ] || [ -n "$lacks" ]; then
+    why="${lacks:+lacks $lacks of}"
+    printf '%-14s FAIL  this CPU (%s) %s -march=%s: code built for it cannot run here\n' \
+        cpu "${cpu_model:-?}" "${why:-cannot tell the features of}" "$cputype" >> "$res/summary.txt"
+    echo "build-deps: this CPU ${why:-cannot tell the features of} -march=$cputype; build on a CPU that has them, or set PHPDEPS_CPUTYPE to a lower level" >&2
+    exit 1
 fi
 for n in "$@"; do
     [ -n "$(port_of "$n")" ] || { echo "build-deps: $n is not in $conf" >&2; exit 2; }
@@ -412,10 +462,10 @@ manifest
 # Known vulnerabilities of these versions (FreeBSD VuXML), for the report.
 pkg audit -F -q $(awk '{ print $2 }' "$res/built.txt") > "$res/audit.txt" 2>&1 || true
 if [ "$rc" = 0 ] && [ ! -s "$res/pic.txt" ] && [ ! -s "$res/links.txt" ]; then
-    tarball="$dist/phpdeps-fbsd$major-amd64.tar.xz"
+    tarball="$dist/phpdeps-fbsd$major-amd64-$level.tar.xz"
     tar -cJf "$tarball" -C "$(dirname "$P")" "$(basename "$P")"
     sha256 -q "$tarball" > "$tarball.sha256"
-    cp "$P/VERSIONS" "$dist/phpdeps-fbsd$major-amd64.VERSIONS.txt"
+    cp "$P/VERSIONS" "$dist/phpdeps-fbsd$major-amd64-$level.VERSIONS.txt"
     echo "tarball: ${tarball##*/} ($(du -k "$tarball" | cut -f1) KB, $(du -sk "$P" | cut -f1) KB unpacked)" >> "$res/summary.txt"
 fi
 exit "$rc"
