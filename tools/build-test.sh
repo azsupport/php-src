@@ -33,6 +33,17 @@ deps() {
     # so no curl package
     pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis brotli"
     pkgs="$pkgs libnghttp2 zstd libidn2 libpsl"
+    if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
+        # PHP against /usr/local/phpdeps: none of the libraries it has, so that
+        # configure cannot take one of pkg by mistake; MAGICK=none leaves out the
+        # magick packages too.
+        pkgs="pkgconf memcached redis apache24 perl5"
+        case "${MAGICK:-imagick}" in
+            imagick) pkgs="$pkgs ImageMagick7-nox11" ;;
+            gmagick) pkgs="$pkgs GraphicsMagick-nox11" ;;
+        esac
+        set --
+    fi
     for t in "$@"; do
         case "$t" in
             5.6) pkgs="$pkgs libxml2 jpeg-turbo png freetype2 gettext-runtime libiconv libmcrypt pcre apache24 perl5" ;;
@@ -144,6 +155,10 @@ preset() {
         *) return 1 ;;
     esac
     printf '%s\n' "$@" > "$out/configure-options.txt"
+    if [ "${MAGICK:-imagick}" = none ]; then
+        grep -v -E '^--with-(imagick|gmagick)(=|$)' "$out/configure-options.txt" > "$out/configure-options.new"
+        mv "$out/configure-options.new" "$out/configure-options.txt"
+    fi
 }
 
 test_dirs() {
@@ -206,7 +221,17 @@ for target in "$@"; do
     cd "$src" || exit 1
 
     # shellcheck disable=SC2046
-    if ! env CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" LDFLAGS="$LDFLAGS" LIBS="$LIBS" \
+    # PHP against /usr/local/phpdeps (PHPDEPS_BUNDLE=1): the options and LDFLAGS as
+    # config-check.sh writes them with the bundle installed, its pkg-config.
+    pkgconfig="${PKG_CONFIG:-pkg-config}"
+    if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
+        printf "LDFLAGS='%s'\n" "$LDFLAGS" > "$out/env.txt"
+        sh "$top/tools/config-check.sh" --deps-rewrite "$out/configure-options.txt" "$out/env.txt" > "$out/phpdeps-note.txt"
+        LDFLAGS="$(sed -n "s/^LDFLAGS='\(.*\)'\$/\1/p" "$out/env.txt")"
+        pkgconfig="$(sed -n "s/^PKG_CONFIG='\(.*\)'\$/\1/p" "$out/env.txt")"
+        echo "phpdeps:  $(head -n 1 /usr/local/phpdeps/VERSIONS)" >> "$sum"
+    fi
+    if ! env CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" LDFLAGS="$LDFLAGS" LIBS="$LIBS" PKG_CONFIG="$pkgconfig" \
             ./configure $(cat "$out/configure-options.txt") > "$out/configure.log" 2>&1; then
         tail -n 40 "$out/configure.log" > "$out/configure-tail.txt"
         echo "result:   FAIL (configure: $(grep -i 'error' "$out/configure.log" | tail -1))" >> "$sum"
@@ -246,6 +271,12 @@ for target in "$@"; do
         # far: a module linked seconds before shows 1 KB)
         for so in libs/libphp*.so; do [ -f "$so" ] && echo "module:   $so ($(( $(wc -c < "$so") / 1024 )) KB)"; done
         echo "modules:  $("$php" -n -m | grep -v '^\[' | grep -v '^$' | tr '\n' ' ')"
+        # the libraries of /usr/local the binaries load (none with phpdeps and MAGICK=none)
+        echo "ldd:      $(ldd sapi/cli/php sapi/fpm/php-fpm libs/libphp*.so 2>/dev/null | awk '/=>/ { print $3 }' |
+            grep '^/usr/local/' | sort -u | tr '\n' ' ' | sed 's/ *$//' | grep . || echo 'no library of /usr/local')"
+        if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
+            echo "curl:     $("$pkgconfig" --modversion libcurl) of /usr/local/phpdeps"
+        fi
         if [ -f ext/curl/libcurl-build/VERSION ]; then
             echo "curl:     bundled $(cat ext/curl/libcurl-build/VERSION) (ext/curl/libcurl-build.log)"
             cp ext/curl/libcurl-build.log "$out/" 2>/dev/null
@@ -257,7 +288,9 @@ for target in "$@"; do
     say "$target: smoke checks"
     legacy=0
     grep -qx -- --with-openssl-legacy-provider "$out/configure-options.txt" && legacy=1
-    env CURL_BUNDLED="$(cat ext/curl/libcurl-build/VERSION 2>/dev/null)" OPENSSL_LEGACY="$legacy" \
+    curl_v="$(cat ext/curl/libcurl-build/VERSION 2>/dev/null)"
+    [ "${PHPDEPS_BUNDLE:-0}" = 1 ] && curl_v="$("$pkgconfig" --modversion libcurl 2>/dev/null)"
+    env CURL_BUNDLED="$curl_v" OPENSSL_LEGACY="$legacy" \
         "$php" -n $opcache "$top/tools/build-test-smoke.php" "$src" > "$out/smoke.txt" 2>&1
     echo "smoke:    $(grep -c '^ok ' "$out/smoke.txt") ok, $(grep -c '^FAIL ' "$out/smoke.txt") failed (smoke.txt)" >> "$sum"
 
