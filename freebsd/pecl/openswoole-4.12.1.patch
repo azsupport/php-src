@@ -1,4 +1,4 @@
-Description: Build inside php-src as ext/openswoole (bundled by this fork), on PHP 7.4 to 8.4. configure built OpenSwoole into every PHP, as it tested PHP_SWOOLE (left over from swoole, unset there) instead of PHP_OPENSWOOLE, and the default of --enable-openswoole was "yes"; now only --enable-openswoole builds it, and configure stops when --enable-swoole is given too (same C++ symbols). Drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (OpenSwoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer; include <stdint.h> in swoole_proxy.h (uint8_t unknown with clang 19). For PHP 8.3 and 8.4, which OpenSwoole 4.12 does not support upstream (OpenSwoole 22 and newer changed the API): the new php_url_encode_hash_ex() of 8.3; zend_str_tolower() for php_strtolower(), gone in 8.4; the C stack bounds that PHP 8.3 checks (EG(stack_base), EG(stack_limit)) follow the coroutine stacks, as in swoole 5.1 and newer, so calls inside coroutines no longer fail with "Maximum call stack size reached"; as 8.4 made exit a function (no ZEND_EXIT opcode), the function exit() is wrapped the way the opcode was, so exit in a coroutine or a server still throws Swoole\ExitException; and the embedded PHP library declares its nullable parameters explicitly (?int, ?array), which PHP 8.4 asks for with a deprecation notice at every start; and the two C++ header checks of configure (valgrind, boost stacktrace) use AC_LANG_PUSH/POP instead of AC_LANG([C++]), which left configure in C++ for every extension after it: their checks ran as C++, and for example readline was not found.
+Description: Build inside php-src as ext/openswoole (bundled by this fork), on PHP 7.4 to 8.4. configure built OpenSwoole into every PHP, as it tested PHP_SWOOLE (left over from swoole, unset there) instead of PHP_OPENSWOOLE, and the default of --enable-openswoole was "yes"; now only --enable-openswoole builds it, and configure stops when --enable-swoole is given too (same C++ symbols). Drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (OpenSwoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer; include <stdint.h> in swoole_proxy.h (uint8_t unknown with clang 19). For PHP 8.3 and 8.4, which OpenSwoole 4.12 does not support upstream (OpenSwoole 22 and newer changed the API): the new php_url_encode_hash_ex() of 8.3; zend_str_tolower() for php_strtolower(), gone in 8.4; the C stack bounds that PHP 8.3 checks (EG(stack_base), EG(stack_limit)) follow the coroutine stacks, as in swoole 5.1 and newer, so calls inside coroutines no longer fail with "Maximum call stack size reached"; as 8.4 made exit a function (no ZEND_EXIT opcode), the function exit() is wrapped the way the opcode was, so exit in a coroutine or a server still throws Swoole\ExitException; and the embedded PHP library declares its nullable parameters explicitly (?int, ?array), which PHP 8.4 asks for with a deprecation notice at every start; and the two C++ header checks of configure (valgrind, boost stacktrace) use AC_LANG_PUSH/POP instead of AC_LANG([C++]), which left configure in C++ for every extension after it: their checks ran as C++, and for example readline was not found. On FreeBSD, thirdparty/hiredis/fmacros.h no longer defines _XOPEN_SOURCE and _POSIX_C_SOURCE: they hide the BSD types (u_int32_t) that <netinet/ip6.h> needs, which hiredis/net.c includes through swoole_socket.h, and the build stopped there.
 Origin: azsupport
 
 --- a/config.m4
@@ -375,3 +375,20 @@ Origin: azsupport
  #include <string>
  
  #define SW_SOCKS5_VERSION_CODE 0x05
+--- a/thirdparty/hiredis/fmacros.h
++++ b/thirdparty/hiredis/fmacros.h
+@@ -1,8 +1,14 @@
+ #ifndef __HIREDIS_FMACRO_H
+ #define __HIREDIS_FMACRO_H
+ 
++/* azsupport: not on FreeBSD, where _XOPEN_SOURCE and _POSIX_C_SOURCE hide the BSD
++ * types (u_int32_t) that <netinet/ip6.h> needs, which net.c gets through
++ * swoole_socket.h; the default environment of FreeBSD has POSIX, XSI and BSD
++ * (hiredis before 1.0 left FreeBSD out the same way). */
++#ifndef __FreeBSD__
+ #define _XOPEN_SOURCE 600
+ #define _POSIX_C_SOURCE 200112L
++#endif
+ 
+ #if defined(__APPLE__) && defined(__MACH__)
+ /* Enable TCP_KEEPALIVE */
