@@ -13,8 +13,10 @@
 #   or else sbin/php-fpm or bin/php-cgi is used), or one of those binaries.
 #   --pkg instead writes the options for a hand build that replaces the PHP
 #   installed as packages (lang/phpXY, phpXY-* extensions, mod_phpXY): the port
-#   options of phpXY, one option per extension package, the layout of our hand
-#   builds (/usr/local/phpXY) and CFLAGS from /etc/make.conf (CFLAGS, CPUTYPE).
+#   options of phpXY, one option per extension package (for the bundled PECL ones
+#   with the features "php --ri" of the package PHP shows: lz4/zstd of redis, SASL
+#   and JSON of memcached, ...), the layout of our hand builds (/usr/local/phpXY)
+#   and CFLAGS from /etc/make.conf (CFLAGS, CPUTYPE).
 #   With mod_phpXY installed the build makes the Apache module; the EMBED option
 #   of phpXY (the embed library, a second SAPI module, which one build cannot make
 #   as well) is left out, the report says whether a package uses that library.
@@ -189,6 +191,62 @@ legacy_opts() {
     legacy_note="--with-openssl-legacy-provider added: $why, and $(ossl_text "$inc") keeps RC4, Blowfish, DES, RC2, CAST5 and MD4 in its legacy provider; without them: sh config.installed.sh --without-openssl-legacy-provider"
 }
 
+# The options of a bundled PECL module that keep the features of its installed
+# build, as "php --ri" shows them (serializers, compression, SASL, swoole's hooks),
+# where the bundled version has an option for them (ext/<module>/config.m4): for
+# the shared modules of a hand build, and for the phpXY-pecl-* packages (--pkg).
+# $1: the PHP binary that loads the installed module, $2: the module. Prints the
+# options; what is not carried over goes to $tmp/pecl_note.
+knows() { grep -q -e "\[$2\]" -e "($2," "ext/$1/config.m4" 2>/dev/null; }
+ri_row() { sed -n "s/^$2 => //p" "$tmp/ri_$1" | head -n 1; }
+pecl_feature_opts() {
+    "$1" --ri "$2" > "$tmp/ri_$2" 2>/dev/null
+    case "$2" in
+        redis | memcached | swoole | openswoole)
+            [ -s "$tmp/ri_$2" ] ||
+                echo "$2: \"$1 --ri $2\" shows nothing, so the features of the installed build (serializers, compression, SASL) are not carried over; compare by hand" >> "$tmp/pecl_note" ;;
+    esac
+    case "$2" in
+        redis)
+            o="--enable-redis"
+            ser=", $(ri_row redis 'Available serializers'),"
+            cmp=", $(ri_row redis 'Available compression'),"
+            case "$ser" in *", igbinary,"*) knows redis redis-igbinary && o="$o --enable-redis-igbinary" ;; esac
+            case "$ser" in *", msgpack,"*) echo "redis: the msgpack serializer needs the msgpack extension, which is not bundled" >> "$tmp/pecl_note" ;; esac
+            case "$cmp" in *", lzf,"*) knows redis redis-lzf && o="$o --enable-redis-lzf --with-liblzf" ;; esac
+            case "$cmp" in *", zstd,"*) knows redis redis-zstd && o="$o --enable-redis-zstd" ;; esac
+            case "$cmp" in *", lz4,"*) knows redis redis-lz4 && o="$o --enable-redis-lz4 --with-liblz4" ;; esac
+            ;;
+        memcached)
+            o="--enable-memcached --with-libmemcached-dir=/usr/local"
+            [ "$(ri_row memcached 'SASL support')" = yes ] || o="$o --disable-memcached-sasl"
+            [ "$(ri_row memcached 'igbinary support')" = yes ] && o="$o --enable-memcached-igbinary"
+            [ "$(ri_row memcached 'json support')" = yes ] && o="$o --enable-memcached-json"
+            [ "$(ri_row memcached 'zstd support')" = yes ] && knows memcached zstd && o="$o --with-zstd"
+            # the MemcachedServer class (libmemcachedprotocol and libevent; the FreeBSD
+            # port always builds it), which --ri does not list
+            [ "$("$1" -r 'echo class_exists("MemcachedServer", false) ? "yes" : "no";' 2>/dev/null)" = yes ] &&
+                knows memcached memcached-protocol && o="$o --enable-memcached-protocol"
+            [ "$(ri_row memcached 'msgpack support')" = yes ] &&
+                echo "memcached: the msgpack serializer needs the msgpack extension, which is not bundled" >> "$tmp/pecl_note"
+            ;;
+        swoole | openswoole)
+            o="--enable-$2"
+            for pair in curl-native:swoole-curl c-ares:cares zstd:zstd http2:http2 json:swoole-json \
+                coroutine_pgsql:swoole-pgsql coroutine_postgresql:swoole-pgsql coroutine_sqlite:swoole-sqlite; do
+                [ -n "$(ri_row "$2" "${pair%%:*}")" ] && knows "$2" "${pair#*:}" && o="$o --enable-${pair#*:}"
+            done
+            [ -n "$(ri_row "$2" postgresql)" ] && knows "$2" postgres && o="$o --with-postgres"
+            for row in coroutine_odbc coroutine_oracle coroutine_firebird; do
+                [ -n "$(ri_row "$2" "$row")" ] && echo "$2: $row was enabled; add its --with-swoole-... option by hand (./configure --help)" >> "$tmp/pecl_note"
+            done
+            ;;
+        imagick | gmagick | mcrypt) o="--with-$2=/usr/local" ;;
+        *) o="--enable-$2" ;;
+    esac
+    printf '%s\n' "$o"
+}
+
 # --pkg: the ./configure options for a hand build that replaces the PHP installed
 # as FreeBSD packages (lang/phpXY, its phpXY-* extension packages, mod_phpXY), in
 # the layout of our hand builds, with CFLAGS from /etc/make.conf.
@@ -225,7 +283,7 @@ if [ "${1:-}" = "--pkg" ]; then
     esac
     prefix="/usr/local/php$short"
 
-    : > "$tmp/opts"; : > "$tmp/map"; : > "$tmp/skip"; : > "$tmp/notes"
+    : > "$tmp/opts"; : > "$tmp/map"; : > "$tmp/skip"; : > "$tmp/notes"; : > "$tmp/pecl_note"
     add() { for o in "$@"; do grep -qxF -- "$o" "$tmp/opts" || printf '%s\n' "$o" >> "$tmp/opts"; done; }
     note() { printf '%s\n' "$*" >> "$tmp/notes"; }
     has() { [ -f "$lb/include/$1" ]; }
@@ -291,16 +349,10 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             xsl) if [ "$fam" = 5 ]; then echo "--with-xsl=/usr/local"; else echo "--with-xsl"; fi ;;
             zip) if [ "$fam" = 5 ]; then echo "--enable-zip"; else echo "--with-zip"; fi ;;
             zlib) if [ "$fam" = 5 ]; then echo "--with-zlib=/usr"; else echo "--with-zlib"; fi ;;
-            pecl-redis) echo "--enable-redis" ;;
-            pecl-memcached) echo "--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl" ;;
-            pecl-memcache) echo "--enable-memcache" ;;
-            pecl-imagick) echo "--with-imagick=/usr/local" ;;
-            pecl-igbinary) echo "--enable-igbinary" ;;
-            pecl-swoole) echo "--enable-swoole" ;;
-            pecl-openswoole) echo "--enable-openswoole" ;;
-            pecl-excimer) echo "--enable-excimer" ;;
-            pecl-gmagick) echo "--with-gmagick=/usr/local" ;;
-            pecl-mcrypt) echo "--with-mcrypt=/usr/local" ;;
+            # with the features the package was built with (php --ri of the package PHP)
+            pecl-redis | pecl-memcached | pecl-memcache | pecl-imagick | pecl-igbinary | pecl-swoole | \
+pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
+                pecl_feature_opts "$lb/bin/php" "${1#pecl-}" ;;
             pecl-*) echo "PECL extension, not part of ./configure: build it later with $prefix/bin/phpize"; return 1 ;;
             *) echo "not an extension of the PHP sources (a tool, or one this script does not know)"; return 1 ;;
         esac
@@ -379,6 +431,7 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             printf '  %-24s %s\n' "$p" "$f" >> "$tmp/skip"
         fi
     done < "$tmp/ext_pkgs"
+    sort -u "$tmp/pecl_note" | while IFS= read -r l; do note "$l"; done
     if grep -qx "php$short-pecl-igbinary" "$tmp/ext_pkgs"; then
         grep -qx -- "--enable-redis" "$tmp/opts" && add --enable-redis-igbinary
         grep -qx -- "--enable-memcached" "$tmp/opts" && add --enable-memcached-igbinary
@@ -688,8 +741,6 @@ chmod +x "$out" 2>/dev/null || true
 : > "$tmp/pecl_opts"
 : > "$tmp/pecl_names"
 : > "$tmp/ini_lines"
-knows() { grep -q -e "\[$2\]" -e "($2," "ext/$1/config.m4" 2>/dev/null; }
-ri_row() { sed -n "s/^$2 => //p" "$tmp/ri_$1" | head -n 1; }
 for m in igbinary redis memcached memcache imagick gmagick swoole openswoole excimer mcrypt; do
     grep -qx "$m" "$tmp/modules" || continue
     grep -q -e "--enable-$m\$" -e "--enable-$m=" -e "--with-$m" "$tmp/installed" && continue
@@ -702,41 +753,7 @@ for m in igbinary redis memcached memcache imagick gmagick swoole openswoole exc
         echo "$m is not bundled for PHP ${ver:-?}: keep its extension= line" >> "$tmp/pecl_note"
         continue
     fi
-    "$php" --ri "$m" > "$tmp/ri_$m" 2>/dev/null
-    case "$m" in
-        redis)
-            o="--enable-redis"
-            ser=", $(ri_row redis 'Available serializers'),"
-            cmp=", $(ri_row redis 'Available compression'),"
-            case "$ser" in *", igbinary,"*) knows redis redis-igbinary && o="$o --enable-redis-igbinary" ;; esac
-            case "$ser" in *", msgpack,"*) echo "redis: the msgpack serializer needs the msgpack extension, which is not bundled" >> "$tmp/pecl_note" ;; esac
-            case "$cmp" in *", lzf,"*) knows redis redis-lzf && o="$o --enable-redis-lzf --with-liblzf" ;; esac
-            case "$cmp" in *", zstd,"*) knows redis redis-zstd && o="$o --enable-redis-zstd" ;; esac
-            case "$cmp" in *", lz4,"*) knows redis redis-lz4 && o="$o --enable-redis-lz4 --with-liblz4" ;; esac
-            ;;
-        memcached)
-            o="--enable-memcached --with-libmemcached-dir=/usr/local"
-            [ "$(ri_row memcached 'SASL support')" = yes ] || o="$o --disable-memcached-sasl"
-            [ "$(ri_row memcached 'igbinary support')" = yes ] && o="$o --enable-memcached-igbinary"
-            [ "$(ri_row memcached 'json support')" = yes ] && o="$o --enable-memcached-json"
-            [ "$(ri_row memcached 'zstd support')" = yes ] && knows memcached zstd && o="$o --with-zstd"
-            [ "$(ri_row memcached 'msgpack support')" = yes ] &&
-                echo "memcached: the msgpack serializer needs the msgpack extension, which is not bundled" >> "$tmp/pecl_note"
-            ;;
-        swoole | openswoole)
-            o="--enable-$m"
-            for pair in curl-native:swoole-curl c-ares:cares zstd:zstd http2:http2 json:swoole-json \
-                coroutine_pgsql:swoole-pgsql coroutine_postgresql:swoole-pgsql coroutine_sqlite:swoole-sqlite; do
-                [ -n "$(ri_row "$m" "${pair%%:*}")" ] && knows "$m" "${pair#*:}" && o="$o --enable-${pair#*:}"
-            done
-            [ -n "$(ri_row "$m" postgresql)" ] && knows "$m" postgres && o="$o --with-postgres"
-            for row in coroutine_odbc coroutine_oracle coroutine_firebird; do
-                [ -n "$(ri_row "$m" "$row")" ] && echo "$m: $row was enabled; add its --with-swoole-... option by hand (./configure --help)" >> "$tmp/pecl_note"
-            done
-            ;;
-        imagick | gmagick | mcrypt) o="--with-$m=/usr/local" ;;
-        *) o="--enable-$m" ;;
-    esac
+    o="$(pecl_feature_opts "$php" "$m")"
     printf '  %-10s %s\n' "$m" "$o" >> "$tmp/pecl_hint"
     # shellcheck disable=SC2086
     printf '%s\n' $o >> "$tmp/pecl_opts"

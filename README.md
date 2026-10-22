@@ -249,7 +249,10 @@ one of those binaries works too. On a server where PHP comes from packages
 installed extension package and the port options of `phpXY`, takes `CFLAGS` and
 `CPUTYPE` from `/etc/make.conf`, lists what it does not carry over (PECL packages,
 tools) and prints the `pkg set -A 0` line that keeps the libraries when the packages
-are removed later. One build makes only one SAPI module (`./configure`: "You can
+are removed later. The bundled PECL extensions keep what their packages were built
+with, as `php --ri` of the package PHP shows it: lz4 and zstd for redis (on by default
+in `databases/php-redis`), SASL, the JSON serializer and `MemcachedServer` for
+memcached (the defaults of `databases/pecl-memcached`), igbinary, swoole's hooks. One build makes only one SAPI module (`./configure`: "You can
 build only one SAPI module"), and the ports build the Apache module (`mod_phpXY`)
 and the embed library (the `EMBED` option of `phpXY`, `libphp7.so` in
 `/usr/local/lib`) separately: with `mod_phpXY` installed the script keeps the
