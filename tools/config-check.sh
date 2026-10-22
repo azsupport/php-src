@@ -39,8 +39,9 @@
 # Where the source tree bundles curl (ext/curl/libcurl) and the build's OpenSSL is
 # 3.0 or later, --with-curl becomes --with-curl=bundled (curl built into PHP); with
 # OpenSSL 1.1.1 (FreeBSD 13.x base) the libcurl of pkg stays, the report says why.
-# PHP 5.6 and 7.4 built against OpenSSL 3 get --with-openssl-legacy-provider, so that
-# RC4, Blowfish, DES and the like keep working; the report says so.
+# A build against OpenSSL 3 gets --with-openssl-legacy-provider when the installed
+# PHP can do RC4, and always for PHP 5.6 and 7.4, so that RC4, Blowfish, DES and the
+# like keep working; the report says so.
 # Shared PECL modules that the source tree bundles (redis, memcached, memcache,
 # imagick, gmagick, igbinary, swoole, openswoole, excimer, mcrypt) are not added to
 # the script: the report ends with the command that builds them in, with the
@@ -149,22 +150,40 @@ curl_opts() {
 }
 
 # --with-openssl-legacy-provider (the option of PHP 8.4, in this fork for every
-# version) for PHP 5.6 and 7.4 built against OpenSSL 3: they used RC4 (the default
-# cipher of openssl_seal()), Blowfish, DES, RC2, CAST5 and MD4, which OpenSSL 3 keeps
-# in its legacy provider. $1: options (changed in place), $2: environment lines.
-# Sets legacy_note. PHP 8.x keeps what the installed build had.
+# version) for a build against OpenSSL 3, when the installed PHP can do RC4 (it was
+# built against OpenSSL 1.1, or loads the legacy provider), and always for PHP 5.6
+# and 7.4, which use RC4 as the default cipher of openssl_seal(): OpenSSL 3 keeps
+# RC4, Blowfish, DES, RC2, CAST5 and MD4 in its legacy provider. $1: options
+# (changed in place), $2: environment lines, $3: the installed PHP binary.
+# Sets legacy_note.
 legacy_note=""
+installed_rc4() {
+    [ -x "${1:-}" ] || return 1
+    for a in -n ""; do
+        # shellcheck disable=SC2086
+        r="$("$1" $a -r 'if (function_exists("openssl_get_cipher_methods")) echo in_array("rc4", array_map("strtolower", openssl_get_cipher_methods())) ? "yes" : "no";' 2>/dev/null)"
+        if [ -n "$r" ]; then [ "$r" = yes ]; return; fi
+    done
+    return 1
+}
 legacy_opts() {
     grep -q 'openssl-legacy-provider' ext/openssl/config0.m4 2>/dev/null || return 0
     grep -q -e '^--with-openssl' "$1" || return 0
     grep -q -e 'openssl-legacy-provider' "$1" && return 0
     pmaj="$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
     pmin="$(sed -n 's/^#define PHP_MINOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
-    case "$pmaj" in 5 | 7) ;; *) return 0 ;; esac
+    why=""
+    case "$pmaj" in
+        5 | 7) why="PHP $pmaj.$pmin uses RC4 as the default cipher of openssl_seal()" ;;
+    esac
+    if installed_rc4 "${3:-}"; then
+        why="the installed build can do RC4 (openssl_get_cipher_methods())${why:+; $why}"
+    fi
+    [ -n "$why" ] || return 0
     inc="$(ossl_incdir "$(sed -n 's/^--with-openssl=//p' "$1" | head -n 1)" "$2" "$pmaj")"
     grep -q 'OPENSSL_VERSION_MAJOR' "$inc/openssl/opensslv.h" 2>/dev/null || return 0
     printf '%s\n' --with-openssl-legacy-provider >> "$1"
-    legacy_note="--with-openssl-legacy-provider added: PHP $pmaj.$pmin used RC4 (the default of openssl_seal()), Blowfish, DES, RC2, CAST5 and MD4, which $(ossl_text "$inc") keeps in its legacy provider; without them: sh config.installed.sh --without-openssl-legacy-provider"
+    legacy_note="--with-openssl-legacy-provider added: $why, and $(ossl_text "$inc") keeps RC4, Blowfish, DES, RC2, CAST5 and MD4 in its legacy provider; without them: sh config.installed.sh --without-openssl-legacy-provider"
 }
 
 # --pkg: the ./configure options for a hand build that replaces the PHP installed
@@ -353,7 +372,7 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
 
     curl_opts "$tmp/opts" /dev/null
     [ -n "$curl_note" ] && note "curl: $curl_note"
-    legacy_opts "$tmp/opts" /dev/null
+    legacy_opts "$tmp/opts" /dev/null "$lb/bin/php"
     [ -n "$legacy_note" ] && note "openssl: $legacy_note"
 
     out_dir="$(cd "$(dirname "$out")" 2>/dev/null && pwd)" || { echo "config-check: no directory for $out" >&2; exit 2; }
@@ -549,7 +568,7 @@ fi
 cur_march="$(march_in "$tmp/env" "$tmp/installed_order" | awk '{ print $NF }')"
 lacks="$(cpu_lacks "$cur_march")"
 curl_opts "$tmp/installed_order" "$tmp/env"
-legacy_opts "$tmp/installed_order" "$tmp/env"
+legacy_opts "$tmp/installed_order" "$tmp/env" "$php"
 
 printf 'installed:   %s\n             %s\n             %s options, from %s\n' \
     "$php" "${version:-?}" "$(wc -l < "$tmp/installed" | tr -d ' ')" "$how"

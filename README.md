@@ -431,10 +431,11 @@ same option to 5.6, 7.4, 8.1, 8.2 and 8.3. It is off by default, as upstream. Th
 module is `/usr/lib/ossl-modules/legacy.so`, part of the base system of FreeBSD 14
 and 15; if it is missing, PHP starts and those algorithms stay unavailable. With
 OpenSSL 1.1 (FreeBSD 13.x base) the option changes nothing, as the algorithms are
-built in there. `config-check.sh` adds it for 5.6 and 7.4 built against OpenSSL 3,
-since they used these algorithms with OpenSSL 1.x (`sh config.installed.sh
---without-openssl-legacy-provider` leaves it out), and keeps what an installed 8.x
-build had.
+built in there. `config-check.sh` adds it to a build against OpenSSL 3 when the
+installed PHP can do RC4 (built against OpenSSL 1.1, or with the legacy provider),
+so that data encrypted with `openssl_encrypt(..., "rc4", ...)` on the old build stays
+readable, and always for 5.6 and 7.4, whose `openssl_seal()` uses RC4 by default.
+`sh config.installed.sh --without-openssl-legacy-provider` leaves it out.
 
 ### Bundled curl
 
