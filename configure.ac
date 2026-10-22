@@ -88,6 +88,7 @@ echo "#define PHP_RELEASE_VERSION $PHP_RELEASE_VERSION" >> php_version.h.new
 echo "#define PHP_EXTRA_VERSION \"$PHP_EXTRA_VERSION\"" >> php_version.h.new
 echo "#define PHP_VERSION \"$PHP_VERSION\"" >> php_version.h.new
 echo "#define PHP_VERSION_ID $PHP_VERSION_ID" >> php_version.h.new
+echo '#define PHP_FORK_BUILD "20261022-fbsd-00d8bae8"' >> php_version.h.new
 cmp php_version.h.new $srcdir/main/php_version.h >/dev/null 2>&1
 if test $? -ne 0 ; then
   rm -f $srcdir/main/php_version.h && mv php_version.h.new $srcdir/main/php_version.h && \
