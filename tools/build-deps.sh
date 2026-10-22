@@ -57,7 +57,12 @@ export CFLAGS="-O2 -pipe -march=x86-64-v2 -fPIC -fstack-protector-strong"
 export CXXFLAGS="$CFLAGS"
 export CPPFLAGS="-I$P/include"
 export LDFLAGS="-L$P/lib"
-export PKG_CONFIG=pkgconf
+# pkg-config with --static: there are only static libraries, so link tests and
+# tools need the libraries behind them too (libpsl: libidn2, libunistring).
+mkdir -p "$work/bin"
+printf '%s\n' '#!/bin/sh' 'exec pkgconf --static "$@"' > "$work/bin/pkg-config-static"
+chmod +x "$work/bin/pkg-config-static"
+export PKG_CONFIG="$work/bin/pkg-config-static"
 export PKG_CONFIG_LIBDIR="$P/lib/pkgconfig:$P/libdata/pkgconfig:/usr/libdata/pkgconfig"
 unset PKG_CONFIG_PATH
 export PATH="$P/bin:$PATH"
@@ -129,8 +134,10 @@ b_libiconv() {
 b_libunistring() { at "$1" --with-libiconv-prefix="$P"; }
 b_libidn2() { at "$1" --disable-nls --disable-doc --with-libiconv-prefix="$P" --with-libunistring-prefix="$P" ac_cv_prog_RONN=true; }
 b_libpsl() {
+    # as the port (built-in list, IDN2), static: prefer_static for the psl tool's link
     (cd "$1" && meson setup _phpdeps --prefix="$P" --libdir=lib -Ddefault_library=static -Db_staticpic=true \
-        -Druntime=libidn2 -Dtests=false -Ddocs=false && ninja -C _phpdeps && ninja -C _phpdeps install)
+        -Dprefer_static=true -Druntime=libidn2 -Dbuiltin=true -Ddocs=false &&
+        ninja -C _phpdeps && ninja -C _phpdeps install)
 }
 b_nghttp2() { at "$1" --enable-lib-only; }
 b_brotli() { cm "$1" -DBROTLI_DISABLE_TESTS=ON; }
