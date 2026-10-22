@@ -60,13 +60,15 @@ commits in each `Origin:` line), with their tests:
 | `backport-http-redirects.patch` | GHSA-fpwc-w8rq-cr92: credentials kept on redirects to another origin; GH-11274: 307/308 keep POST |
 | `backport-soap.patch` | GHSA-rgrp-mwpx-f6rm: unbounded recursion in ext/soap; GHSA-cj93-vc83-wgqv: chunk sizes of the SOAP HTTP client |
 | `backport-filter-encoded.patch` | GHSA-ch8v-r6jh-4vvr: `FILTER_SANITIZE_ENCODED` left 0xFF as it is |
+| `backport-mysqlnd-overread.patch` | GHSA-h35g-vwh6-m678 (CVE-2024-8929) and the partial fix of GHSA-r6x9-5r99-36j7: a hostile MySQL server leaking heap bytes through packet over-reads in mysqlnd |
 
 Not ported: GHSA-9f67-6fw4-hpfp (Windows only) and the fixes for an empty and a
 1-character `Location` (5.6 is not affected: it does not follow an empty one and
-reads it into a fixed buffer). The partial mysqlnd fix GHSA-r6x9-5r99-36j7 (a
-hostile MySQL server) needs the mysqlnd hardening of 2024 (GHSA-h35g-vwh6-m678,
-CVE-2024-8929), which neither Remi Collet's nor Ondřej Surý's 5.6 has; it is still
-to come here. Of these, TuxCare's alt-php56 (5.6.40-138, 11.08.2026) fixes
+reads it into a fixed buffer). The mysqlnd fix needed the 2024 hardening
+(GHSA-h35g-vwh6-m678, CVE-2024-8929) too, which neither Remi Collet's nor Ondřej
+Surý's 5.6 has, so `backport-mysqlnd-overread.patch` carries over both the 2024
+commit and the 2026 partial fix from PHP 7.4, with the fake-server protocol tests
+adapted to 5.6. Of these, TuxCare's alt-php56 (5.6.40-138, 11.08.2026) fixes
 CVE-2026-9672, CVE-2026-17543 and CVE-2026-7260.
 
 Every branch is upstream plus these commits, in this order:
