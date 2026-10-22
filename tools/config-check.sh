@@ -29,7 +29,10 @@
 #
 # The installed options come from "<binary> -n -i" (Configure Command; -n skips
 # php.ini, so a broken shared extension does not get in the way) or, failing that,
-# from php-config --configure-options next to the binary. Environment lines of
+# from php-config --configure-options next to the binary. When the binary does not
+# run either way (a library it links against was removed or upgraded, a crash),
+# the options of the config.nice (given or found) are taken instead, as they are,
+# and the report says why the installed build could not be read. Environment lines of
 # config.nice (CFLAGS=... and the like) are shown and carried over, but not
 # compared: the installed build does not record them. PHP 5.6 records options with
 # spaces in a broken quoting ('CFLAGS=-O3 '-pipe' '-march=...''); both sources are
@@ -642,11 +645,31 @@ if [ -z "$line" ]; then
         how="$pc --configure-options"
     fi
 fi
-[ -n "$line" ] || { echo "config-check: no configure options from $php (php -i failed, no php-config)" >&2; exit 2; }
-to_lines "$line" "$how" > "$tmp/installed_order"
-LC_ALL=C sort -u "$tmp/installed_order" > "$tmp/installed"
-version="$("$php" -n -v 2>/dev/null | head -1)"
-ver="$(printf '%s\n' "$version" | awk '{print $2}')"
+# Options that cannot be read from the installed build (a binary that does not run)
+# come from config.nice (below).
+broken=""
+if [ -n "$line" ]; then
+    to_lines "$line" "$how" > "$tmp/installed_order"
+    LC_ALL=C sort -u "$tmp/installed_order" > "$tmp/installed"
+    version="$("$php" -n -v 2>/dev/null | head -1)"
+    ver="$(printf '%s\n' "$version" | awk '{print $2}')"
+else
+    "$php" -n -v > "$tmp/broken_out" 2>&1
+    brc=$?
+    if [ "$brc" = 0 ]; then
+        broken="no Configure Command in $php -n -i and no php-config"
+        version="$(head -n 1 "$tmp/broken_out")"
+        ver="$(printf '%s\n' "$version" | awk '{print $2}')"
+    else
+        broken="$php does not run: -n -v exits with $brc"
+        [ "$brc" -gt 128 ] && broken="$broken (signal $((brc - 128)))"
+        err="$(grep -v -e '^[[:space:]]*$' "$tmp/broken_out" | head -n 2 | tr '\n' ' ' | sed 's/ *$//')"
+        [ -n "$err" ] && broken="$broken: $err"
+        version=""
+        # the version of this source tree, to find its config.nice (a rebuild of the same version)
+        ver="$(sed -n 's/^#define PHP_VERSION "\([^"]*\)".*/\1/p' main/php_version.h 2>/dev/null | head -n 1)"
+    fi
+fi
 
 # The old build's config.nice: given, ./config.nice, or found next to this tree.
 found=""
@@ -689,9 +712,22 @@ if [ -n "$nice" ]; then
         opts && $0 != "\"$@\"" { printf "%s ", $0 > ARGF }
     ' ENVF="$tmp/env" ARGF="$tmp/nice_args" "$nice"
     if [ -f "$tmp/nice_args" ]; then
-        to_lines "$(cat "$tmp/nice_args")" "$nice" | LC_ALL=C sort -u > "$tmp/nice"
+        to_lines "$(cat "$tmp/nice_args")" "$nice" > "$tmp/nice_order"
+        LC_ALL=C sort -u "$tmp/nice_order" > "$tmp/nice"
     fi
     [ -s "$tmp/nice" ] || { echo "config-check: no configure options found in $nice" >&2; exit 2; }
+fi
+
+if [ -n "$broken" ]; then
+    if [ -z "$nice" ]; then
+        echo "config-check: no configure options from $php ($broken)" >&2
+        echo "config-check: give the config.nice of that build as the second argument, its options are used then" >&2
+        exit 2
+    fi
+    echo "config-check: warning: the options of the installed build cannot be read ($broken); those of $nice are used as they are" >&2
+    cp "$tmp/nice_order" "$tmp/installed_order"
+    cp "$tmp/nice" "$tmp/installed"
+    how="$nice (the installed build cannot be read)"
 fi
 
 # Without a config.nice the environment comes from /etc/make.conf, as for the
@@ -726,6 +762,9 @@ deps_opts "$tmp/installed_order" "$tmp/env"
 
 printf 'installed:   %s\n             %s\n             %s options, from %s\n' \
     "$php" "${version:-?}" "$(wc -l < "$tmp/installed" | tr -d ' ')" "$how"
+if [ -n "$broken" ]; then
+    printf '             NOT READ: %s\n' "$broken"
+fi
 if [ -n "$nice" ]; then
     printf 'config.nice: %s%s\n             %s options\n' "$nice" "$found" "$(wc -l < "$tmp/nice" | tr -d ' ')"
 else
@@ -815,6 +854,9 @@ chmod +x "$out" 2>/dev/null || true
 "$php" -m 2>/dev/null | tr 'A-Z' 'a-z' > "$tmp/modules"
 : > "$tmp/pecl_hint"
 : > "$tmp/pecl_note"
+if [ -n "$broken" ]; then
+    echo "the installed build cannot be read, so its shared PECL modules are not known: check the extension= lines of its php.ini by hand" >> "$tmp/pecl_note"
+fi
 : > "$tmp/pecl_opts"
 : > "$tmp/pecl_names"
 : > "$tmp/ini_lines"
@@ -880,7 +922,10 @@ if [ -s "$tmp/pecl_hint" ] || [ -s "$tmp/pecl_note" ]; then
 fi
 
 echo
-if [ -z "$nice" ]; then
+if [ -n "$broken" ]; then
+    echo "RESULT: the installed build cannot be read, nothing compared; written from $nice."
+    rc=1
+elif [ -z "$nice" ]; then
     echo "RESULT: nothing to compare with; written from the installed build, with CFLAGS and"
     echo "        LIBS from $mk_conf. To carry over the environment of the old build instead,"
     echo "        give its config.nice as the second argument."
