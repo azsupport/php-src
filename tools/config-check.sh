@@ -348,7 +348,15 @@ deps_opts() {
     # what still links against pkg libraries: library options with a /usr/local value
     still="$(grep -E '^--with-[a-zA-Z0-9-]+=(shared,)?/usr/local($|/)' "$1" | grep -v -e "$PHPDEPS" |
         grep -v -E '^--with-(apxs2?|config-file-|mysql-sock|fpm-|layout)' | tr '\n' ' ' | sed 's/ *$//')"
-    deps_note="the libraries come from $PHPDEPS ($(head -n 1 "$PHPDEPS/VERSIONS" | sed 's/, built.*//')): static, linked into PHP${sasl}${still:+; still from pkg: $still}; check after make install: ldd <prefix>/bin/php <prefix>/sbin/php-fpm | grep /usr/local/lib"
+    # the level of the bundle (first line of VERSIONS: "... (amd64, x86-64-v3), built ..."):
+    # this CPU has to run it, like the -march of PHP itself
+    blevel="$(sed -n '1s/^.*(amd64, \([^)]*\)).*$/\1/p' "$PHPDEPS/VERSIONS")"
+    bwarn=""
+    if [ -n "$blevel" ]; then
+        blacks="$(cpu_lacks "$blevel")"
+        [ -n "$blacks" ] && bwarn="; WARNING: the bundle is built for -march=$blevel and this CPU lacks $blacks, so PHP built against it stops with \"Illegal instruction\" here: install the tarball of a lower level (phpdeps-fbsd<major>-amd64-v2.tar.xz)"
+    fi
+    deps_note="the libraries come from $PHPDEPS ($(head -n 1 "$PHPDEPS/VERSIONS" | sed 's/, built.*//')): static, linked into PHP${sasl}${still:+; still from pkg: $still}${bwarn}; check after make install: ldd <prefix>/bin/php <prefix>/sbin/php-fpm | grep /usr/local/lib"
 }
 
 # --deps-rewrite <options> <env> (for tools/build-test.sh): the rewrite of
@@ -358,7 +366,9 @@ if [ "${1:-}" = "--deps-rewrite" ]; then
     [ $# -eq 3 ] || { echo "config-check: --deps-rewrite <options file> <env file>" >&2; exit 2; }
     [ -f "$PHPDEPS/VERSIONS" ] || { echo "config-check: no $PHPDEPS/VERSIONS" >&2; exit 2; }
     touch "$3"
+    tmp="$(mktemp -d)" || exit 2
     deps_opts "$2" "$3"
+    rm -rf "$tmp"
     echo "$deps_note"
     exit 0
 fi

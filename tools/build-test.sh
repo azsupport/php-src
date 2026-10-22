@@ -6,6 +6,7 @@
 #
 # Usage (from the top of a php-src checkout of master):
 #   sh tools/build-test.sh --deps 5.6 7.4        install the packages the presets need
+#   sh tools/build-test.sh --phpdeps <dir>       extract the phpdeps tarball of this CPU's level
 #   sh tools/build-test.sh [--tests] 5.6 7.4     build dist/php-<target>-fbsd-latest.tar.xz
 #
 # Every target is unpacked into build-test/<target>, configured with its preset
@@ -62,9 +63,38 @@ deps() {
     return $rc
 }
 
+# The CPU features of -march=$1 that this CPU has not (by the compiler's
+# -march=native, as tools/config-check.sh and tools/build-deps.sh): code built for
+# $1 stops here with "Illegal instruction".
+cpu_lacks() {
+    cpu_feats() {
+        cc "-march=$1" -dM -E - < /dev/null 2>/dev/null |
+            sed -n -E 's/^#define __(SSE4_2|POPCNT|AVX|AVX2|BMI|BMI2|FMA|F16C|LZCNT|MOVBE|AVX512F|AVX512BW|AVX512CD|AVX512DQ|AVX512VL)__ 1$/\1/p' |
+            LC_ALL=C sort -u
+    }
+    mkdir -p "$work"
+    cpu_feats "$1" > "$work/cpu-need"
+    cpu_feats native > "$work/cpu-have"
+    [ -s "$work/cpu-need" ] || { echo "?"; return 0; }
+    LC_ALL=C comm -23 "$work/cpu-need" "$work/cpu-have" | tr '\n' ' ' | sed 's/ *$//'
+}
+# -march=x86-64-v3 as on the servers (CPUTYPE?=x86-64-v3 in make.conf), if this
+# CPU runs it; else v2, so that the test binaries can run here.
+v3_lacks="$(cpu_lacks x86-64-v3)"
+if [ -z "$v3_lacks" ]; then march=x86-64-v3; else march=x86-64-v2; fi
+
 if [ "${1:-}" = "--deps" ]; then
     shift
     deps "$@"
+    exit $?
+fi
+# /usr/local/phpdeps of the level this CPU runs, from the tarballs of the release
+# phpdeps-fbsd<major>-latest in $2 (phpdeps-fbsd<major>-amd64-v3.tar.xz, -v2).
+if [ "${1:-}" = "--phpdeps" ]; then
+    f="$(ls "${2:-.}"/phpdeps-fbsd*-amd64-"${march#x86-64-}".tar.xz 2>/dev/null | head -n 1)"
+    [ -n "$f" ] || { echo "build-test: no phpdeps tarball for -march=$march in ${2:-.}" >&2; exit 1; }
+    echo "build-test: extracting $f (this CPU runs -march=$march)"
+    tar -xf "$f" -C /usr/local
     exit $?
 fi
 run_tests=0
@@ -75,9 +105,6 @@ fi
 [ $# -gt 0 ] || { sed -n 's/^# \{0,1\}//; 7,9p' "$0" >&2; exit 2; }
 
 ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
-# -march=x86-64-v3 as on the servers (CPUTYPE?=x86-64-v3 in make.conf), if this
-# CPU has AVX2; else v2, so the test binaries can run here.
-if grep -q AVX2 /var/run/dmesg.boot 2>/dev/null; then march=x86-64-v3; else march=x86-64-v2; fi
 
 # Presets: the configure options of our servers, without the options of the
 # ports framework (--build, build_alias, CPP=cpp, CPPFLAGS=), and with the bundled
@@ -203,6 +230,7 @@ for target in "$@"; do
     {
         echo "target:   $target"
         echo "host:     $(uname -sr), $(cc --version | head -1)"
+        echo "cpu:      $(sysctl -n hw.model 2>/dev/null); -march=$march${v3_lacks:+ (lacks $v3_lacks of x86-64-v3)}"
         echo "openssl:  $(openssl version 2>/dev/null)"
         echo "libxml2:  $(pkg-config --modversion libxml-2.0 2>/dev/null)"
         echo "magick:   ImageMagick $(pkg-config --modversion MagickWand 2>/dev/null || echo missing), GraphicsMagick $(GraphicsMagick-config --version 2>/dev/null || echo missing)"
