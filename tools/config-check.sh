@@ -124,7 +124,7 @@ ossl_text() { sed -n 's/.*OPENSSL_VERSION_TEXT *"\([^"]*\)".*/\1/p' "$1/openssl/
 # environment lines): --with-curl becomes --with-curl=bundled when this source tree
 # bundles curl (ext/curl/libcurl) and the build's OpenSSL is 3.0 or later, which
 # curl 8.18.0 and later need; with OpenSSL 1.1.1 (FreeBSD 13.x base) the libcurl of
-# pkg stays. Sets curl_note, and curl_pkgs for missing packages of the bundled curl.
+# the curl package (ftp/curl, /usr/local) stays; the base system has no curl. Sets curl_note, and curl_pkgs for missing packages of the bundled curl.
 curl_note="" curl_pkgs=""
 curl_opts() {
     [ -f ext/curl/build-libcurl.sh ] && [ -f ext/curl/libcurl/include/curl/curlver.h ] || return 0
@@ -135,12 +135,12 @@ curl_opts() {
     inc="$(ossl_incdir "$(sed -n 's/^--with-openssl=//p' "$1" | head -n 1)" "$2" "$pmaj")"
     ot="$(ossl_text "$inc")"
     if ! grep -q 'OPENSSL_VERSION_MAJOR' "$inc/openssl/opensslv.h" 2>/dev/null; then
-        curl_note="$co kept (the libcurl of pkg): the curl $cv of this tree needs OpenSSL 3.0 or later (curl 8.18.0 dropped 1.1.1), this build takes ${ot:-no OpenSSL headers} from $inc"
+        curl_note="$co kept: libcurl of the curl package (ftp/curl, /usr/local/lib; the base system has no curl): the curl $cv of this tree needs OpenSSL 3.0 or later (curl 8.18.0 dropped 1.1.1), this build takes ${ot:-no OpenSSL headers} from $inc"
         return 0
     fi
     case "$co" in --with-curl=shared*) nco="--with-curl=shared,bundled" ;; *) nco="--with-curl=bundled" ;; esac
     awk -v o="$co" -v n="$nco" '$0 == o { $0 = n } { print }' "$1" > "$1.new" && mv "$1.new" "$1"
-    curl_note="$co replaced with $nco: curl $cv of this tree (ext/curl/libcurl) is built into PHP, with $ot ($inc); for the libcurl of pkg instead: sh config.installed.sh $co"
+    curl_note="$co replaced with $nco: curl $cv of this tree (ext/curl/libcurl) is built into PHP, with $ot ($inc); for the curl package (ftp/curl, /usr/local) instead: sh config.installed.sh $co"
     if command -v pkg >/dev/null 2>&1; then
         for p in libnghttp2 brotli zstd libidn2 libpsl; do
             pkg info -e "$p" 2>/dev/null || curl_pkgs="$curl_pkgs $p"
