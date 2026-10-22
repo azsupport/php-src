@@ -114,6 +114,10 @@ cpu_lacks() {
 # PKG_CONFIG_PATH in the environment lines of file $2 and pkg-config; else the
 # base system.
 ossl_incdir() {
+    # with /usr/local/phpdeps installed, its OpenSSL (see deps_opts)
+    if [ -f "${PHPDEPS:-/usr/local/phpdeps}/VERSIONS" ] && [ -x "${PHPDEPS:-/usr/local/phpdeps}/bin/pkg-config" ]; then
+        echo "${PHPDEPS:-/usr/local/phpdeps}/include"; return
+    fi
     if [ "${3:-}" = 5 ]; then
         case "${1:-}" in /*) echo "$1/include"; return ;; esac
     fi
@@ -133,6 +137,8 @@ ossl_text() { sed -n 's/.*OPENSSL_VERSION_TEXT *"\([^"]*\)".*/\1/p' "$1/openssl/
 # the curl package (ftp/curl, /usr/local) stays; the base system has no curl. Sets curl_note, and curl_pkgs for missing packages of the bundled curl.
 curl_note="" curl_pkgs=""
 curl_opts() {
+    # with /usr/local/phpdeps installed, its libcurl (deps_opts)
+    [ -f "${PHPDEPS:-/usr/local/phpdeps}/VERSIONS" ] && [ -x "${PHPDEPS:-/usr/local/phpdeps}/bin/pkg-config" ] && return 0
     [ -f ext/curl/build-libcurl.sh ] && [ -f ext/curl/libcurl/include/curl/curlver.h ] || return 0
     co="$(grep -E -m 1 '^--with-curl(=|$)' "$1")" || return 0
     case "$co" in *bundled*) return 0 ;; esac
@@ -246,6 +252,67 @@ pecl_feature_opts() {
     esac
     printf '%s\n' "$o"
 }
+
+# /usr/local/phpdeps (tools/build-deps.sh; the release phpdeps-fbsd<major>-latest):
+# static, position independent libraries for PHP. When it is installed, the
+# options of the libraries it has point there, pkg-config is its wrapper (the
+# bundle first, static link lines) and LDFLAGS put it first and keep its symbols
+# hidden, so that php, php-fpm and libphp.so need no library of /usr/local/lib.
+# $1: options (changed in place), $2: environment lines (changed in place).
+# Sets deps_note.
+PHPDEPS="${PHPDEPS:-/usr/local/phpdeps}"
+deps_note=""
+deps_opts() {
+    [ -f "$PHPDEPS/VERSIONS" ] && [ -x "$PHPDEPS/bin/pkg-config" ] || return 0
+    pmaj="$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    awk -v d="$PHPDEPS" -v fam="${pmaj:-8}" '
+        # the value of a --with option, with "shared," kept
+        function to_deps(name, val,   sh) {
+            sh = (val ~ /^shared(,|$)/) ? "shared," : ""
+            return name "=" sh d
+        }
+        { name = $0; val = ""; if (index($0, "=")) { name = substr($0, 1, index($0, "=") - 1); val = substr($0, index($0, "=") + 1) } }
+        name == "--with-openssl" && fam == 5 { print to_deps(name, val); next }
+        name == "--with-curl" || name == "--with-iconv" || name == "--with-readline" || \
+        name == "--with-external-pcre" || name == "--with-pcre-regex" || name == "--with-mcrypt" || \
+        name == "--with-libmemcached-dir" || name == "--with-password-argon2" || name == "--with-gettext" || \
+        name == "--with-libxml-dir" || name == "--with-jpeg-dir" || name == "--with-png-dir" || \
+        name == "--with-freetype-dir" || name == "--with-webp-dir" || name == "--with-sodium" || \
+        name == "--with-icu-dir" || name == "--with-onig" || name == "--with-libzip" {
+            if (val == "no") { print; next }
+            print to_deps(name, val); n++; next
+        }
+        { print }
+    ' "$1" > "$1.new" && mv "$1.new" "$1"
+    sasl=""
+    if grep -qx -- --enable-memcached "$1" && ! grep -qx -- --disable-memcached-sasl "$1"; then
+        printf '%s\n' --disable-memcached-sasl >> "$1"
+        sasl="; memcached without SASL (cyrus-sasl is not in the bundle: --enable-memcached-sasl and its pkg libraries, if a server needs it)"
+    fi
+    # LDFLAGS: the bundle first, its symbols not exported (an Apache with other modules).
+    if grep -q '^LDFLAGS=' "$2" 2>/dev/null; then
+        sed -E "s#^LDFLAGS='?#LDFLAGS='-L$PHPDEPS/lib -Wl,--exclude-libs,ALL #; s#^(LDFLAGS='[^']*[^' ])\$#\1'#" "$2" > "$2.new" && mv "$2.new" "$2"
+    else
+        printf "LDFLAGS='-L%s/lib -Wl,--exclude-libs,ALL'\n" "$PHPDEPS" >> "$2"
+    fi
+    printf "PKG_CONFIG='%s/bin/pkg-config'\n" "$PHPDEPS" >> "$2"
+    # what still links against pkg libraries: library options with a /usr/local value
+    still="$(grep -E '^--with-[a-zA-Z0-9-]+=(shared,)?/usr/local($|/)' "$1" | grep -v -e "$PHPDEPS" |
+        grep -v -E '^--with-(apxs2?|config-file-|mysql-sock|fpm-|layout)' | tr '\n' ' ' | sed 's/ *$//')"
+    deps_note="the libraries come from $PHPDEPS ($(head -n 1 "$PHPDEPS/VERSIONS" | sed 's/, built.*//')): static, linked into PHP${sasl}${still:+; still from pkg: $still}; check after make install: ldd <prefix>/bin/php <prefix>/sbin/php-fpm | grep /usr/local/lib"
+}
+
+# --deps-rewrite <options> <env> (for tools/build-test.sh): the rewrite of
+# deps_opts on an options file (one per line) and an environment file
+# (NAME='value' lines), run from inside the PHP source tree; prints the note.
+if [ "${1:-}" = "--deps-rewrite" ]; then
+    [ $# -eq 3 ] || { echo "config-check: --deps-rewrite <options file> <env file>" >&2; exit 2; }
+    [ -f "$PHPDEPS/VERSIONS" ] || { echo "config-check: no $PHPDEPS/VERSIONS" >&2; exit 2; }
+    touch "$3"
+    deps_opts "$2" "$3"
+    echo "$deps_note"
+    exit 0
+fi
 
 # --pkg: the ./configure options for a hand build that replaces the PHP installed
 # as FreeBSD packages (lang/phpXY, its phpXY-* extension packages, mod_phpXY), in
@@ -448,6 +515,9 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     [ -n "$curl_note" ] && note "curl: $curl_note"
     legacy_opts "$tmp/opts" /dev/null "$lb/bin/php"
     [ -n "$legacy_note" ] && note "openssl: $legacy_note"
+    : > "$tmp/pkg_env"
+    deps_opts "$tmp/opts" "$tmp/pkg_env"
+    [ -n "$deps_note" ] && note "phpdeps: $deps_note"
 
     out_dir="$(cd "$(dirname "$out")" 2>/dev/null && pwd)" || { echo "config-check: no directory for $out" >&2; exit 2; }
     out="$out_dir/$(basename "$out")"
@@ -460,6 +530,7 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
         printf "CFLAGS='%s' \\\\\n" "$cflags"
         printf "CXXFLAGS='%s' \\\\\n" "$cxxflags"
         [ -n "$libs" ] && printf "LIBS='%s' \\\\\n" "$libs"
+        sed 's/$/ \\/' "$tmp/pkg_env"
         echo "'./configure' \\"
         sed "s/'/'\\\\''/g; s/^/'/; s/\$/' \\\\/" "$tmp/opts"
         echo '"$@"'
@@ -651,6 +722,7 @@ cur_march="$(march_in "$tmp/env" "$tmp/installed_order" | awk '{ print $NF }')"
 lacks="$(cpu_lacks "$cur_march")"
 curl_opts "$tmp/installed_order" "$tmp/env"
 legacy_opts "$tmp/installed_order" "$tmp/env" "$php"
+deps_opts "$tmp/installed_order" "$tmp/env"
 
 printf 'installed:   %s\n             %s\n             %s options, from %s\n' \
     "$php" "${version:-?}" "$(wc -l < "$tmp/installed" | tr -d ' ')" "$how"
@@ -684,6 +756,10 @@ fi
 if [ -n "$legacy_note" ]; then
     echo
     echo "openssl: $legacy_note"
+fi
+if [ -n "$deps_note" ]; then
+    echo
+    echo "phpdeps: $deps_note"
 fi
 if [ -n "$curl_note" ]; then
     echo
@@ -721,6 +797,7 @@ out="$out_dir/$out_name"
     [ -n "$march_note" ] && echo "# $march_note."
     [ -n "$curl_note" ] && echo "# curl: $curl_note."
     [ -n "$legacy_note" ] && echo "# openssl: $legacy_note."
+    [ -n "$deps_note" ] && echo "# phpdeps: $deps_note."
     echo "# Run from inside the new PHP source tree: sh $out"
     echo
     sed 's/$/ \\/' "$tmp/env"
