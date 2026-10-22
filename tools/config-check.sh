@@ -47,6 +47,9 @@
 # Where the source tree bundles curl (ext/curl/libcurl) and the build's OpenSSL is
 # 3.0 or later, --with-curl becomes --with-curl=bundled (curl built into PHP); with
 # OpenSSL 1.1.1 (FreeBSD 13.x base) the libcurl of pkg stays, the report says why.
+# --with-openssl=<dir> loses its directory for PHP 7.4 and later, whose configure
+# ignores it (pkg-config finds OpenSSL); for PHP 5.6 a directory that has no
+# OpenSSL headers any more (security/openssl removed) becomes /usr, the base system.
 # A build against OpenSSL 3 gets --with-openssl-legacy-provider when the installed
 # PHP can do RC4, and always for PHP 5.6 and 7.4, so that RC4, Blowfish, DES and the
 # like keep working; the report says so.
@@ -132,6 +135,46 @@ ossl_incdir() {
     echo "${i:-/usr/include}"
 }
 ossl_text() { sed -n 's/.*OPENSSL_VERSION_TEXT *"\([^"]*\)".*/\1/p' "$1/openssl/opensslv.h" 2>/dev/null | head -n 1; }
+
+# --with-openssl=<dir> of the script: PHP 7.4 and later ignore the directory
+# (pkg-config, or OPENSSL_CFLAGS and OPENSSL_LIBS, find OpenSSL), so the option
+# goes without it, and OPENSSL_CFLAGS/OPENSSL_LIBS lines whose -I directory has no
+# OpenSSL headers any more are dropped; PHP 5.6 takes the directory, which becomes
+# /usr (the base system) when it has no OpenSSL headers any more (security/openssl
+# removed). $1: options, $2: environment lines (both changed in place). Sets ossl_note.
+ossl_note=""
+ossl_opts() {
+    pmaj="$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    pmin="$(sed -n 's/^#define PHP_MINOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    [ -n "$pmaj" ] || return 0
+    if [ "$pmaj" != 5 ]; then
+        i="$(sed -n "s/^OPENSSL_CFLAGS='\{0,1\}\([^']*\)'\{0,1\}\$/\1/p" "$2" 2>/dev/null | head -n 1 |
+            tr ' ' '\n' | sed -n 's/^-I//p' | head -n 1)"
+        if [ -n "$i" ] && [ ! -f "$i/openssl/opensslv.h" ]; then
+            grep -v -e '^OPENSSL_CFLAGS=' -e '^OPENSSL_LIBS=' "$2" > "$2.new" && mv "$2.new" "$2"
+            ossl_note="OPENSSL_CFLAGS and OPENSSL_LIBS dropped: $i has no OpenSSL headers any more"
+        fi
+    fi
+    o="$(grep -E -m 1 '^--with-openssl=' "$1")" || return 0
+    v="${o#--with-openssl=}"
+    sh=""
+    case "$v" in
+        shared) return 0 ;;
+        shared,*) sh="shared,"; v="${v#shared,}" ;;
+    esac
+    if [ "$pmaj" = 5 ]; then
+        [ -f "$v/include/openssl/opensslv.h" ] && return 0
+        [ -f /usr/include/openssl/opensslv.h ] || return 0
+        n="--with-openssl=${sh}/usr"
+        why="$v has no OpenSSL headers any more, the base system has $(ossl_text /usr/include)"
+    else
+        n="--with-openssl${sh:+=shared}"
+        inc="$(ossl_incdir "" "$2" "$pmaj")"
+        why="PHP $pmaj.$pmin ignores the directory, its configure takes the OpenSSL that pkg-config finds: $(ossl_text "$inc") ($inc)"
+    fi
+    awk -v o="$o" -v n="$n" '$0 == o { $0 = n } { print }' "$1" > "$1.new" && mv "$1.new" "$1"
+    ossl_note="$o replaced with $n: $why${ossl_note:+; $ossl_note}"
+}
 
 # The curl option of the script ($1: options, one per line, changed in place; $2:
 # environment lines): --with-curl becomes --with-curl=bundled when this source tree
@@ -756,6 +799,7 @@ if [ -n "$mm" ] && [ -n "$old_march" ] && [ "$old_march" != "$mm" ]; then
 fi
 cur_march="$(march_in "$tmp/env" "$tmp/installed_order" | awk '{ print $NF }')"
 lacks="$(cpu_lacks "$cur_march")"
+ossl_opts "$tmp/installed_order" "$tmp/env"
 curl_opts "$tmp/installed_order" "$tmp/env"
 legacy_opts "$tmp/installed_order" "$tmp/env" "$php"
 deps_opts "$tmp/installed_order" "$tmp/env"
@@ -791,6 +835,10 @@ if [ -n "$lacks" ]; then
     echo
     echo "WARNING: -march=$cur_march needs $lacks, which this CPU does not have:"
     echo "         PHP built with it stops with \"Illegal instruction\" here. Check CPUTYPE in $mk_conf."
+fi
+if [ -n "$ossl_note" ]; then
+    echo
+    echo "openssl: $ossl_note"
 fi
 if [ -n "$legacy_note" ]; then
     echo
@@ -835,6 +883,7 @@ out="$out_dir/$out_name"
     fi
     [ -n "$march_note" ] && echo "# $march_note."
     [ -n "$curl_note" ] && echo "# curl: $curl_note."
+    [ -n "$ossl_note" ] && echo "# openssl: $ossl_note."
     [ -n "$legacy_note" ] && echo "# openssl: $legacy_note."
     [ -n "$deps_note" ] && echo "# phpdeps: $deps_note."
     echo "# Run from inside the new PHP source tree: sh $out"
