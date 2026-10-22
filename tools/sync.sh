@@ -46,13 +46,16 @@ set -eu
 # Bump when the generated branch content changes (commit layout, README block),
 # so that every branch is rebuilt once. Tooling-only changes must not bump it;
 # wording changes of the README block reach a branch with its next rebuild.
-layout_version=6
+layout_version=7
 
 main_dir="$(cd "$(dirname "$0")/.." && pwd)"
 conf="$main_dir/freebsd/targets.conf"
 # PECL extensions bundled into ext/<name>, and fixes for their sources.
 pecl_conf="$main_dir/freebsd/pecl.conf"
 pecl_patches="$main_dir/freebsd/pecl"
+# curl for --with-curl=bundled (ext/curl/libcurl): release, patch, build script, hook.
+curl_conf="$main_dir/freebsd/curl.conf"
+curl_dir="$main_dir/freebsd/curl"
 gh_repo="${GH_REPO:-${GITHUB_REPOSITORY:-azsupport/php-src}}"
 dist_dir="${DIST_DIR:-$(pwd)/.sync-dist}"
 local_only=0 force=0 release=1 check_only=0 notes_only=0
@@ -102,6 +105,10 @@ patchset_of() {
         pecl_entries | while read -r n v u c; do
             if [ -f "$pecl_patches/$n-$v.patch" ]; then cat "$pecl_patches/$n-$v.patch"; fi
         done
+        curl_entry
+        if has_curl; then
+            for f in "$curl_dir"/*; do if [ -f "$f" ]; then cat "$f"; fi; done
+        fi
         echo "$target $url $ref $port $portrev layout=$layout_version"
     } | sha256_of
 }
@@ -243,6 +250,74 @@ pecl_fetch() {
     fi
 }
 
+# curl for --with-curl=bundled (freebsd/curl.conf): "version url sha256" of the target.
+curl_entry() {
+    if [ -f "$curl_conf" ]; then awk -v t="$target" '$1 == t { print $2, $3, $4 }' "$curl_conf"; fi
+}
+has_curl() { [ -n "$(curl_entry)" ]; }
+curl_notes() {   # $1: line prefix
+    curl_entry | while read -r v u s; do
+        cpatch="$curl_dir/curl-$v.patch"
+        extra=""
+        if [ -f "$cpatch" ]; then extra="; patch \`${cpatch##*/}\` (freebsd-ports): $(sed -n 's/^Description: //p' "$cpatch" | head -1)"; fi
+        printf '%s- curl %s ([release tarball](%s), SHA-256 `%s`, the same as in freebsd-ports `ftp/curl`) in `ext/curl/libcurl`%s. `--with-curl=bundled` builds it into PHP, static, with the OpenSSL of the build (3.0 or later, so not FreeBSD 13.x base) and the packages `libnghttp2`, `brotli`, `zstd`, `libidn2`, `libpsl`; without DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP and GSSAPI. Plain `--with-curl` still takes the libcurl of the system.\n' \
+            "$1" "$v" "$u" "$(short "$s" 16)" "$extra"
+    done
+}
+# Unpack the curl release into ext/curl/libcurl of the worktree and wire it into
+# ext/curl/config.m4 (the hook goes right after 'if test "$PHP_CURL" != "no"; then').
+curl_bundle() {
+    set -- $(curl_entry)
+    cv="$1" cu="$2" cs="$3"
+    tb="${TMPDIR:-/tmp}/sync-curl-$cv.tar.xz"
+    if [ ! -f "$tb" ] || [ "$(sha256_of < "$tb")" != "$cs" ]; then
+        if ! curl -fsSL --retry 3 -o "$tb" "$cu"; then
+            echo "sync: $target: cannot download curl $cv ($cu)" >&2
+            return 1
+        fi
+    fi
+    if [ "$(sha256_of < "$tb")" != "$cs" ]; then
+        echo "sync: $target: curl $cv: SHA-256 mismatch ($cu)" >&2
+        return 1
+    fi
+    if [ -e ext/curl/libcurl ] || [ ! -f ext/curl/config.m4 ]; then
+        echo "sync: $target: ext/curl/libcurl exists or ext/curl/config.m4 is missing" >&2
+        return 1
+    fi
+    mkdir ext/curl/libcurl
+    tar -xJf "$tb" -C ext/curl/libcurl --strip-components 1
+    cpatch="$curl_dir/curl-$cv.patch"
+    if [ -f "$cpatch" ] && ! (cd ext/curl/libcurl && patch -p0 -N -s -f < "$cpatch"); then
+        echo "sync: $target: ${cpatch##*/} does not apply" >&2
+        return 1
+    fi
+    cp "$curl_dir/build-libcurl.sh" ext/curl/build-libcurl.sh
+    if ! awk -v hook="$curl_dir/config-hook.m4" '
+            { print }
+            !done && $0 == "if test \"$PHP_CURL\" != \"no\"; then" {
+                while ((getline l < hook) > 0) print l
+                done = 1
+            }
+            END { exit !done }' ext/curl/config.m4 > ext/curl/config.m4.new; then
+        echo "sync: $target: no place for the curl hook in ext/curl/config.m4" >&2
+        return 1
+    fi
+    # PHP 5.6 adds -L and a run path for the library dir of curl: not for the
+    # bundled one, whose -L the hook puts into LDFLAGS.
+    awk '
+        $0 == "  PHP_ADD_LIBRARY_WITH_PATH(curl, $CURL_DIR/$PHP_LIBDIR, CURL_SHARED_LIBADD)" {
+            print "  if test \"$PHP_CURL\" = \"$php_curl_bundled\"; then"
+            print "    PHP_ADD_LIBRARY(curl,, CURL_SHARED_LIBADD)"
+            print "  else"
+            print "  " $0
+            print "  fi"
+            next
+        }
+        { sub(/Include cURL support/, "Include cURL support (=bundled: ext/curl/libcurl, built into PHP)"); print }
+    ' ext/curl/config.m4.new > ext/curl/config.m4
+    rm -f ext/curl/config.m4.new
+}
+
 # README header for a target; uses the variables set in build_target().
 readme_header() {
     upstream_info
@@ -272,6 +347,10 @@ EOF
     if has_pecl; then
         printf '>\n> **Bundled PECL extensions** (commit "Bundle PECL extensions"), built only when enabled with their option:\n>\n'
         pecl_notes "> "
+    fi
+    if has_curl; then
+        printf '>\n> **Bundled curl** (commit "Bundle curl"), used only with `--with-curl=bundled`:\n>\n'
+        curl_notes "> "
     fi
     cat <<EOF
 >
@@ -392,6 +471,28 @@ make_commits() {
             if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
         } | git commit -q -F -
     fi
+    # curl (freebsd/curl.conf) in ext/curl/libcurl, built into PHP only with
+    # --with-curl=bundled; -f for the same .gitignore reasons as above.
+    if has_curl; then
+        curl_bundle || return 1
+        git add -A -f ext/curl
+        curl_entry | while read -r v u s; do
+            echo "Bundle curl $v for --with-curl=bundled"
+            echo
+            echo "ext/curl/libcurl: the curl $v release tarball, $u"
+            echo "(SHA-256 $s, the same as in freebsd-ports ftp/curl)."
+            if [ -f "$curl_dir/curl-$v.patch" ]; then
+                echo "Patch curl-$v.patch: $(sed -n 's/^Description: //p' "$curl_dir/curl-$v.patch" | head -1)"
+                echo "  Origin: $(sed -n 's/^Origin: //p' "$curl_dir/curl-$v.patch" | head -1)"
+            fi
+            echo
+            echo "ext/curl/build-libcurl.sh builds it static and position independent with"
+            echo "the OpenSSL of the PHP build; ext/curl/config.m4 runs it for"
+            echo "--with-curl=bundled and links the result into PHP without exporting its"
+            echo "symbols. Plain --with-curl still uses the libcurl of the system."
+            if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
+        done | git commit -q -F -
+    fi
     # Build id in the `php -v` banner only. PHP_VERSION is left at the upstream
     # value, so phpversion(), version_compare() and "PHP x.y.z" parsers are not
     # disturbed. configure regenerates main/php_version.h from configure.ac/.in, so
@@ -473,6 +574,10 @@ release_notes() {
     if has_pecl; then
         printf '\n### Bundled PECL extensions\n\nIn `ext/` (commit "Bundle PECL extensions"), built only when enabled with their option:\n\n'
         pecl_notes ""
+    fi
+    if has_curl; then
+        printf '\n### Bundled curl\n\nIn `ext/curl/libcurl` (commit "Bundle curl"), used only with `--with-curl=bundled`:\n\n'
+        curl_notes ""
     fi
     printf '\n### Build\n\nExtract, then in the new directory write the configure options of the installed PHP with [`tools/config-check.sh`](https://github.com/%s/blob/HEAD/tools/config-check.sh) (`sh config-check.sh /usr/local/phpXY`, or `sh config-check.sh --pkg` where PHP comes from packages), run `sh config.installed.sh` (extra options, such as those of the bundled PECL extensions, go after it), then `make` and `make install`. Copy-paste blocks per version are in the [README](https://github.com/%s#building-on-freebsd-from-a-release-tarball).\n' "$gh_repo" "$gh_repo"
 }

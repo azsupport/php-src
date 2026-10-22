@@ -78,11 +78,57 @@ $verify = stream_context_create(array('ssl' => array('cafile' => '/etc/ssl/cert.
 $html = @file_get_contents('https://github.com/', false, $verify);
 check('https:// with certificate check', $html !== false && strlen($html) > 1000, $html === false ? last_error() : strlen($html) . ' bytes');
 
+// curl: the bundled libcurl (--with-curl=bundled; build-test.sh sets CURL_BUNDLED to
+// its version): that version, no libcurl.so linked, its symbols not exported, the
+// rare protocols off, the features of the FreeBSD port on, HTTPS with the CA path.
+if (function_exists('curl_version')) {
+    $cv = curl_version();
+    $bundled = (string)getenv('CURL_BUNDLED');
+    $detail = 'libcurl ' . $cv['version'] . ', ' . $cv['ssl_version'];
+    if ($bundled !== '') {
+        check("curl: bundled $bundled", $cv['version'] === $bundled, $detail);
+        $ldd = array();
+        exec('ldd ' . escapeshellarg(PHP_BINARY) . ' 2>/dev/null', $ldd);
+        $so = preg_grep('/libcurl\.so/', $ldd);
+        check('curl: no libcurl.so linked', $ldd ? !$so : null, $ldd ? ($so ? trim(implode(' ', $so)) : 'ldd shows none') : 'no ldd');
+        $nm = array();
+        exec('nm -D --defined-only ' . escapeshellarg(PHP_BINARY) . ' 2>/dev/null', $nm);
+        $exp = preg_grep('/ T curl_(easy|multi|global|share|url|ws)_/', $nm);
+        check('curl: libcurl symbols not exported', $nm ? !$exp : null, $nm ? ($exp ? count($exp) . ' exported, e.g. ' . trim(reset($exp)) : 'none exported') : 'no nm');
+        $off = array_values(array_intersect($cv['protocols'], array('dict', 'gopher', 'gophers', 'ipfs', 'ipns',
+            'mqtt', 'mqtts', 'rtsp', 'telnet', 'tftp', 'ldap', 'ldaps', 'scp', 'sftp', 'smb', 'smbs')));
+        check('curl: rare protocols off', !$off, $off ? 'has ' . implode(' ', $off) : implode(' ', $cv['protocols']));
+        // CURL_VERSION_* bits of curl.h (the PHP constants differ between versions)
+        $bits = array('SSL' => 4, 'libz' => 8, 'AsynchDNS' => 128, 'IDN' => 1024, 'HTTP2' => 65536,
+            'PSL' => 1048576, 'brotli' => 8388608, 'alt-svc' => 16777216, 'zstd' => 67108864, 'HSTS' => 268435456);
+        $lack = array();
+        foreach ($bits as $n => $b) {
+            if (!($cv['features'] & $b)) {
+                $lack[] = $n;
+            }
+        }
+        check('curl: features of the port', !$lack, $lack ? 'missing ' . implode(' ', $lack) : implode(' ', array_keys($bits)));
+    } else {
+        info('curl', $detail . ' (not the bundled one)');
+    }
+    $ch = curl_init('https://github.com/');
+    // 3 = CURL_HTTP_VERSION_2_0, 0 bytes of CURLOPT_ENCODING: every encoding curl has
+    curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20,
+        CURLOPT_HTTP_VERSION => 3, CURLOPT_ENCODING => ''));
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $hv = defined('CURLINFO_HTTP_VERSION') ? ', HTTP version ' . curl_getinfo($ch, CURLINFO_HTTP_VERSION) : '';
+    check('curl: https:// with certificate check', $body !== false && $code == 200,
+        $body === false ? curl_error($ch) : strlen($body) . " bytes, status $code$hv");
+    curl_close($ch);
+}
+
 // OpenSSL: legacy algorithms, openssl_seal() default, CSR public key.
 if (extension_loaded('openssl')) {
-    // 5.6 and 7.4 load the OpenSSL 3 legacy provider themselves (compat-openssl3.patch);
-    // 8.x relies on openssl.cnf for that, so there the result is only shown.
-    $legacy_required = PHP_MAJOR_VERSION < 8;
+    // With --with-openssl-legacy-provider (all versions here, the option of PHP 8.4;
+    // build-test.sh sets OPENSSL_LEGACY=1) PHP loads the OpenSSL 3 legacy provider;
+    // without it the result is only shown.
+    $legacy_required = getenv('OPENSSL_LEGACY') === '1';
     $methods = array_map('strtolower', openssl_get_cipher_methods());
     $legacy = array('rc4', 'bf-cbc', 'des-cbc', 'rc2-cbc', 'cast5-cbc', 'des-ede3-cbc');
     $missing = array_diff($legacy, $methods);
@@ -90,7 +136,7 @@ if (extension_loaded('openssl')) {
     if ($legacy_required) {
         check('OpenSSL legacy ciphers listed', !$missing, $detail);
     } else {
-        info('OpenSSL legacy ciphers (not loaded by PHP 8)', $detail);
+        info('OpenSSL legacy ciphers (built without --with-openssl-legacy-provider)', $detail);
     }
     foreach (array('bf-cbc' => 8, 'des-cbc' => 8, 'rc2-cbc' => 8, 'cast5-cbc' => 8, 'rc4' => 0) as $m => $ivlen) {
         if (!$legacy_required && !in_array($m, $methods)) {
@@ -108,7 +154,7 @@ if (extension_loaded('openssl')) {
     $key = openssl_pkey_new(array('private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA));
     $det = openssl_pkey_get_details($key);
     $pub = openssl_pkey_get_public($det['key']);
-    if (PHP_MAJOR_VERSION < 8) {
+    if (PHP_MAJOR_VERSION < 8 && ($legacy_required || in_array('rc4', $methods))) {
         $ok = openssl_seal('sealed text', $sealed, $ekeys, array($pub));
         $opened = null;
         if ($ok) {

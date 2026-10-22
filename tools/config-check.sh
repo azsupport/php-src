@@ -36,6 +36,11 @@
 # does not bring its -march along; a -march that needs CPU features this CPU has
 # not (cc -march=native) gives a warning, PHP built with it would stop with
 # "Illegal instruction".
+# Where the source tree bundles curl (ext/curl/libcurl) and the build's OpenSSL is
+# 3.0 or later, --with-curl becomes --with-curl=bundled (curl built into PHP); with
+# OpenSSL 1.1.1 (FreeBSD 13.x base) the libcurl of pkg stays, the report says why.
+# PHP 5.6 and 7.4 built against OpenSSL 3 get --with-openssl-legacy-provider, so that
+# RC4, Blowfish, DES and the like keep working; the report says so.
 # Shared PECL modules that the source tree bundles (redis, memcached, memcache,
 # imagick, gmagick, igbinary, swoole, openswoole, excimer, mcrypt) are not added to
 # the script: the report ends with the command that builds them in, with the
@@ -95,6 +100,71 @@ cpu_lacks() {
     feats native > "$tmp/cpu_have"
     [ -s "$tmp/cpu_need" ] && [ -s "$tmp/cpu_have" ] || return 0
     LC_ALL=C comm -23 "$tmp/cpu_need" "$tmp/cpu_have" | tr '\n' ' ' | sed 's/ *$//'
+}
+
+# The include directory of the OpenSSL a build takes, as its configure and
+# ext/curl/build-libcurl.sh find it: PHP 5.6 ($3 = 5) the dir of
+# --with-openssl=<dir> ($1); PHP 7.4 and later the -I of OPENSSL_CFLAGS or
+# PKG_CONFIG_PATH in the environment lines of file $2 and pkg-config; else the
+# base system.
+ossl_incdir() {
+    if [ "${3:-}" = 5 ]; then
+        case "${1:-}" in /*) echo "$1/include"; return ;; esac
+    fi
+    i="$(sed -n "s/^OPENSSL_CFLAGS='\{0,1\}\([^']*\)'\{0,1\} *\\\\\{0,1\}\$/\1/p" "$2" 2>/dev/null | head -n 1 |
+        tr ' ' '\n' | sed -n 's/^-I//p' | head -n 1)"
+    if [ -n "$i" ]; then echo "$i"; return; fi
+    p="$(sed -n "s/^PKG_CONFIG_PATH='\{0,1\}\([^']*\)'\{0,1\} *\\\\\{0,1\}\$/\1/p" "$2" 2>/dev/null | head -n 1)"
+    i="$(PKG_CONFIG_PATH="${p:-${PKG_CONFIG_PATH:-}}" pkg-config --variable=includedir openssl 2>/dev/null)"
+    echo "${i:-/usr/include}"
+}
+ossl_text() { sed -n 's/.*OPENSSL_VERSION_TEXT *"\([^"]*\)".*/\1/p' "$1/openssl/opensslv.h" 2>/dev/null | head -n 1; }
+
+# The curl option of the script ($1: options, one per line, changed in place; $2:
+# environment lines): --with-curl becomes --with-curl=bundled when this source tree
+# bundles curl (ext/curl/libcurl) and the build's OpenSSL is 3.0 or later, which
+# curl 8.18.0 and later need; with OpenSSL 1.1.1 (FreeBSD 13.x base) the libcurl of
+# pkg stays. Sets curl_note, and curl_pkgs for missing packages of the bundled curl.
+curl_note="" curl_pkgs=""
+curl_opts() {
+    [ -f ext/curl/build-libcurl.sh ] && [ -f ext/curl/libcurl/include/curl/curlver.h ] || return 0
+    co="$(grep -E -m 1 '^--with-curl(=|$)' "$1")" || return 0
+    case "$co" in *bundled*) return 0 ;; esac
+    cv="$(sed -n 's/^#define LIBCURL_VERSION "\(.*\)"$/\1/p' ext/curl/libcurl/include/curl/curlver.h)"
+    pmaj="$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    inc="$(ossl_incdir "$(sed -n 's/^--with-openssl=//p' "$1" | head -n 1)" "$2" "$pmaj")"
+    ot="$(ossl_text "$inc")"
+    if ! grep -q 'OPENSSL_VERSION_MAJOR' "$inc/openssl/opensslv.h" 2>/dev/null; then
+        curl_note="$co kept (the libcurl of pkg): the curl $cv of this tree needs OpenSSL 3.0 or later (curl 8.18.0 dropped 1.1.1), this build takes ${ot:-no OpenSSL headers} from $inc"
+        return 0
+    fi
+    case "$co" in --with-curl=shared*) nco="--with-curl=shared,bundled" ;; *) nco="--with-curl=bundled" ;; esac
+    awk -v o="$co" -v n="$nco" '$0 == o { $0 = n } { print }' "$1" > "$1.new" && mv "$1.new" "$1"
+    curl_note="$co replaced with $nco: curl $cv of this tree (ext/curl/libcurl) is built into PHP, with $ot ($inc); for the libcurl of pkg instead: sh config.installed.sh $co"
+    if command -v pkg >/dev/null 2>&1; then
+        for p in libnghttp2 brotli zstd libidn2 libpsl; do
+            pkg info -e "$p" 2>/dev/null || curl_pkgs="$curl_pkgs $p"
+        done
+    fi
+}
+
+# --with-openssl-legacy-provider (the option of PHP 8.4, in this fork for every
+# version) for PHP 5.6 and 7.4 built against OpenSSL 3: they used RC4 (the default
+# cipher of openssl_seal()), Blowfish, DES, RC2, CAST5 and MD4, which OpenSSL 3 keeps
+# in its legacy provider. $1: options (changed in place), $2: environment lines.
+# Sets legacy_note. PHP 8.x keeps what the installed build had.
+legacy_note=""
+legacy_opts() {
+    grep -q 'openssl-legacy-provider' ext/openssl/config0.m4 2>/dev/null || return 0
+    grep -q -e '^--with-openssl' "$1" || return 0
+    grep -q -e 'openssl-legacy-provider' "$1" && return 0
+    pmaj="$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    pmin="$(sed -n 's/^#define PHP_MINOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    case "$pmaj" in 5 | 7) ;; *) return 0 ;; esac
+    inc="$(ossl_incdir "$(sed -n 's/^--with-openssl=//p' "$1" | head -n 1)" "$2" "$pmaj")"
+    grep -q 'OPENSSL_VERSION_MAJOR' "$inc/openssl/opensslv.h" 2>/dev/null || return 0
+    printf '%s\n' --with-openssl-legacy-provider >> "$1"
+    legacy_note="--with-openssl-legacy-provider added: PHP $pmaj.$pmin used RC4 (the default of openssl_seal()), Blowfish, DES, RC2, CAST5 and MD4, which $(ossl_text "$inc") keeps in its legacy provider; without them: sh config.installed.sh --without-openssl-legacy-provider"
 }
 
 # --pkg: the ./configure options for a hand build that replaces the PHP installed
@@ -281,6 +351,11 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
     cxxflags="$cflags"
     [ -n "$intl" ] && [ "$fam" != 5 ] && cxxflags="-std=c++17 $cflags"
 
+    curl_opts "$tmp/opts" /dev/null
+    [ -n "$curl_note" ] && note "curl: $curl_note"
+    legacy_opts "$tmp/opts" /dev/null
+    [ -n "$legacy_note" ] && note "openssl: $legacy_note"
+
     out_dir="$(cd "$(dirname "$out")" 2>/dev/null && pwd)" || { echo "config-check: no directory for $out" >&2; exit 2; }
     out="$out_dir/$(basename "$out")"
     {
@@ -336,6 +411,11 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
         echo "    pkg autoremove does not remove them:"
         echo
         echo "pkg set -y -A 0 $(tr '\n' ' ' < "$tmp/libs" | sed 's/ *$//')"
+    fi
+    if [ -n "$curl_pkgs" ]; then
+        echo "  - The bundled curl needs packages that are not installed:"
+        echo
+        echo "pkg install -y$curl_pkgs"
     fi
     echo
     echo "written: $out"
@@ -468,6 +548,8 @@ if [ -n "$mm" ] && [ -n "$old_march" ] && [ "$old_march" != "$mm" ]; then
 fi
 cur_march="$(march_in "$tmp/env" "$tmp/installed_order" | awk '{ print $NF }')"
 lacks="$(cpu_lacks "$cur_march")"
+curl_opts "$tmp/installed_order" "$tmp/env"
+legacy_opts "$tmp/installed_order" "$tmp/env"
 
 printf 'installed:   %s\n             %s\n             %s options, from %s\n' \
     "$php" "${version:-?}" "$(wc -l < "$tmp/installed" | tr -d ' ')" "$how"
@@ -498,6 +580,19 @@ if [ -n "$lacks" ]; then
     echo "WARNING: -march=$cur_march needs $lacks, which this CPU does not have:"
     echo "         PHP built with it stops with \"Illegal instruction\" here. Check CPUTYPE in $mk_conf."
 fi
+if [ -n "$legacy_note" ]; then
+    echo
+    echo "openssl: $legacy_note"
+fi
+if [ -n "$curl_note" ]; then
+    echo
+    echo "curl: $curl_note"
+    if [ -n "$curl_pkgs" ]; then
+        echo "      packages it needs that are not installed:"
+        echo
+        echo "pkg install -y$curl_pkgs"
+    fi
+fi
 if [ -n "$nice" ] && [ -s "$tmp/only_installed" ]; then
     echo
     echo "only in the installed build (missing in config.nice):"
@@ -523,6 +618,8 @@ out="$out_dir/$out_name"
         echo "# The environment lines come from $mk_conf (no config.nice)."
     fi
     [ -n "$march_note" ] && echo "# $march_note."
+    [ -n "$curl_note" ] && echo "# curl: $curl_note."
+    [ -n "$legacy_note" ] && echo "# openssl: $legacy_note."
     echo "# Run from inside the new PHP source tree: sh $out"
     echo
     sed 's/$/ \\/' "$tmp/env"

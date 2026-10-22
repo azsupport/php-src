@@ -26,13 +26,16 @@ dist="$top/dist"
 deps() {
     # libmemcached, ImageMagick7-nox11, GraphicsMagick, libmcrypt: bundled PECL memcached,
     # imagick, gmagick, mcrypt; memcached and
-    # redis: servers for the smoke checks of the PECL extensions
+    # redis: servers for the smoke checks of the PECL extensions;
+    # libnghttp2, brotli, zstd, libidn2, libpsl: the bundled curl (--with-curl=bundled),
+    # so no curl package
     pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick libmcrypt memcached redis brotli"
+    pkgs="$pkgs libnghttp2 zstd libidn2 libpsl"
     for t in "$@"; do
         case "$t" in
-            5.6) pkgs="$pkgs libxml2 curl jpeg-turbo png freetype2 gettext-runtime libiconv libmcrypt pcre apache24 perl5" ;;
-            7.4) pkgs="$pkgs libxml2 curl libargon2 readline libiconv libzip libgd webp pcre2 oniguruma" ;;
-            8.*) pkgs="$pkgs libxml2 curl readline libiconv libzip libgd webp pcre2 oniguruma icu apache24 perl5" ;;
+            5.6) pkgs="$pkgs libxml2 jpeg-turbo png freetype2 gettext-runtime libiconv libmcrypt pcre apache24 perl5" ;;
+            7.4) pkgs="$pkgs libxml2 libargon2 readline libiconv libzip libgd webp pcre2 oniguruma" ;;
+            8.*) pkgs="$pkgs libxml2 readline libiconv libzip libgd webp pcre2 oniguruma icu apache24 perl5" ;;
         esac
     done
     # shellcheck disable=SC2086
@@ -57,7 +60,9 @@ ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 if grep -q AVX2 /var/run/dmesg.boot 2>/dev/null; then march=x86-64-v3; else march=x86-64-v2; fi
 
 # Presets: the configure options of our servers, without the options of the
-# ports framework (--build, build_alias, CPP=cpp, CPPFLAGS=).
+# ports framework (--build, build_alias, CPP=cpp, CPPFLAGS=), and with the bundled
+# curl (--with-curl=bundled), as config-check.sh writes them on FreeBSD 14 and 15, and
+# --with-openssl-legacy-provider (the option of PHP 8.4, here on every version).
 # 7.4 and newer bundle swoole and OpenSwoole, only one can be built into a PHP:
 # SWOOLE=openswoole takes OpenSwoole. Likewise imagick or gmagick: MAGICK=gmagick.
 preset() {
@@ -74,7 +79,7 @@ preset() {
             set -- --prefix=/usr/local/php5640 --with-apxs2=/usr/local/sbin/apxs --disable-all \
                 --with-layout=GNU --with-zend-vm=CALL --enable-libxml --with-libxml-dir=/usr/local \
                 --enable-xml --enable-simplexml --with-regex=php --with-pcre-regex=/usr/local --with-bz2 \
-                --enable-ctype --with-curl --enable-dom --enable-fileinfo --enable-filter --enable-ftp \
+                --enable-ctype --with-curl=bundled --with-openssl-legacy-provider --enable-dom --enable-fileinfo --enable-filter --enable-ftp \
                 --with-gd --with-jpeg-dir=/usr/local --with-png-dir=/usr/local \
                 --with-freetype-dir=/usr/local --with-gettext --enable-hash --with-iconv=/usr/local \
                 --enable-json --enable-mbstring --with-mcrypt=/usr/local --enable-pdo --with-pdo-mysql \
@@ -94,13 +99,13 @@ preset() {
             set -- --with-layout=GNU --localstatedir=/var --disable-all --enable-ipv6 --with-libxml \
                 --program-prefix= --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www \
                 --prefix=/usr/local/php74 --mandir=/usr/local/php74/man --infodir=/usr/local/php74/info/ \
-                --with-password-argon2=/usr/local --with-curl=/usr/local --with-bz2 --enable-dom \
+                --with-password-argon2=/usr/local --with-curl=bundled --with-bz2 --enable-dom \
                 --with-readline=/usr/local --enable-filter --with-iconv=/usr/local --enable-json \
                 --enable-ctype --enable-ftp --enable-mbstring --enable-opcache --enable-session \
                 --enable-simplexml --enable-sockets --enable-tokenizer --enable-phar --enable-posix \
                 --enable-xml --with-zip --with-zlib --enable-gd --with-external-gd --with-webp \
                 --with-external-pcre=/usr/local --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
-                --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl \
+                --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-openssl-legacy-provider \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
                 --enable-memcache --with-$mg=/usr/local \
                 --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw \
@@ -115,7 +120,7 @@ preset() {
             set -- --with-apxs2=/usr/local/sbin/apxs --with-layout=GNU --localstatedir=/var --disable-all \
                 --with-libxml --program-prefix= --enable-fpm --with-fpm-user=www --with-fpm-group=www \
                 --prefix=/usr/local/php$v --mandir=/usr/local/php$v/man --infodir=/usr/local/php$v/info/ \
-                --with-curl=/usr/local --enable-dom --with-readline=/usr/local --with-openssl=/usr \
+                --with-curl=bundled --enable-dom --with-readline=/usr/local --with-openssl=/usr --with-openssl-legacy-provider \
                 --enable-filter --with-iconv=/usr/local --enable-ctype --enable-ftp --enable-mbstring \
                 --enable-opcache --enable-opcache-jit --enable-phar --enable-session --enable-simplexml \
                 --enable-xml --with-zlib --enable-gd --with-external-gd --with-webp \
@@ -222,12 +227,19 @@ for target in "$@"; do
         [ -x sapi/fpm/php-fpm ] && echo "fpm -v:   $(sapi/fpm/php-fpm -n -v | head -1)"
         for so in libs/libphp*.so; do [ -f "$so" ] && echo "module:   $so ($(du -k "$so" | cut -f1) KB)"; done
         echo "modules:  $("$php" -n -m | grep -v '^\[' | grep -v '^$' | tr '\n' ' ')"
+        if [ -f ext/curl/libcurl-build/VERSION ]; then
+            echo "curl:     bundled $(cat ext/curl/libcurl-build/VERSION) (ext/curl/libcurl-build.log)"
+            cp ext/curl/libcurl-build.log "$out/" 2>/dev/null
+        fi
     } >> "$sum"
     opcache=""
     [ -f modules/opcache.so ] && opcache="-d zend_extension=$src/modules/opcache.so"
     # shellcheck disable=SC2086
     say "$target: smoke checks"
-    "$php" -n $opcache "$top/tools/build-test-smoke.php" "$src" > "$out/smoke.txt" 2>&1
+    legacy=0
+    grep -qx -- --with-openssl-legacy-provider "$out/configure-options.txt" && legacy=1
+    env CURL_BUNDLED="$(cat ext/curl/libcurl-build/VERSION 2>/dev/null)" OPENSSL_LEGACY="$legacy" \
+        "$php" -n $opcache "$top/tools/build-test-smoke.php" "$src" > "$out/smoke.txt" 2>&1
     echo "smoke:    $(grep -c '^ok ' "$out/smoke.txt") ok, $(grep -c '^FAIL ' "$out/smoke.txt") failed (smoke.txt)" >> "$sum"
 
     if [ "$run_tests" = 1 ]; then
