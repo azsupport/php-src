@@ -68,8 +68,9 @@ reads it into a fixed buffer). The mysqlnd fix needed the 2024 hardening
 (GHSA-h35g-vwh6-m678, CVE-2024-8929) too, which neither Remi Collet's nor Ondřej
 Surý's 5.6 has, so `backport-mysqlnd-overread.patch` carries over both the 2024
 commit and the 2026 partial fix from PHP 7.4, with the fake-server protocol tests
-adapted to 5.6. Of these, TuxCare's alt-php56 (5.6.40-138, 11.08.2026) fixes
-CVE-2026-9672, CVE-2026-17543 and CVE-2026-7260.
+adapted to 5.6. Of these, TuxCare's alt-php56 5.6.40-135 (errata of 10.08.2026,
+for example [CLSA-2026:1786360064](https://errata.tuxcare.com/els_alt_php/el8/CLSA-2026-1786360064.html))
+fixes CVE-2026-9672, CVE-2026-17543 and CVE-2026-7260.
 
 Every branch is upstream plus these commits, in this order:
 
