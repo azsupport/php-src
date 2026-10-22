@@ -249,7 +249,12 @@ one of those binaries works too. On a server where PHP comes from packages
 installed extension package and the port options of `phpXY`, takes `CFLAGS` and
 `CPUTYPE` from `/etc/make.conf`, lists what it does not carry over (PECL packages,
 tools) and prints the `pkg set -A 0` line that keeps the libraries when the packages
-are removed later.
+are removed later. One build makes only one SAPI module (`./configure`: "You can
+build only one SAPI module"), and the ports build the Apache module (`mod_phpXY`)
+and the embed library (the `EMBED` option of `phpXY`, `libphp7.so` in
+`/usr/local/lib`) separately: with `mod_phpXY` installed the script keeps the
+Apache module, leaves `--enable-embed` out and says whether a package links against
+the embed library (`pkg shlib -R libphp7.so`).
 
 `config-check.sh` takes the options of the installed PHP (`php -n -i`, Configure
 Command), never a `config.nice` blindly: a `config.nice` may come from a configure
