@@ -307,6 +307,11 @@ void shutdown_executor(TSRMLS_D) /* {{{ */
 		}
 	} zend_end_try();
 
+	/* May be used by an error in the rest of the shutdown or before the next
+	 * init_executor(): the exception object is freed above. */
+	EG(error_handling) = EH_NORMAL;
+	EG(exception) = NULL;
+
 	zend_try {
 		clean_non_persistent_constants(TSRMLS_C);
 	} zend_end_try();
@@ -325,10 +330,23 @@ void shutdown_executor(TSRMLS_D) /* {{{ */
 		if (EG(in_autoload)) {
 			zend_hash_destroy(EG(in_autoload));
 			FREE_HASHTABLE(EG(in_autoload));
+			EG(in_autoload) = NULL;
 		}
 	} zend_end_try();
 
 	zend_shutdown_fpu(TSRMLS_C);
+
+	/* May be used by an error before the next init_executor(): the stacks
+	 * are destroyed above (or left behind by a bailout), the handlers freed
+	 * (as in the official fix of PHP 7.4 and 8.x). */
+	EG(user_error_handler) = NULL;
+	EG(user_exception_handler) = NULL;
+	memset(&EG(user_error_handlers_error_reporting), 0, sizeof(EG(user_error_handlers_error_reporting)));
+	memset(&EG(user_error_handlers), 0, sizeof(EG(user_error_handlers)));
+	memset(&EG(user_exception_handlers), 0, sizeof(EG(user_exception_handlers)));
+	EG(error_handling) = EH_NORMAL;
+	EG(exception_class) = NULL;
+	EG(exception) = NULL;
 
 	EG(active) = 0;
 }
