@@ -2,7 +2,8 @@
 """upstream-check.py - what the upstreams of this fork published since we looked.
 
 Releases. For every extension in freebsd/pecl.conf: the release tags of its
-repository and its PECL releases. A stable release newer than the bundled one
+repository and its PECL releases; for curl (freebsd/curl.conf) the tags of
+github.com/curl/curl. A stable release newer than the bundled one
 is reported for the targets whose PHP version it supports (package.xml of the
 tag, else the PECL dependencies). A "pin" line in freebsd/upstream.conf keeps
 an extension to one series. Pre-releases count only where the bundled version
@@ -97,7 +98,10 @@ def vkey(v):
 
 
 def tag_version(tag):
-    """Version of a release tag: 6.3.0, v3.4.0, release-2.0.1, RELEASE_3_0_6, memcache-3.0.8."""
+    """Version of a release tag: 6.3.0, v3.4.0, release-2.0.1, RELEASE_3_0_6, memcache-3.0.8,
+    curl-8_23_0."""
+    if tag.startswith("curl-"):
+        tag = tag[len("curl-"):].replace("_", ".")
     if tag.startswith("RELEASE_"):
         tag = tag[len("RELEASE_"):].replace("_", ".")
     v = re.sub(r"^(v|release-|memcache-)", "", tag)
@@ -160,6 +164,8 @@ class Upstream:
         except RuntimeError as e:
             warn("%s: no tags from %s: %s" % (name, url, e))
         try:
+            if name == "curl":
+                raise RuntimeError("not a PECL package")
             xml = http("%s/%s/allreleases.xml" % (PECL_REST, name.lower()))
             for v, s in re.findall(r"<r>\s*<v>([^<]+)</v>\s*<s>([^<]+)</s>", xml):
                 if vkey(v):
@@ -262,6 +268,9 @@ def check_releases(workdir, pins):
     rows = {}
     for target, name, version, url, _commit in conf("pecl.conf"):
         rows.setdefault(name, []).append((target, version, url))
+    if os.path.exists(os.path.join(ROOT, "freebsd", "curl.conf")):
+        for target, version, _url, _sha in conf("curl.conf"):
+            rows.setdefault("curl", []).append((target, version, "https://github.com/curl/curl"))
     findings, checked = [], set()
     for name, entries in rows.items():
         up = Upstream(name, entries[0][2], workdir)
@@ -300,6 +309,22 @@ def release_finding(up, v, hits, pin):
         "|---|---|",
     ]
     lines += ["| %s | %s |" % (t, c) for t, c in hits]
+    if up.name == "curl":
+        lines[2] = "It needs OpenSSL 3.0 or later, as the bundled curl does now."
+        lines += [
+            "",
+            "To take it: in `freebsd/curl.conf` set version `%s`, the release tarball and its SHA-256 "
+            "(the same as freebsd-ports `ftp/curl/distinfo` once the port has it), and bring "
+            "`freebsd/curl/curl-<old version>.patch` up to date from `ftp/curl/files/patch-configure`; "
+            "check that `freebsd/curl/build-libcurl.sh` passes no option the new configure has dropped, "
+            "then run the build test. Not wanted: close this issue." % v,
+        ]
+        return {
+            "key": "release:curl:%s" % v,
+            "kind": "release",
+            "title": "curl %s is out (bundled: %s for %s)" % (v, ", ".join(current), targets),
+            "body": "\n".join(lines),
+        }
     lines += [
         "",
         "To take it: in `freebsd/pecl.conf` set version `%s` and commit `%s` for %s, carry over "

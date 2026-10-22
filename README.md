@@ -271,10 +271,11 @@ are required (`./buildconf --force` first).
 
 [`.github/workflows/build-test.yml`](.github/workflows/build-test.yml) builds the
 `-latest` tarballs in a FreeBSD VM (default 15.1: clang 19, base OpenSSL 3.5,
-libraries from `pkg`) with the configure options of our servers, then runs
-`php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php)
-(parse errors, DNS and IPv6, `tls://`, `ssl://` and `https://`, the OpenSSL legacy
-ciphers, `openssl_seal()`, GD with FreeType, XML, sessions, curl and more) and a
+libraries from `pkg`) with the configure options of our servers, the bundled curl
+(`--with-curl=bundled`) and `--with-openssl-legacy-provider`, then runs `php -v`,
+`php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (parse errors,
+DNS and IPv6, `tls://`, `ssl://` and `https://`, the OpenSSL legacy ciphers,
+`openssl_seal()`, GD with FreeType, XML, sessions, the bundled curl and more) and a
 part of the PHP test suite. The result shows per version on the run page. Start it
 on https://github.com/azsupport/php-src/actions/workflows/build-test.yml with
 **Run workflow**. On a FreeBSD machine the same script runs from a checkout of this
@@ -394,24 +395,55 @@ labelled `upstream`; nothing is applied on its own. What it follows is listed in
 - 7.4 builds against the OpenSSL 3 of the base system of FreeBSD 14 and 15
   (3.5.6 on FreeBSD 15.1) thanks to
   [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch):
-  `--with-openssl` is enough, as FreeBSD ships `openssl.pc`. The patch loads the
-  OpenSSL 3 legacy provider (`/usr/lib/ossl-modules/legacy.so` in the base
-  system) at startup, so RC4 (the default of `openssl_seal()`), Blowfish, DES,
-  RC2, CAST5 and MD4 keep working without editing `openssl.cnf`. What still
-  behaves differently from OpenSSL 1.1 is OpenSSL 3 itself, the same as with PHP
-  8.x: TLS 1.0/1.1 are off by default, RSA PKCS#1 v1.5 decryption with a wrong key
+  `--with-openssl` is enough, as FreeBSD ships `openssl.pc`. RC4 (the default of
+  `openssl_seal()`), Blowfish, DES, RC2, CAST5 and MD4 need
+  `--with-openssl-legacy-provider` there (below). What behaves differently from
+  OpenSSL 1.1 is OpenSSL 3 itself, the same as with PHP 8.x: TLS 1.0/1.1 are off by default, RSA PKCS#1 v1.5 decryption with a wrong key
   returns random bytes instead of failing (protection against the Marvin
   attack), DSA/DH keys below 512 bits and certificates with malformed times are
   refused. A 7.4 build against a separate OpenSSL 1.1 behaves as before.
 - 5.6 builds against the same OpenSSL 3 of the base system with
   [`compat-openssl3.patch`](freebsd/patches/5.6/compat-openssl3.patch)
-  (`--with-openssl=/usr`), with the same legacy provider loading as 7.4 and the
-  same OpenSSL 3 differences. On top of that, `tls://` and
+  (`--with-openssl=/usr`), with the same `--with-openssl-legacy-provider` and the
+  same OpenSSL 3 differences as 7.4. On top of that, `tls://` and
   `STREAM_CRYPTO_METHOD_TLS_*` negotiate TLS 1.0 to 1.3: 5.6 limits them to TLS
   1.0, which OpenSSL 3 refuses at its default security level, so they could not
   connect at all (`ssl://`, `https://` and `STREAM_CRYPTO_METHOD_SSLv23_*` already
   negotiated the newest version). A 5.6 build against a separate OpenSSL 1.1
   behaves as before.
+
+`--with-openssl-legacy-provider` loads the OpenSSL 3 legacy provider together with
+the default one at startup, so RC4, Blowfish, DES, RC2, CAST5, MD4 and the like work
+without editing `openssl.cnf`. PHP 8.4 has the option upstream
+([php-src GH-13951](https://github.com/php/php-src/pull/13951)); this fork adds the
+same option to 5.6, 7.4, 8.1, 8.2 and 8.3. It is off by default, as upstream. The
+module is `/usr/lib/ossl-modules/legacy.so`, part of the base system of FreeBSD 14
+and 15; if it is missing, PHP starts and those algorithms stay unavailable. With
+OpenSSL 1.1 (FreeBSD 13.x base) the option changes nothing, as the algorithms are
+built in there. `config-check.sh` adds it for 5.6 and 7.4 built against OpenSSL 3,
+since they used these algorithms with OpenSSL 1.x (`sh config.installed.sh
+--without-openssl-legacy-provider` leaves it out), and keeps what an installed 8.x
+build had.
+
+### Bundled curl
+
+Every branch carries curl 8.23.0 in `ext/curl/libcurl`: the release tarball (its
+SHA-256 is the one in freebsd-ports `ftp/curl`) with the configure patch of that
+port. `--with-curl=bundled` builds it during `configure` (a minute or two, log in
+`ext/curl/libcurl-build.log`) and links it into PHP, static, against the OpenSSL
+that PHP itself takes, with the options of the FreeBSD port except DICT, Gopher,
+IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP (libssh2) and GSSAPI. PHP then does
+not depend on the curl package, and its curl is as new as the tarball. It needs the
+packages `libnghttp2`, `brotli`, `zstd`, `libidn2` and `libpsl`, which the curl
+package pulls in anyway. Its symbols are not exported from `php` and `libphp.so`,
+so a module that loads the libcurl of the system does not mix with it. Plain
+`--with-curl` still takes the system libcurl.
+
+curl 8.18.0 and later need OpenSSL 3.0 or later. FreeBSD 13.x has OpenSSL 1.1.1 in
+its base system, so there `config-check.sh` keeps `--with-curl` (the curl package)
+and says why; on FreeBSD 14 and 15 it writes `--with-curl=bundled` and lists the
+packages that are missing. A curl security fix reaches PHP with a rebuild: the daily
+upstream check opens an issue for each new curl release and for changes of the port.
 
 ## How updates happen
 
