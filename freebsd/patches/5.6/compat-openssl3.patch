@@ -1,8 +1,8 @@
-Description: Build and run against OpenSSL 3 (FreeBSD 14/15 base): guard OPENSSL_SSLV23_PADDING (gone in OpenSSL 3), load the legacy provider for RC4 (the default of openssl_seal()), Blowfish, DES, RC2, CAST5 and MD4, let tls:// and STREAM_CRYPTO_METHOD_TLS_* negotiate TLS 1.0 to 1.3 (5.6 limits them to TLS 1.0, which OpenSSL 3 refuses at its default security level, so they could not connect), and return only the public part from openssl_csr_get_public_key() (that one also with OpenSSL 1.1, where 5.6 leaked the private part too).
-Origin: azsupport; padding guard and CSR public key extraction as in php-src PHP-8.1 ext/openssl/openssl.c, provider loading per OSSL_PROVIDER_load(3); tested against OpenSSL 3.5.6; tls:// range as in php-src PHP-7.2 and later
+Description: Build and run against OpenSSL 3 (FreeBSD 14/15 base): guard OPENSSL_SSLV23_PADDING (gone in OpenSSL 3), with --with-openssl-legacy-provider (the option of PHP 8.4, off by default) load the legacy provider for RC4 (the default of openssl_seal()), Blowfish, DES, RC2, CAST5 and MD4, let tls:// and STREAM_CRYPTO_METHOD_TLS_* negotiate TLS 1.0 to 1.3 (5.6 limits them to TLS 1.0, which OpenSSL 3 refuses at its default security level, so they could not connect), and return only the public part from openssl_csr_get_public_key() (that one also with OpenSSL 1.1, where 5.6 leaked the private part too).
+Origin: azsupport; padding guard and CSR public key extraction as in php-src PHP-8.1 ext/openssl/openssl.c, provider loading per OSSL_PROVIDER_load(3), its configure option as in php-src PHP-8.4 (GH-13951); tested against OpenSSL 3.5.6; tls:// range as in php-src PHP-7.2 and later
+
 
 diff --git a/ext/openssl/openssl.c b/ext/openssl/openssl.c
-index b6a79249b..a3cb1b0b6 100644
 --- a/ext/openssl/openssl.c
 +++ b/ext/openssl/openssl.c
 @@ -51,6 +51,9 @@
@@ -15,12 +15,13 @@ index b6a79249b..a3cb1b0b6 100644
  
  /* Common */
  #include <time.h>
-@@ -1153,6 +1156,30 @@ PHP_MINIT_FUNCTION(openssl)
+@@ -1153,6 +1156,31 @@
  
  	SSL_load_error_strings();
  
-+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-+	/* PHP 5.6 relies on algorithms that OpenSSL 3 moved into its "legacy"
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L && defined(LOAD_OPENSSL_LEGACY_PROVIDER)
++	/* --with-openssl-legacy-provider, the option of PHP 8.4 (off by default).
++	 * PHP 5.6 relies on algorithms that OpenSSL 3 moved into its "legacy"
 +	 * provider: RC4 (the default cipher of openssl_seal()), Blowfish, DES,
 +	 * RC2 (openssl_pkcs7_encrypt(), PKCS#12 files), CAST5, MD4 and others.
 +	 * Load "legacy", and "default" with it, because loading any provider
@@ -46,7 +47,7 @@ index b6a79249b..a3cb1b0b6 100644
  	/* register a resource id number with OpenSSL so that we can map SSL -> stream structures in
  	 * OpenSSL callbacks */
  	ssl_stream_data_index = SSL_get_ex_new_index(0, "PHP stream index", NULL, NULL, NULL);
-@@ -1201,7 +1228,9 @@ PHP_MINIT_FUNCTION(openssl)
+@@ -1201,7 +1229,9 @@
  	REGISTER_LONG_CONSTANT("PKCS7_NOSIGS", PKCS7_NOSIGS, CONST_CS|CONST_PERSISTENT);
  
  	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_PADDING", RSA_PKCS1_PADDING, CONST_CS|CONST_PERSISTENT);
@@ -56,7 +57,7 @@ index b6a79249b..a3cb1b0b6 100644
  	REGISTER_LONG_CONSTANT("OPENSSL_NO_PADDING", RSA_NO_PADDING, CONST_CS|CONST_PERSISTENT);
  	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_OAEP_PADDING", RSA_PKCS1_OAEP_PADDING, CONST_CS|CONST_PERSISTENT);
  
-@@ -3231,6 +3260,25 @@ PHP_FUNCTION(openssl_csr_get_public_key)
+@@ -3231,6 +3261,25 @@
  	}
  
  	tpubkey=X509_REQ_get_pubkey(csr);
@@ -83,10 +84,9 @@ index b6a79249b..a3cb1b0b6 100644
  	return;
  }
 diff --git a/ext/openssl/xp_ssl.c b/ext/openssl/xp_ssl.c
-index d25c71768..3af61df02 100644
 --- a/ext/openssl/xp_ssl.c
 +++ b/ext/openssl/xp_ssl.c
-@@ -1458,6 +1458,17 @@ int php_openssl_setup_crypto(php_stream *stream,
+@@ -1458,6 +1458,17 @@
  	sslsock->is_client = cparam->inputs.method & STREAM_CRYPTO_IS_CLIENT;
  	method_flags = ((cparam->inputs.method >> 1) << 1);
  
@@ -104,3 +104,26 @@ index d25c71768..3af61df02 100644
  	/* Should we use a specific crypto method or is generic SSLv23 okay? */
  	if ((method_flags & (method_flags-1)) == 0) {
  		ssl_ctx_options = SSL_OP_ALL;
+diff --git a/ext/openssl/config0.m4 b/ext/openssl/config0.m4
+--- a/ext/openssl/config0.m4
++++ b/ext/openssl/config0.m4
+@@ -10,6 +10,11 @@
+ 
+ PHP_ARG_WITH(system-ciphers, whether to use system default cipher list instead of hardcoded value,
+ [  --with-system-ciphers   OPENSSL: Use system default cipher list instead of hardcoded value], no, no)
++
++PHP_ARG_WITH(openssl-legacy-provider, whether to load legacy algorithm provider,
++[  --with-openssl-legacy-provider
++                          OPENSSL: Load legacy algorithm provider in addition to
++                          default provider], no, no)
+ 
+ if test "$PHP_OPENSSL" != "no"; then
+   PHP_NEW_EXTENSION(openssl, openssl.c xp_ssl.c, $ext_shared)
+@@ -32,4 +37,7 @@
+   if test "$PHP_SYSTEM_CIPHERS" != "no"; then
+     AC_DEFINE(USE_OPENSSL_SYSTEM_CIPHERS,1,[ Use system default cipher list instead of hardcoded value ])
+   fi
++  if test "$PHP_OPENSSL_LEGACY_PROVIDER" != "no"; then
++    AC_DEFINE(LOAD_OPENSSL_LEGACY_PROVIDER,1,[ Load the OpenSSL legacy algorithm provider in addition to the default provider ])
++  fi
+ fi
