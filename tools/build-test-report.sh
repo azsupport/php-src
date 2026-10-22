@@ -38,9 +38,9 @@ for dir in "$res"/*/; do
             tail -n 12 "$dir/configure-tail.txt" | cut -c1-240
         fi
         if [ -s "$dir/tests.txt" ]; then
-            echo "failed tests ($(wc -l < "$dir/tests.txt" | tr -d ' ')):"
-            # only the test files: the names alone fit into one annotation
-            sed -n 's/.*\[\([^]]*\.phpt\)\].*/\1/p' "$dir/tests.txt" | head -n 80 | tr '\n' ' '
+            echo "failed tests ($(wc -l < "$dir/tests.txt" | tr -d ' '); ext/x/tests/y.phpt shown as x/y, so that the list fits into the annotation):"
+            sed -n 's/.*\[\([^]]*\.phpt\)\].*/\1/p' "$dir/tests.txt" |
+                sed -e 's#^ext/##' -e 's#/tests/#/#' -e 's#\.phpt$##' | head -n 150 | tr '\n' ' '
             echo
         fi
     } > "$dir/report.txt"
