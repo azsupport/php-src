@@ -134,12 +134,13 @@ b_libiconv() {
 b_libunistring() { at "$1" --with-libiconv-prefix="$P"; }
 b_libidn2() { at "$1" --disable-nls --disable-doc --with-libiconv-prefix="$P" --with-libunistring-prefix="$P" ac_cv_prog_RONN=true; }
 b_libpsl() {
-    # as the port (built-in list, IDN2), static: prefer_static for the psl tool's link.
-    # -Druntime=libidn2 makes meson look for libunistring.a too (the static libidn2 links
-    # it), and meson's find_library() does not honour the LDFLAGS of the environment, so the
-    # bundle's lib and include dirs are passed to it with -Dc_args/-Dc_link_args.
+    # as the port (built-in list, IDN2). -Druntime=libidn2 makes meson look for libunistring
+    # with find_library(): with -Dprefer_static=true it only searches the compiler's own
+    # library dirs (not $P/lib) and fails, without it it tries -lunistring with the link
+    # args below, which finds $P/lib/libunistring.a (the bundle has only static libraries,
+    # and the static pkg-config gives the psl tool the libraries behind libidn2).
     (cd "$1" && meson setup _phpdeps --prefix="$P" --libdir=lib -Ddefault_library=static -Db_staticpic=true \
-        -Dprefer_static=true -Druntime=libidn2 -Dbuiltin=true -Ddocs=false \
+        -Druntime=libidn2 -Dbuiltin=true -Ddocs=false \
         -Dc_args="$CPPFLAGS" -Dc_link_args="$LDFLAGS" &&
         ninja -C _phpdeps && ninja -C _phpdeps install)
 }
