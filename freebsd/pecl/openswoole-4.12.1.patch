@@ -1,4 +1,4 @@
-Description: Build inside php-src as ext/openswoole (bundled by this fork): configure built OpenSwoole into every PHP, as it tested PHP_SWOOLE (left over from swoole, unset there) instead of PHP_OPENSWOOLE, and the default of --enable-openswoole was "yes"; now only --enable-openswoole builds it, and configure stops when --enable-swoole is given too (same C++ symbols). Drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (OpenSwoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer; and include <stdint.h> in swoole_proxy.h, which uses uint8_t (unknown type name with clang 19).
+Description: Build inside php-src as ext/openswoole (bundled by this fork), on PHP 7.4 to 8.4. configure built OpenSwoole into every PHP, as it tested PHP_SWOOLE (left over from swoole, unset there) instead of PHP_OPENSWOOLE, and the default of --enable-openswoole was "yes"; now only --enable-openswoole builds it, and configure stops when --enable-swoole is given too (same C++ symbols). Drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (OpenSwoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer; include <stdint.h> in swoole_proxy.h (uint8_t unknown with clang 19). For PHP 8.3 and 8.4, which OpenSwoole 4.12 does not support upstream (OpenSwoole 22 and newer changed the API): the new php_url_encode_hash_ex() of 8.3; zend_str_tolower() for php_strtolower(), gone in 8.4; the C stack bounds that PHP 8.3 checks (EG(stack_base), EG(stack_limit)) follow the coroutine stacks, as in swoole 5.1 and newer, so calls inside coroutines no longer fail with "Maximum call stack size reached"; as 8.4 made exit a function (no ZEND_EXIT opcode), the function exit() is wrapped the way the opcode was, so exit in a coroutine or a server still throws Swoole\ExitException; and the embedded PHP library declares its nullable parameters explicitly (?int, ?array), which PHP 8.4 asks for with a deprecation notice at every start.
 Origin: azsupport
 
 --- a/config.m4
@@ -59,6 +59,276 @@ Origin: azsupport
  
      PHP_ADD_BUILD_DIR($ext_builddir/ext-src)
      PHP_ADD_BUILD_DIR($ext_builddir/src/core)
+--- a/ext-src/php_swoole_coroutine.h
++++ b/ext-src/php_swoole_coroutine.h
+@@ -74,6 +74,11 @@
+     long pcid;
+     zend_object *context;
+     int64_t last_msec;
++#ifdef ZEND_CHECK_STACK_LIMIT
++    /* PHP 8.3+: the C stack bounds that PHP checks for "Maximum call stack size" */
++    void *stack_base;
++    void *stack_limit;
++#endif
+ };
+ 
+ class PHPCoroutine {
+--- a/ext-src/php_swoole_library.h
++++ b/ext-src/php_swoole_library.h
+@@ -1245,7 +1245,7 @@
+     "     * @param int $length\n"
+     "     * @return static\n"
+     "     */\n"
+-    "    public function slice($offset, int $length = null, bool $preserve_keys = false): self\n"
++    "    public function slice($offset, ?int $length = null, bool $preserve_keys = false): self\n"
+     "    {\n"
+     "        return new static(array_slice($this->array, ...func_get_args()));\n"
+     "    }\n"
+@@ -1974,7 +1974,7 @@
+     " * @throws Exception\n"
+     " * @return mixed\n"
+     " */\n"
+-    "function request(string $url, string $method, $data = null, array $options = null, array $headers = null, array $cookies = null)\n"
++    "function request(string $url, string $method, $data = null, ?array $options = null, ?array $headers = null, ?array $cookies = null)\n"
+     "{\n"
+     "    $info = parse_url($url);\n"
+     "    if ($info['scheme'] == 'http') {\n"
+@@ -2012,7 +2012,7 @@
+     " * @throws Exception\n"
+     " * @return Client|false|mixed\n"
+     " */\n"
+-    "function post(string $url, $data, array $options = null, array $headers = null, array $cookies = null)\n"
++    "function post(string $url, $data, ?array $options = null, ?array $headers = null, ?array $cookies = null)\n"
+     "{\n"
+     "    return request($url, 'POST', $data, $options, $headers, $cookies);\n"
+     "}\n"
+@@ -2021,7 +2021,7 @@
+     " * @throws Exception\n"
+     " * @return Client|false|mixed\n"
+     " */\n"
+-    "function get(string $url, array $options = null, array $headers = null, array $cookies = null)\n"
++    "function get(string $url, ?array $options = null, ?array $headers = null, ?array $cookies = null)\n"
+     "{\n"
+     "    return request($url, 'GET', null, $options, $headers, $cookies);\n"
+     "}\n";
+@@ -7497,7 +7497,7 @@
+     "    $socket->close();\n"
+     "}\n"
+     "\n"
+-    "function swoole_socket_clear_error(Socket $socket = null)\n"
++    "function swoole_socket_clear_error(?Socket $socket = null)\n"
+     "{\n"
+     "    if ($socket) {\n"
+     "        $socket->errCode = 0;\n"
+@@ -7505,7 +7505,7 @@
+     "    swoole_clear_error();\n"
+     "}\n"
+     "\n"
+-    "function swoole_socket_last_error(Socket $socket = null): int\n"
++    "function swoole_socket_last_error(?Socket $socket = null): int\n"
+     "{\n"
+     "    if ($socket) {\n"
+     "        return $socket->errCode;\n"
+--- a/ext-src/php_swoole_private.h
++++ b/ext-src/php_swoole_private.h
+@@ -1066,7 +1066,12 @@
+             HASH_OF(zdata), formstr, NULL, 0, NULL, 0, NULL, 0, NULL, NULL, (int) PHP_QUERY_RFC1738) == FAILURE) {
+ #else
+     if (HASH_OF(zdata)) {
++#if PHP_VERSION_ID < 80300
+         php_url_encode_hash_ex(HASH_OF(zdata), formstr, NULL, 0, NULL, 0, NULL, 0, NULL, NULL, (int) PHP_QUERY_RFC1738);
++#else
++        /* PHP 8.3: key_prefix and arg_sep are zend_string, no key_suffix */
++        php_url_encode_hash_ex(HASH_OF(zdata), formstr, NULL, 0, NULL, NULL, NULL, (int) PHP_QUERY_RFC1738);
++#endif
+     } else {
+ #endif
+         if (formstr->s) {
+--- a/ext-src/swoole_coroutine.cc
++++ b/ext-src/swoole_coroutine.cc
+@@ -72,7 +72,14 @@
+ static zend_atomic_bool *zend_vm_interrupt = nullptr;
+ #endif
+ 
++#if PHP_VERSION_ID < 80400
+ static user_opcode_handler_t ori_exit_handler = nullptr;
++#else
++/* PHP 8.4 turned exit from the ZEND_EXIT opcode into the function exit(): the
++   function is wrapped as coro_exit_handler wraps the opcode before 8.4, so that
++   exit in a coroutine or a server still throws Swoole\ExitException. */
++static zif_handler ori_exit_function = nullptr;
++#endif
+ static user_opcode_handler_t ori_begin_silence_handler = nullptr;
+ static user_opcode_handler_t ori_end_silence_handler = nullptr;
+ static unordered_map<long, Coroutine *> user_yield_coros;
+@@ -201,6 +208,39 @@
+     PHP_ME(swoole_exit_exception, getFlags, arginfo_swoole_coroutine_void, ZEND_ACC_PUBLIC)
+         PHP_ME(swoole_exit_exception, getStatus, arginfo_swoole_coroutine_void, ZEND_ACC_PUBLIC) PHP_FE_END};
+ 
++#if PHP_VERSION_ID >= 80400
++static ZEND_FUNCTION(swoole_coroutine_exit) {
++    zend_long flags = 0;
++    if (Coroutine::get_current()) {
++        flags |= SW_EXIT_IN_COROUTINE;
++    }
++    if (sw_server() && sw_server()->is_started()) {
++        flags |= SW_EXIT_IN_SERVER;
++    }
++    if (!flags) {
++        ori_exit_function(INTERNAL_FUNCTION_PARAM_PASSTHRU);
++        return;
++    }
++    zval *status = nullptr;
++    ZEND_PARSE_PARAMETERS_START(0, 1)
++    Z_PARAM_OPTIONAL
++    Z_PARAM_ZVAL(status)
++    ZEND_PARSE_PARAMETERS_END();
++    zval exit_status, ex;
++    if (status) {
++        ZVAL_COPY(&exit_status, status);
++    } else {
++        ZVAL_NULL(&exit_status);
++    }
++    zend_object *obj = zend_throw_exception(swoole_exit_exception_ce, "swoole exit", 0);
++    ZVAL_OBJ(&ex, obj);
++    zend_update_property_long(swoole_exit_exception_ce, SW_Z8_OBJ_P(&ex), ZEND_STRL("flags"), flags);
++    zend_update_property(swoole_exit_exception_ce, SW_Z8_OBJ_P(&ex), ZEND_STRL("status"), &exit_status);
++    zval_ptr_dtor(&exit_status);
++}
++#endif
++
++#if PHP_VERSION_ID < 80400
+ static int coro_exit_handler(zend_execute_data *execute_data) {
+     zval ex;
+     zend_object *obj;
+@@ -245,6 +285,7 @@
+ 
+     return ZEND_USER_OPCODE_DISPATCH;
+ }
++#endif
+ 
+ static int coro_begin_silence_handler(zend_execute_data *execute_data) {
+     PHPContext *task = PHPCoroutine::get_context();
+@@ -494,6 +535,10 @@
+         task->tmp_error_reporting = EG(error_reporting);
+         EG(error_reporting) = task->ori_error_reporting;
+     }
++#ifdef ZEND_CHECK_STACK_LIMIT
++    task->stack_base = EG(stack_base);
++    task->stack_limit = EG(stack_limit);
++#endif
+ }
+ 
+ inline void PHPCoroutine::restore_vm_stack(PHPContext *task) {
+@@ -522,6 +567,10 @@
+     if (UNEXPECTED(task->in_silence)) {
+         EG(error_reporting) = task->tmp_error_reporting;
+     }
++#ifdef ZEND_CHECK_STACK_LIMIT
++    EG(stack_base) = task->stack_base;
++    EG(stack_limit) = task->stack_limit;
++#endif
+ }
+ 
+ inline void PHPCoroutine::save_og(PHPContext *task) {
+@@ -718,6 +767,18 @@
+         task->context = nullptr;
+         task->enable_scheduler = true;
+ 
++#if defined(ZEND_CHECK_STACK_LIMIT) && !defined(SW_USE_THREAD_CONTEXT)
++        /* PHP 8.3 checks the C stack position against EG(stack_limit), which is that
++           of the main stack: a coroutine runs on a stack of its own, so every call in
++           it failed with "Maximum call stack size reached". Point the bounds at this
++           coroutine's stack, as swoole 5.1 and newer do (unless the check is off). */
++        if (EG(stack_limit)) {
++            char *stack = task->co->get_ctx().get_stack();
++            EG(stack_base) = (void *) (stack + task->co->get_ctx().get_stack_size());
++            EG(stack_limit) = (void *) (stack + EG(reserved_stack_size));
++        }
++#endif
++
+         save_vm_stack(task);
+         record_last_msec(task);
+ 
+@@ -902,8 +963,18 @@
+ 
+ void php_swoole_coroutine_rinit() {
+     if (SWOOLE_G(cli)) {
++#if PHP_VERSION_ID < 80400
+         ori_exit_handler = zend_get_user_opcode_handler(ZEND_EXIT);
+         zend_set_user_opcode_handler(ZEND_EXIT, coro_exit_handler);
++#else
++        if (!ori_exit_function) {
++            zend_function *exit_fn = (zend_function *) zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("exit"));
++            if (exit_fn && exit_fn->type == ZEND_INTERNAL_FUNCTION) {
++                ori_exit_function = exit_fn->internal_function.handler;
++                exit_fn->internal_function.handler = ZEND_FN(swoole_coroutine_exit);
++            }
++        }
++#endif
+ 
+         ori_begin_silence_handler = zend_get_user_opcode_handler(ZEND_BEGIN_SILENCE);
+         zend_set_user_opcode_handler(ZEND_BEGIN_SILENCE, coro_begin_silence_handler);
+--- a/ext-src/swoole_redis_server.cc
++++ b/ext-src/swoole_redis_server.cc
+@@ -165,7 +165,7 @@
+ 
+     char _command[SW_REDIS_MAX_COMMAND_SIZE];
+     size_t _command_len = sw_snprintf(_command, sizeof(_command), "_handler_%.*s", command_len, command);
+-    php_strtolower(_command, _command_len);
++    zend_str_tolower(_command, _command_len);
+ 
+     auto i = redis_handlers.find(std::string(_command, _command_len));
+     if (i == redis_handlers.end()) {
+@@ -223,7 +223,7 @@
+ 
+     char _command[SW_REDIS_MAX_COMMAND_SIZE];
+     size_t _command_len = sw_snprintf(_command, sizeof(_command), "_handler_%s", command);
+-    php_strtolower(_command, _command_len);
++    zend_str_tolower(_command, _command_len);
+ 
+     zend_update_property(swoole_redis_server_ce, SW_Z8_OBJ_P(ZEND_THIS), _command, _command_len, zcallback);
+ 
+@@ -249,7 +249,7 @@
+ 
+     char _command[SW_REDIS_MAX_COMMAND_SIZE];
+     size_t _command_len = sw_snprintf(_command, sizeof(_command), "_handler_%s", command);
+-    php_strtolower(_command, _command_len);
++    zend_str_tolower(_command, _command_len);
+ 
+     zval rv;
+     zval *handler = zend_read_property(swoole_redis_server_ce, SW_Z8_OBJ_P(ZEND_THIS), _command, _command_len, 1, &rv);
+--- a/include/swoole_coroutine.h
++++ b/include/swoole_coroutine.h
+@@ -171,6 +171,10 @@
+         return sw_likely(co) ? co->get_task() : nullptr;
+     }
+ 
++    coroutine::Context &get_ctx() {
++        return ctx;
++    }
++
+     static inline size_t get_stack_size() {
+         return stack_size;
+     }
+--- a/include/swoole_coroutine_context.h
++++ b/include/swoole_coroutine_context.h
+@@ -61,6 +61,15 @@
+     inline bool is_end() {
+         return end_;
+     }
++#ifndef SW_USE_THREAD_CONTEXT
++    /* the bounds of this stack, for the stack limit of PHP 8.3 and newer */
++    char *get_stack() const {
++        return stack_;
++    }
++    size_t get_stack_size() const {
++        return stack_size_;
++    }
++#endif
+ 
+   protected:
+     CoroutineFunc fn_;
 --- a/include/swoole_proxy.h
 +++ b/include/swoole_proxy.h
 @@ -16,6 +16,7 @@

@@ -37,9 +37,10 @@
 # not (cc -march=native) gives a warning, PHP built with it would stop with
 # "Illegal instruction".
 # Shared PECL modules that the source tree bundles (redis, memcached, memcache,
-# imagick, igbinary, swoole, openswoole) are not added to the script: the report
-# ends with the command that builds them in, with the features they were built
-# with (php --ri), and lists the extension= lines to remove after make install.
+# imagick, gmagick, igbinary, swoole, openswoole, excimer, mcrypt) are not added to
+# the script: the report ends with the command that builds them in, with the
+# features they were built with (php --ri), and lists the extension= lines to
+# remove after make install.
 #
 # Exit status: 0 same options, 1 different (or no config.nice to compare with),
 # 2 usage or read error.
@@ -174,7 +175,7 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             imap) if [ "$fam" = 8 ] && [ "$minor" -ge 4 ]; then echo "removed from PHP in 8.4 (PECL imap)"; return 1; fi
                   echo "--with-imap=/usr/local --with-imap-ssl=/usr" ;;
             ldap) echo "--with-ldap=/usr/local" ;;
-            mcrypt) if [ "$fam" = 5 ]; then echo "--with-mcrypt=/usr/local"; else echo "removed from PHP in 7.2 (PECL mcrypt)"; return 1; fi ;;
+            mcrypt) if [ "$fam" = 5 ]; then echo "--with-mcrypt=/usr/local"; else echo "removed from PHP in 7.2 (PECL mcrypt, bundled: --with-mcrypt=/usr/local)"; return 1; fi ;;
             mysql) if [ "$fam" = 5 ]; then echo "--with-mysql --with-mysql-sock=/tmp/mysql.sock"; else echo "removed from PHP in 7.0 (use mysqli or pdo_mysql)"; return 1; fi ;;
             mysqli) if [ "$fam" = 5 ]; then echo "--with-mysqli --with-mysql-sock=/tmp/mysql.sock"; else echo "--with-mysqli=mysqlnd --with-mysql-sock=/tmp/mysql.sock"; fi ;;
             odbc) echo "--with-unixODBC=/usr/local" ;;
@@ -205,6 +206,9 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             pecl-igbinary) echo "--enable-igbinary" ;;
             pecl-swoole) echo "--enable-swoole" ;;
             pecl-openswoole) echo "--enable-openswoole" ;;
+            pecl-excimer) echo "--enable-excimer" ;;
+            pecl-gmagick) echo "--with-gmagick=/usr/local" ;;
+            pecl-mcrypt) echo "--with-mcrypt=/usr/local" ;;
             pecl-*) echo "PECL extension, not part of ./configure: build it later with $prefix/bin/phpize"; return 1 ;;
             *) echo "not an extension of the PHP sources (a tool, or one this script does not know)"; return 1 ;;
         esac
@@ -541,7 +545,7 @@ chmod +x "$out" 2>/dev/null || true
 : > "$tmp/ini_lines"
 knows() { grep -q -e "\[$2\]" -e "($2," "ext/$1/config.m4" 2>/dev/null; }
 ri_row() { sed -n "s/^$2 => //p" "$tmp/ri_$1" | head -n 1; }
-for m in igbinary redis memcached memcache imagick swoole openswoole; do
+for m in igbinary redis memcached memcache imagick gmagick swoole openswoole excimer mcrypt; do
     grep -qx "$m" "$tmp/modules" || continue
     grep -q -e "--enable-$m\$" -e "--enable-$m=" -e "--with-$m" "$tmp/installed" && continue
     if [ ! -d ext/standard ]; then
@@ -585,7 +589,7 @@ for m in igbinary redis memcached memcache imagick swoole openswoole; do
                 [ -n "$(ri_row "$m" "$row")" ] && echo "$m: $row was enabled; add its --with-swoole-... option by hand (./configure --help)" >> "$tmp/pecl_note"
             done
             ;;
-        imagick) o="--with-imagick=/usr/local" ;;
+        imagick | gmagick | mcrypt) o="--with-$m=/usr/local" ;;
         *) o="--enable-$m" ;;
     esac
     printf '  %-10s %s\n' "$m" "$o" >> "$tmp/pecl_hint"

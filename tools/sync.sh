@@ -203,10 +203,13 @@ pecl_option() {   # configure option (markdown) of a bundled extension
         redis) echo '`--enable-redis`' ;;
         memcached) echo '`--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl` (package `libmemcached`)' ;;
         memcache) echo '`--enable-memcache`' ;;
-        imagick) echo '`--with-imagick=/usr/local` (package `ImageMagick7` or `ImageMagick7-nox11`)' ;;
+        imagick) echo '`--with-imagick=/usr/local` (package `ImageMagick7` or `ImageMagick7-nox11`; not together with gmagick)' ;;
         igbinary) echo '`--enable-igbinary`; the igbinary serializer of redis and memcached: `--enable-redis-igbinary`, `--enable-memcached-igbinary`' ;;
         swoole) echo '`--enable-swoole` (OpenSSL when PHP is built `--with-openssl`; brotli compression with the package `brotli`)' ;;
-        openswoole) echo '`--enable-openswoole` (OpenSwoole 4.x API; OpenSSL when PHP is built `--with-openssl`; not together with swoole)' ;;
+        openswoole) echo '`--enable-openswoole` (OpenSSL when PHP is built `--with-openssl`; not together with swoole)' ;;
+        excimer) echo '`--enable-excimer`' ;;
+        gmagick) echo '`--with-gmagick=/usr/local` (package `GraphicsMagick`; not together with imagick)' ;;
+        mcrypt) echo '`--with-mcrypt=/usr/local` (package `libmcrypt`)' ;;
         *) echo "\`--enable-$1\`" ;;
     esac
 }

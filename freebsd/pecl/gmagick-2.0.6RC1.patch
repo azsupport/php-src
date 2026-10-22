@@ -1,0 +1,18 @@
+Description: Build inside php-src as ext/gmagick (bundled by this fork): configure stops when --with-imagick is given too. GraphicsMagick and ImageMagick have the same MagickWand function names, so built into one PHP, gmagick and imagick would call each other's library.
+Origin: azsupport
+
+--- a/config.m4
++++ b/config.m4
+@@ -1,6 +1,12 @@
+ PHP_ARG_WITH(gmagick, whether to enable the gmagick extension,
+ [  --with-gmagick[=DIR]	Enables the gmagick extension. DIR is the prefix to GraphicsMagick installation directory.], no)
+ 
++dnl GraphicsMagick and ImageMagick have the same MagickWand function names: built into
++dnl one PHP, gmagick and imagick would call each other's library.
++if test "$PHP_GMAGICK" != "no" && test -n "$with_imagick" && test "$with_imagick" != "no"; then
++  AC_MSG_ERROR([--with-gmagick and --with-imagick cannot be built together; enable one of them])
++fi
++
+ if test $PHP_GMAGICK != "no"; then
+ 
+ 		AC_MSG_CHECKING(GraphicsMagick configuration program)
