@@ -34,8 +34,11 @@ on:
 permissions:
   contents: read
 
+# One run per variant at a time. GitHub keeps only one waiting run per group and
+# cancels the one that waited before, so the variants (swoole/openswoole,
+# imagick/gmagick, tests) get groups of their own and run side by side.
 concurrency:
-  group: build-test
+  group: build-test-${{ inputs.swoole || 'swoole' }}-${{ inputs.magick || 'imagick' }}-${{ inputs.tests && 'tests' || 'build' }}
   cancel-in-progress: false
 
 jobs:
