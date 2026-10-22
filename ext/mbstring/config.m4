@@ -38,9 +38,11 @@ AC_DEFUN([PHP_MBSTRING_EXTENSION], [
     PHP_ADD_BUILD_DIR([$ext_builddir/$dir], 1)
   done
   
+  dnl The bundled headers go first: with the oniguruma package installed, its
+  dnl oniguruma.h in /usr/local/include would otherwise shadow the bundled one.
   for dir in $PHP_MBSTRING_EXTRA_INCLUDES; do
-    PHP_ADD_INCLUDE([$ext_srcdir/$dir])
-    PHP_ADD_INCLUDE([$ext_builddir/$dir])
+    PHP_ADD_INCLUDE([$ext_srcdir/$dir], 1)
+    PHP_ADD_INCLUDE([$ext_builddir/$dir], 1)
   done
 
   if test "$ext_shared" = "no"; then

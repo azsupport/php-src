@@ -1170,7 +1170,7 @@ AC_CACHE_CHECK(for type of reentrant time-related functions, ac_cv_time_r_type,[
 AC_TRY_RUN([
 #include <time.h>
 
-main() {
+int main() {
 char buf[27];
 struct tm t;
 time_t old = 0;
@@ -1186,7 +1186,7 @@ return (1);
 ],[
   AC_TRY_RUN([
 #include <time.h>
-main() {
+int main() {
   struct tm t, *s;
   time_t old = 0;
   char buf[27], *p;
@@ -1223,8 +1223,9 @@ AC_DEFUN([PHP_DOES_PWRITE_WORK],[
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdlib.h>
 $1
-    main() {
+    int main() {
     int fd = open("conftest_in", O_WRONLY|O_CREAT, 0600);
 
     if (fd < 0) exit(1);
@@ -1253,8 +1254,9 @@ AC_DEFUN([PHP_DOES_PREAD_WORK],[
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdlib.h>
 $1
-    main() {
+    int main() {
     char buf[3]; 
     int fd = open("conftest_in", O_RDONLY);
     if (fd < 0) exit(1);
@@ -1362,12 +1364,13 @@ AC_DEFUN([PHP_READDIR_R_TYPE],[
 #define _REENTRANT
 #include <sys/types.h>
 #include <dirent.h>
+#include <stdlib.h>
 
 #ifndef PATH_MAX
 #define PATH_MAX 1024
 #endif
 
-main() {
+int main() {
   DIR *dir;
   char entry[sizeof(struct dirent)+PATH_MAX];
   struct dirent *pentry = (struct dirent *) &entry;
@@ -1483,7 +1486,10 @@ dnl Check for broken sprintf(), C99 conformance
 dnl
 AC_DEFUN([PHP_AC_BROKEN_SPRINTF],[
   AC_CACHE_CHECK(whether sprintf is broken, ac_cv_broken_sprintf,[
-    AC_TRY_RUN([main() {char buf[20];exit(sprintf(buf,"testing 123")!=11); }],[
+    AC_TRY_RUN([
+#include <stdio.h>
+#include <stdlib.h>
+int main() {char buf[20];exit(sprintf(buf,"testing 123")!=11); }],[
       ac_cv_broken_sprintf=no
     ],[
       ac_cv_broken_sprintf=yes
@@ -1506,8 +1512,9 @@ dnl
 AC_DEFUN([PHP_AC_BROKEN_SNPRINTF],[
   AC_CACHE_CHECK(whether snprintf is broken, ac_cv_broken_snprintf,[
     AC_TRY_RUN([
-#define NULL (0L)
-main() {
+#include <stdio.h>
+#include <stdlib.h>
+int main() {
   char buf[20];
   int res = 0;
   res = res || (snprintf(buf, 2, "marcus") != 6); 
@@ -1707,6 +1714,8 @@ AC_DEFUN([PHP_BROKEN_GLIBC_FOPEN_APPEND], [
   AC_CACHE_VAL(_cv_have_broken_glibc_fopen_append,[
   AC_TRY_RUN([
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 int main(int argc, char *argv[])
 {
   FILE *fp;
@@ -1774,6 +1783,7 @@ dnl even newer glibcs have a different seeker definition...
 AC_TRY_RUN([
 #define _GNU_SOURCE
 #include <stdio.h>
+#include <stdlib.h>
 
 struct cookiedata {
   __off64_t pos;
@@ -1790,7 +1800,7 @@ int seeker(void *cookie, __off64_t *position, int whence)
 
 cookie_io_functions_t funcs = {reader, writer, seeker, closer};
 
-main() {
+int main() {
   struct cookiedata g = { 0 };
   FILE *fp = fopencookie(&g, "r", funcs);
 
@@ -1907,7 +1917,7 @@ AC_DEFUN([PHP_CHECK_FUNC_LIB],[
   if test "$found" = "yes"; then
     ac_libs=$LIBS
     LIBS="$LIBS -l$2"
-    AC_TRY_RUN([main() { return (0); }],[found=yes],[found=no],[found=no])
+    AC_TRY_RUN([int main(void) { return (0); }],[found=yes],[found=no],[found=no])
     LIBS=$ac_libs
   fi
 
@@ -2643,9 +2653,9 @@ uname -a:   `uname -a`
 
 X
     cat >conftest.$ac_ext <<X
-main()
+int main(void)
 {
-  exit(0);
+  return 0;
 }
 X
     (eval echo \"$ac_link\"; eval $ac_link && ./conftest) >>$1 2>&1
@@ -2883,7 +2893,7 @@ AC_DEFUN([PHP_TEST_WRITE_STDOUT],[
 
 #define TEXT "This is the test message -- "
 
-main()
+int main()
 {
   int n;
 
