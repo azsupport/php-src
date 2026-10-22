@@ -1,4 +1,4 @@
-Description: Build inside php-src as ext/swoole (bundled by this fork): the default of --enable-swoole was "yes", which built it into every PHP configured without --disable-all; it is now "no"; drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (swoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer.
+Description: Build inside php-src as ext/swoole (bundled by this fork): the default of --enable-swoole was "yes", which built it into every PHP configured without --disable-all; it is now "no"; drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (swoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer; and the two C++ header checks of configure (valgrind, boost stacktrace) use AC_LANG_PUSH/POP instead of AC_LANG([C++]), which left configure in C++ for every extension after it: their checks ran as C++, and for example readline was not found.
 Origin: azsupport
 
 --- a/config.m4
@@ -29,7 +29,43 @@ Origin: azsupport
  
  PHP_ARG_ENABLE([mysqlnd],
    [enable mysqlnd support],
-@@ -803,11 +805,9 @@
+@@ -212,7 +214,7 @@
+ AC_DEFUN([AC_SWOOLE_HAVE_VALGRIND],
+ [
+     AC_MSG_CHECKING([for valgrind])
+-    AC_LANG([C++])
++    AC_LANG_PUSH([C++])
+     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+         #include <valgrind/valgrind.h>
+     ]], [[
+@@ -223,12 +225,15 @@
+     ],[
+         AC_MSG_RESULT([no])
+     ])
++    dnl PUSH/POP, not AC_LANG: inside php-src the checks of the extensions
++    dnl after this one (readline, standard, ...) ran as C++ and failed.
++    AC_LANG_POP([C++])
+ ])
+ 
+ AC_DEFUN([AC_SWOOLE_HAVE_BOOST_STACKTRACE],
+ [
+     AC_MSG_CHECKING([for valgrind])
+-    AC_LANG([C++])
++    AC_LANG_PUSH([C++])
+     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+         #include <boost/stacktrace.hpp>
+     ]], [[
+@@ -239,6 +244,9 @@
+     ],[
+         AC_MSG_RESULT([no])
+     ])
++    dnl PUSH/POP, not AC_LANG: inside php-src the checks of the extensions
++    dnl after this one (readline, standard, ...) ran as C++ and failed.
++    AC_LANG_POP([C++])
+ ])
+ 
+ AC_DEFUN([AC_SWOOLE_CHECK_SOCKETS], [
+@@ -803,11 +811,9 @@
  
      CXXFLAGS="$CXXFLAGS -Wall -Wno-unused-function -Wno-deprecated -Wno-deprecated-declarations"
  
