@@ -221,8 +221,15 @@ for target in "$@"; do
     make -k -j"$ncpu" > "$out/make.log" 2>&1
     mrc=$?
     echo "make:     exit $mrc, $(( $(date +%s) - start ))s, $(grep -c 'warning:' "$out/make.log") warnings" >> "$sum"
-    grep -E ' error:|Error [0-9]+|\*\*\* Error code|undefined reference|cannot find|^make(\[[0-9]+\])?: ' "$out/make.log" |
-        head -n 40 > "$out/errors.txt"
+    # The include chain of the first error, then the errors, at most three per file,
+    # so that one broken header repeated in every file that includes it does not hide
+    # the rest.
+    {
+        grep -m 1 -B 8 ' error:' "$out/make.log" | grep -E '^In file included from|^ +from '
+        awk '/ error:/ { split($0, a, ":"); if (++n[a[1]] <= 3) print; next }
+             /Error [0-9]+|\*\*\* Error code|undefined reference|cannot find|^make(\[[0-9]+\])?: / { print }' "$out/make.log" |
+            awk '!seen[$0]++'
+    } | head -n 40 > "$out/errors.txt"
     # a failure without compiler errors (make itself, BSD make on a GNU-only construct): its last lines
     if [ ! -s "$out/errors.txt" ] && [ "$mrc" != 0 ]; then tail -n 20 "$out/make.log" > "$out/errors.txt"; fi
     if [ "$mrc" != 0 ] || [ ! -x sapi/cli/php ]; then
