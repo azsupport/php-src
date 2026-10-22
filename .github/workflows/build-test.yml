@@ -74,8 +74,11 @@ jobs:
           major="${RELEASE%%.*}"
           mkdir -p deps-dist
           gh release download "phpdeps-fbsd$major-latest" --repo "$GITHUB_REPOSITORY" --dir deps-dist \
-            --pattern "phpdeps-fbsd$major-amd64.tar.xz" --pattern "phpdeps-fbsd$major-amd64.tar.xz.sha256"
-          cd deps-dist && echo "$(cat "phpdeps-fbsd$major-amd64.tar.xz.sha256")  phpdeps-fbsd$major-amd64.tar.xz" | sha256sum -c
+            --pattern "phpdeps-fbsd$major-amd64-*.tar.xz" --pattern "phpdeps-fbsd$major-amd64-*.tar.xz.sha256"
+          cd deps-dist
+          for f in phpdeps-fbsd$major-amd64-*.tar.xz; do
+            echo "$(cat "$f.sha256")  $f" | sha256sum -c || exit 1
+          done
 
       - name: Build in FreeBSD ${{ inputs.release }}
         uses: vmactions/freebsd-vm@v1
@@ -89,7 +92,7 @@ jobs:
           release: ${{ inputs.release }}
           envs: 'TARGETS TESTS SWOOLE MAGICK PHPDEPS_BUNDLE'
           prepare: |
-            if [ "$PHPDEPS_BUNDLE" = 1 ]; then tar -xf deps-dist/phpdeps-fbsd*-amd64.tar.xz -C /usr/local; fi
+            if [ "$PHPDEPS_BUNDLE" = 1 ]; then sh tools/build-test.sh --phpdeps deps-dist; fi
             sh tools/build-test.sh --deps $TARGETS
           run: |
             sh tools/build-test.sh $TESTS $TARGETS || true
