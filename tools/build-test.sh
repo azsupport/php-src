@@ -40,6 +40,9 @@ deps() {
     done
     # shellcheck disable=SC2086
     env ASSUME_ALWAYS_YES=yes pkg install -y $pkgs
+    rc=$?
+    for p in $pkgs; do pkg info -e "$p" || echo "build-test: package $p is not installed"; done
+    return $rc
 }
 
 if [ "${1:-}" = "--deps" ]; then
@@ -181,6 +184,7 @@ for target in "$@"; do
         echo "host:     $(uname -sr), $(cc --version | head -1)"
         echo "openssl:  $(openssl version 2>/dev/null)"
         echo "libxml2:  $(pkg-config --modversion libxml-2.0 2>/dev/null)"
+        echo "magick:   ImageMagick $(pkg-config --modversion MagickWand 2>/dev/null || echo missing), GraphicsMagick $(GraphicsMagick-config --version 2>/dev/null || echo missing)"
         echo "tarball:  ${tarball##*/} ($(sha256 -q "$tarball" 2>/dev/null | cut -c1-16)...)"
     } > "$sum"
     if [ ! -f "$tarball" ]; then

@@ -298,9 +298,9 @@ changes unless their option is given:
 
 | PHP | swoole | OpenSwoole | excimer | mcrypt |
 |---|---|---|---|---|
-| 8.2, 8.3, 8.4 | 6.2.3 | 4.12.1 | 1.2.6 | 1.0.9 |
-| 8.1 | 6.1.10 | 4.12.1 | 1.2.6 | 1.0.9 |
-| 7.4 | 4.8.13 | 4.12.1 | 1.2.6 | 1.0.9 |
+| 8.2, 8.3, 8.4 | 6.2.3 | 4.12.1 | 1.2.7 | 1.0.9 |
+| 8.1 | 6.1.10 | 4.12.1 | 1.2.7 | 1.0.9 |
+| 7.4 | 4.8.13 | 4.12.1 | 1.2.7 | 1.0.9 |
 | 5.6 | | | | in PHP 5.6 itself |
 
 | Extension | configure option | FreeBSD package |
@@ -358,7 +358,10 @@ OpenSSL when PHP is built `--with-openssl`. They drop the `-std=c++11`/`-std=c++
 that swoole appends to `CXXFLAGS`, which inside php-src would apply to ext/intl too
 (ICU 75 and newer need C++17). swoole 6.x calls `sw_usleep()`, declared nowhere, in
 the branch that FreeBSD (no futex) compiles: `usleep()` as in the FreeBSD port
-`devel/php-swoole`. excimer adds `-fvisibility=hidden` for its own sources only.
+`devel/php-swoole`. excimer adds `-fvisibility=hidden` for its own sources only, and on FreeBSD takes
+the thread id of its timer thread from `pthread_getthreadid_np()`: FreeBSD has no
+`gettid()`, so excimer 1.2.4 and later did not compile there (the port
+`devel/pecl-excimer` stays at 1.2.3).
 
 With `--enable-memcached-igbinary`, igbinary becomes the default serializer of
 memcached (`memcached.serializer = igbinary`) for arrays and objects. A PHP built
