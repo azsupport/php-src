@@ -39,7 +39,8 @@ for dir in "$res"/*/; do
         fi
         if [ -s "$dir/tests.txt" ]; then
             echo "failed tests ($(wc -l < "$dir/tests.txt" | tr -d ' ')):"
-            sed 's/.*\[\(.*\)\]$/\1/' "$dir/tests.txt" | head -n 60 | tr '\n' ' '
+            # only the test files: the names alone fit into one annotation
+            sed -n 's/.*\[\([^]]*\.phpt\)\].*/\1/p' "$dir/tests.txt" | head -n 80 | tr '\n' ' '
             echo
         fi
     } > "$dir/report.txt"

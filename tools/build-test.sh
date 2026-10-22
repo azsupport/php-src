@@ -257,12 +257,15 @@ for target in "$@"; do
     if [ "$run_tests" = 1 ]; then
         jobs=""
         "$php" -n run-tests.php --help 2>/dev/null | grep -q -- '-j<workers>' && jobs="-j$ncpu"
-        # A time limit per target (TEST_TIME_LIMIT seconds, default 25 minutes), so that
-        # a slow or hanging suite does not hold up the other targets; the counts then
-        # come from the PASS/FAIL lines printed so far.
+        # A time limit per target (TEST_TIME_LIMIT seconds; default 25 minutes, 60 for a
+        # run-tests.php without parallel workers, as on 5.6), so that a slow or hanging
+        # suite does not hold up the other targets; the counts then come from the
+        # PASS/FAIL lines printed so far.
+        limit="${TEST_TIME_LIMIT:-1500}"
+        [ -n "$jobs" ] || limit="${TEST_TIME_LIMIT:-3600}"
         # shellcheck disable=SC2046,SC2086
         env NO_INTERACTION=1 REPORT_EXIT_STATUS=0 TEST_PHP_EXECUTABLE="$php" \
-            timeout "${TEST_TIME_LIMIT:-1500}" \
+            timeout "$limit" \
             "$php" -n run-tests.php -q $jobs $opcache $(test_dirs "$target") > "$out/run-tests.log" < /dev/null 2>&1
         trc=$?
         if grep -q '^FAILED TEST SUMMARY' "$out/run-tests.log"; then
@@ -276,7 +279,7 @@ for target in "$@"; do
         if grep -q -E '^Tests (passed|failed)' "$out/run-tests.log"; then
             echo "tests:    $(grep -E '^Tests (passed|failed)' "$out/run-tests.log" | tr -s ' ' | tr '\n' ' ')" >> "$sum"
         else
-            echo "tests:    stopped after ${TEST_TIME_LIMIT:-1500}s (exit $trc): $(grep -c -E '^PASS ' "$out/run-tests.lines") passed, $(grep -c -E '^FAIL ' "$out/run-tests.lines") failed so far" >> "$sum"
+            echo "tests:    stopped after ${limit}s (exit $trc): $(grep -c -E '^PASS ' "$out/run-tests.lines") passed, $(grep -c -E '^FAIL ' "$out/run-tests.lines") failed so far" >> "$sum"
         fi
     fi
     echo "result:   OK" >> "$sum"
