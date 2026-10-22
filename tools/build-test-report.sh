@@ -14,6 +14,12 @@ escape() { sed 's/%/%25/g; s/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }'; }
 
 [ -d "$res" ] || { echo "::error title=build-test::no results in $res"; exit 1; }
 rc=0
+# packages that build-test.sh --deps asked for and pkg did not install
+if [ -s "$res/deps-missing.txt" ]; then
+    echo "packages not installed: $(tr '\n' ' ' < "$res/deps-missing.txt")"
+    printf '::warning title=build-test packages::%s\n' "not installed by pkg install: $(tr '\n' ' ' < "$res/deps-missing.txt")"
+    printf '**Packages not installed:** %s\n\n' "$(tr '\n' ' ' < "$res/deps-missing.txt")" >> "$summary"
+fi
 for dir in "$res"/*/; do
     [ -f "$dir/summary.txt" ] || continue
     target="$(basename "$dir")"

@@ -24,12 +24,14 @@ work="$top/build-test"
 dist="$top/dist"
 
 deps() {
-    # libmemcached, ImageMagick7-nox11, GraphicsMagick, libmcrypt: bundled PECL memcached,
-    # imagick, gmagick, mcrypt; memcached and
-    # redis: servers for the smoke checks of the PECL extensions;
+    # libmemcached, ImageMagick7-nox11, GraphicsMagick-nox11, libmcrypt: bundled PECL
+    # memcached, imagick, gmagick, mcrypt (both magick packages nox11: the x11 flavour of
+    # GraphicsMagick needs libwmf, which conflicts with the libwmf-nox11 of
+    # ImageMagick7-nox11, and pkg -y then drops GraphicsMagick from the request);
+    # memcached and redis: servers for the smoke checks of the PECL extensions;
     # libnghttp2, brotli, zstd, libidn2, libpsl: the bundled curl (--with-curl=bundled),
     # so no curl package
-    pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick libmcrypt memcached redis brotli"
+    pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis brotli"
     pkgs="$pkgs libnghttp2 zstd libidn2 libpsl"
     for t in "$@"; do
         case "$t" in
@@ -41,7 +43,11 @@ deps() {
     # shellcheck disable=SC2086
     env ASSUME_ALWAYS_YES=yes pkg install -y $pkgs
     rc=$?
-    for p in $pkgs; do pkg info -e "$p" || echo "build-test: package $p is not installed"; done
+    # pkg install -y leaves out what it cannot install and still succeeds: the packages
+    # that are missing afterwards go into the report (build-test-report.sh).
+    mkdir -p "$res"
+    for p in $pkgs; do pkg info -e "$p" || echo "$p"; done > "$res/deps-missing.txt"
+    [ -s "$res/deps-missing.txt" ] && echo "build-test: packages not installed: $(tr '\n' ' ' < "$res/deps-missing.txt")"
     return $rc
 }
 
@@ -229,7 +235,9 @@ for target in "$@"; do
     {
         echo "php -v:   $("$php" -n -v | head -1)"
         [ -x sapi/fpm/php-fpm ] && echo "fpm -v:   $(sapi/fpm/php-fpm -n -v | head -1)"
-        for so in libs/libphp*.so; do [ -f "$so" ] && echo "module:   $so ($(du -k "$so" | cut -f1) KB)"; done
+        # the file size (du counts the blocks on disk, on ZFS only those written out so
+        # far: a module linked seconds before shows 1 KB)
+        for so in libs/libphp*.so; do [ -f "$so" ] && echo "module:   $so ($(( $(wc -c < "$so") / 1024 )) KB)"; done
         echo "modules:  $("$php" -n -m | grep -v '^\[' | grep -v '^$' | tr '\n' ' ')"
         if [ -f ext/curl/libcurl-build/VERSION ]; then
             echo "curl:     bundled $(cat ext/curl/libcurl-build/VERSION) (ext/curl/libcurl-build.log)"
