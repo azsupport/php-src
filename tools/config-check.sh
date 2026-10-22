@@ -15,6 +15,9 @@
 #   installed as packages (lang/phpXY, phpXY-* extensions, mod_phpXY): the port
 #   options of phpXY, one option per extension package, the layout of our hand
 #   builds (/usr/local/phpXY) and CFLAGS from /etc/make.conf (CFLAGS, CPUTYPE).
+#   With mod_phpXY installed the build makes the Apache module; the EMBED option
+#   of phpXY (the embed library, a second SAPI module, which one build cannot make
+#   as well) is left out, the report says whether a package uses that library.
 #   The second argument is the config.nice of the old build. Without it,
 #   ./config.nice is used, or else the newest php-<version>/config.nice or
 #   php-<version>-*/config.nice next to the current directory or in $HOME, where
@@ -315,7 +318,24 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
     opt CLI off && add --disable-cli
     opt CGI off && add --disable-cgi
     opt FPM on && add --enable-fpm --with-fpm-user=www --with-fpm-group=www
-    opt EMBED on && add --enable-embed
+    # One build makes one SAPI module (./configure: "You can build only one SAPI
+    # module"). The ports build the embed library (EMBED of phpXY) and the Apache
+    # module (mod_phpXY) separately; with mod_phpXY installed the Apache module stays.
+    if opt EMBED on; then
+        if [ -n "$modphp" ]; then
+            emb=libphp.so
+            [ "$fam" = 8 ] || emb="libphp$fam.so"
+            users="$("$pkg" shlib -qR "$emb" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+            if [ -n "$users" ]; then
+                users="$emb is used by $users; for them, a second build makes the embed library: sh config.installed.sh --enable-embed --without-apxs2"
+            else
+                users="no package uses $emb (pkg shlib -R $emb)"
+            fi
+            note "embed: EMBED (the embed library $emb) is on in $want, and $modphp is installed. One PHP build makes only one SAPI module, the ports build the two separately: the Apache module (--with-apxs2) is kept, --enable-embed left out; $users."
+        else
+            add --enable-embed
+        fi
+    fi
     opt PHPDBG on && add --enable-phpdbg
     opt IPV6 off && add --disable-ipv6
     if opt ZTS on; then
@@ -343,7 +363,8 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
     fi
 
     # The extension packages (igbinary first: redis and memcached use it when present).
-    "$pkg" query -g '%n' "php$short-*" 2>/dev/null | sort > "$tmp/ext_pkgs"
+    # pkg matches the glob against name-version too, so php74-* brings php74 itself.
+    "$pkg" query -g '%n' "php$short-*" 2>/dev/null | grep -v -x -F -e "$want" | sort > "$tmp/ext_pkgs"
     n_ext=0
     while IFS= read -r p; do
         e="${p#php"$short"-}"
@@ -424,7 +445,15 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
     set -- "$want"
     [ -n "$modphp" ] && set -- "$@" "$modphp"
     while IFS= read -r p; do set -- "$@" "$p"; done < "$tmp/ext_pkgs"
-    "$pkg" query '%dn' "$@" 2>/dev/null | grep -v -e '^php' -e '^mod_php' | sort -u > "$tmp/libs"
+    {
+        "$pkg" query '%dn' "$@" 2>/dev/null | grep -v -e '^php' -e '^mod_php'
+        # the bundled curl is linked in, the libraries it links against come from packages
+        if grep -q -e '^--with-curl=.*bundled' "$tmp/opts"; then
+            for p in libnghttp2 brotli zstd libidn2 libpsl; do
+                "$pkg" info -e "$p" 2>/dev/null && echo "$p"
+            done
+        fi
+    } | sort -u > "$tmp/libs"
     if [ -s "$tmp/libs" ]; then
         echo "  - Before deleting the PHP packages, keep the libraries the new build links against, so that"
         echo "    pkg autoremove does not remove them:"
