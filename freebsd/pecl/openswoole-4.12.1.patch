@@ -1,4 +1,4 @@
-Description: Build inside php-src as ext/openswoole (bundled by this fork), on PHP 7.4 to 8.4. configure built OpenSwoole into every PHP, as it tested PHP_SWOOLE (left over from swoole, unset there) instead of PHP_OPENSWOOLE, and the default of --enable-openswoole was "yes"; now only --enable-openswoole builds it, and configure stops when --enable-swoole is given too (same C++ symbols). Drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (OpenSwoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer; include <stdint.h> in swoole_proxy.h (uint8_t unknown with clang 19). For PHP 8.3 and 8.4, which OpenSwoole 4.12 does not support upstream (OpenSwoole 22 and newer changed the API): the new php_url_encode_hash_ex() of 8.3; zend_str_tolower() for php_strtolower(), gone in 8.4; the C stack bounds that PHP 8.3 checks (EG(stack_base), EG(stack_limit)) follow the coroutine stacks, as in swoole 5.1 and newer, so calls inside coroutines no longer fail with "Maximum call stack size reached"; as 8.4 made exit a function (no ZEND_EXIT opcode), the function exit() is wrapped the way the opcode was, so exit in a coroutine or a server still throws Swoole\ExitException; and the embedded PHP library declares its nullable parameters explicitly (?int, ?array), which PHP 8.4 asks for with a deprecation notice at every start.
+Description: Build inside php-src as ext/openswoole (bundled by this fork), on PHP 7.4 to 8.4. configure built OpenSwoole into every PHP, as it tested PHP_SWOOLE (left over from swoole, unset there) instead of PHP_OPENSWOOLE, and the default of --enable-openswoole was "yes"; now only --enable-openswoole builds it, and configure stops when --enable-swoole is given too (same C++ symbols). Drop the option --enable-openssl, which reset PHP_OPENSSL of --with-openssl to "no" so that mysqlnd built without its OpenSSL code (OpenSwoole now uses OpenSSL when PHP is built --with-openssl, as swoole 6.2 does); drop the -std=c++11 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer; include <stdint.h> in swoole_proxy.h (uint8_t unknown with clang 19). For PHP 8.3 and 8.4, which OpenSwoole 4.12 does not support upstream (OpenSwoole 22 and newer changed the API): the new php_url_encode_hash_ex() of 8.3; zend_str_tolower() for php_strtolower(), gone in 8.4; the C stack bounds that PHP 8.3 checks (EG(stack_base), EG(stack_limit)) follow the coroutine stacks, as in swoole 5.1 and newer, so calls inside coroutines no longer fail with "Maximum call stack size reached"; as 8.4 made exit a function (no ZEND_EXIT opcode), the function exit() is wrapped the way the opcode was, so exit in a coroutine or a server still throws Swoole\ExitException; and the embedded PHP library declares its nullable parameters explicitly (?int, ?array), which PHP 8.4 asks for with a deprecation notice at every start; and the two C++ header checks of configure (valgrind, boost stacktrace) use AC_LANG_PUSH/POP instead of AC_LANG([C++]), which left configure in C++ for every extension after it: their checks ran as C++, and for example readline was not found.
 Origin: azsupport
 
 --- a/config.m4
@@ -33,7 +33,43 @@ Origin: azsupport
  
  PHP_ARG_ENABLE([mysqlnd],
    [enable mysqlnd support],
-@@ -336,7 +342,9 @@
+@@ -207,7 +213,7 @@
+ AC_DEFUN([AC_SWOOLE_HAVE_VALGRIND],
+ [
+     AC_MSG_CHECKING([for valgrind])
+-    AC_LANG([C++])
++    AC_LANG_PUSH([C++])
+     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+         #include <valgrind/valgrind.h>
+     ]], [[
+@@ -218,12 +224,15 @@
+     ],[
+         AC_MSG_RESULT([no])
+     ])
++    dnl PUSH/POP, not AC_LANG: inside php-src the checks of the extensions
++    dnl after this one (readline, standard, ...) ran as C++ and failed.
++    AC_LANG_POP([C++])
+ ])
+ 
+ AC_DEFUN([AC_SWOOLE_HAVE_BOOST_STACKTRACE],
+ [
+     AC_MSG_CHECKING([for valgrind])
+-    AC_LANG([C++])
++    AC_LANG_PUSH([C++])
+     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+         #include <boost/stacktrace.hpp>
+     ]], [[
+@@ -234,6 +243,9 @@
+     ],[
+         AC_MSG_RESULT([no])
+     ])
++    dnl PUSH/POP, not AC_LANG: inside php-src the checks of the extensions
++    dnl after this one (readline, standard, ...) ran as C++ and failed.
++    AC_LANG_POP([C++])
+ ])
+ 
+ AC_DEFUN([AC_SWOOLE_CHECK_SOCKETS], [
+@@ -336,7 +348,9 @@
  
  AC_CANONICAL_HOST
  
@@ -44,7 +80,7 @@ Origin: azsupport
  
      AC_CHECK_LIB(c, accept4, AC_DEFINE(HAVE_ACCEPT4, 1, [have accept4]))
      AC_CHECK_LIB(c, signalfd, AC_DEFINE(HAVE_SIGNALFD, 1, [have signalfd]))
-@@ -859,11 +867,9 @@
+@@ -859,11 +873,9 @@
  
      CXXFLAGS="$CXXFLAGS -Wall -Wno-unused-function -Wno-deprecated -Wno-deprecated-declarations"
  
