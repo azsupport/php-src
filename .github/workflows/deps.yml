@@ -1,0 +1,65 @@
+name: PHP dependencies for FreeBSD
+
+# Builds /usr/local/phpdeps (tools/build-deps.sh): the libraries PHP links
+# against, static and position independent, from the FreeBSD ports of
+# freebsd/deps.conf, and publishes it as the release phpdeps-fbsd<major>-latest
+# (phpdeps-fbsd<major>-amd64.tar.xz, .sha256 and the list of versions).
+# Started by hand: Actions, "PHP dependencies for FreeBSD", "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'FreeBSD release'
+        required: true
+        default: '15.1'
+      publish:
+        description: 'Publish the tarball when every library built'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deps-${{ inputs.release }}
+  cancel-in-progress: false
+
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build in FreeBSD ${{ inputs.release }}
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ inputs.release }}
+          prepare: |
+            sh tools/build-deps.sh --tools
+          run: |
+            sh tools/build-deps.sh || true
+
+      - name: Report
+        if: always()
+        run: sh tools/build-deps-report.sh deps-results
+
+      - name: Publish
+        if: ${{ success() && inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          major="${RELEASE%%.*}"
+          tag="phpdeps-fbsd$major-latest"
+          name="phpdeps-fbsd$major-amd64"
+          dated="phpdeps-fbsd$major-$(date -u +%Y%m%d)"
+          notes="Static, position independent libraries for PHP on FreeBSD $major (amd64), built from the FreeBSD ports of freebsd/deps.conf. Extract with: tar -xf $name.tar.xz -C /usr/local (gives /usr/local/phpdeps). Versions: $name.VERSIONS.txt."
+          for t in "$tag" "$dated"; do
+            if ! gh release view "$t" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release create "$t" --repo "$GITHUB_REPOSITORY" --title "$t" --notes "$notes" --target "$GITHUB_SHA"
+            fi
+            gh release upload "$t" --repo "$GITHUB_REPOSITORY" --clobber \
+              "dist/$name.tar.xz" "dist/$name.tar.xz.sha256" "dist/$name.VERSIONS.txt"
+          done
