@@ -273,6 +273,14 @@ finish() {
             'esac' > "$P/bin/curl-config"
         chmod +x "$P/bin/curl-config"
     fi
+    # pkg-config for PHP builds against the bundle (config-check.sh writes PKG_CONFIG
+    # with it): the bundle first, then the base system and the packages (for what the
+    # bundle has not, such as ImageMagick), and static link lines.
+    mkdir -p "$P/bin"
+    printf '%s\n' '#!/bin/sh' "# pkg-config of $P: the bundle first, static link lines." \
+        "PKG_CONFIG_LIBDIR='$P/lib/pkgconfig:/usr/libdata/pkgconfig:/usr/local/libdata/pkgconfig:/usr/local/share/pkgconfig'" \
+        'export PKG_CONFIG_LIBDIR' 'unset PKG_CONFIG_PATH' 'exec /usr/local/bin/pkgconf --static "$@"' > "$P/bin/pkg-config"
+    chmod +x "$P/bin/pkg-config"
     # Position independent: the whole archive links into a shared object. Relocation
     # errors mean it is not (and it could not go into libphp.so); other errors are
     # only noted.

@@ -26,10 +26,14 @@ on:
         options: [swoole, openswoole]
         default: swoole
       magick:
-        description: 'Build imagick or gmagick (one of the two)'
+        description: 'Build imagick or gmagick (one of the two), or none'
         type: choice
-        options: [imagick, gmagick]
+        options: [imagick, gmagick, none]
         default: imagick
+      deps:
+        description: 'Build against /usr/local/phpdeps (release phpdeps-fbsd<major>-latest) instead of pkg libraries'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -38,7 +42,7 @@ permissions:
 # cancels the one that waited before, so the variants (swoole/openswoole,
 # imagick/gmagick, tests) get groups of their own and run side by side.
 concurrency:
-  group: build-test-${{ inputs.swoole || 'swoole' }}-${{ inputs.magick || 'imagick' }}-${{ inputs.tests && 'tests' || 'build' }}
+  group: build-test-${{ inputs.swoole || 'swoole' }}-${{ inputs.magick || 'imagick' }}-${{ inputs.tests && 'tests' || 'build' }}-${{ inputs.deps && 'deps' || 'pkg' }}
   cancel-in-progress: false
 
 jobs:
@@ -61,6 +65,18 @@ jobs:
           done
           cd dist && sha256sum -c ./*.sha256
 
+      - name: Download /usr/local/phpdeps
+        if: ${{ inputs.deps }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          major="${RELEASE%%.*}"
+          mkdir -p deps-dist
+          gh release download "phpdeps-fbsd$major-latest" --repo "$GITHUB_REPOSITORY" --dir deps-dist \
+            --pattern "phpdeps-fbsd$major-amd64.tar.xz" --pattern "phpdeps-fbsd$major-amd64.tar.xz.sha256"
+          cd deps-dist && echo "$(cat "phpdeps-fbsd$major-amd64.tar.xz.sha256")  phpdeps-fbsd$major-amd64.tar.xz" | sha256sum -c
+
       - name: Build in FreeBSD ${{ inputs.release }}
         uses: vmactions/freebsd-vm@v1
         env:
@@ -68,10 +84,12 @@ jobs:
           TESTS: ${{ inputs.tests && '--tests' || '' }}
           SWOOLE: ${{ inputs.swoole }}
           MAGICK: ${{ inputs.magick }}
+          PHPDEPS_BUNDLE: ${{ inputs.deps && '1' || '0' }}
         with:
           release: ${{ inputs.release }}
-          envs: 'TARGETS TESTS SWOOLE MAGICK'
+          envs: 'TARGETS TESTS SWOOLE MAGICK PHPDEPS_BUNDLE'
           prepare: |
+            if [ "$PHPDEPS_BUNDLE" = 1 ]; then tar -xf deps-dist/phpdeps-fbsd*-amd64.tar.xz -C /usr/local; fi
             sh tools/build-test.sh --deps $TARGETS
           run: |
             sh tools/build-test.sh $TESTS $TARGETS || true
