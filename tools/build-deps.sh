@@ -67,7 +67,9 @@ libs_all="$(awk '$1 == "lib" { print $2 }' "$conf")"
 port_of() { awk -v n="$1" '$1 == "lib" && $2 == n { print $3 }' "$conf"; }
 
 # A sparse checkout of freebsd-ports at the commit of deps.conf: the framework
-# (Mk, Templates, Keywords) and the ports of deps.conf, with what they include.
+# (Mk, Templates, Keywords) and the ports of deps.conf, with what they include
+# (devel/gettext; lang/perl5.* and lang/python3* for the version files that
+# USES=perl5 and USES=python read).
 ports_checkout() {
     if [ "$(git -C "$ports" rev-parse HEAD 2>/dev/null)" = "$ports_commit" ]; then return 0; fi
     say "freebsd-ports at $ports_commit into $ports"
@@ -78,7 +80,8 @@ ports_checkout() {
         git -C "$ports" remote add origin https://github.com/freebsd/freebsd-ports &&
         git -C "$ports" fetch -q --depth 1 --filter=blob:none origin "$ports_commit" &&
         git -C "$ports" sparse-checkout set --no-cone /Mk/ /Templates/ /Keywords/ \
-            $(awk '$1 == "lib" { printf "/%s/ ", $3 }' "$conf") /devel/gettext/ &&
+            $(awk '$1 == "lib" { printf "/%s/ ", $3 }' "$conf") /devel/gettext/ \
+            '/lang/perl5*/' '/lang/python3*/' &&
         git -C "$ports" checkout -q FETCH_HEAD
 }
 pmake() {
