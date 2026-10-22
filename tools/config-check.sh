@@ -32,7 +32,10 @@
 # from php-config --configure-options next to the binary. When the binary does not
 # run either way (a library it links against was removed or upgraded, a crash),
 # the options of the config.nice (given or found) are taken instead, as they are,
-# and the report says why the installed build could not be read. Environment lines of
+# and the report says why the installed build could not be read; its shared PECL
+# modules are then those of the extension= lines of its php.ini, looked for at
+# --with-config-file-path and --with-config-file-scan-dir, <prefix>/etc/php*.ini,
+# /usr/local/etc/phpXY.ini and the Apache PHPIniDir that names it. Environment lines of
 # config.nice (CFLAGS=... and the like) are shown and carried over, but not
 # compared: the installed build does not record them. PHP 5.6 records options with
 # spaces in a broken quoting ('CFLAGS=-O3 '-pipe' '-march=...''); both sources are
@@ -900,11 +903,70 @@ chmod +x "$out" 2>/dev/null || true
 # them in (the script plus their options), ready to copy. The features a module was
 # built with ("php --ri": serializers, compression, swoole's hooks) are carried over
 # where the bundled version has an option for them (its config.m4).
-"$php" -m 2>/dev/null | tr 'A-Z' 'a-z' > "$tmp/modules"
+# A binary that does not run has no "php -m" and no "php --ini": its php.ini files
+# are looked for (ini_candidates) and its shared modules are those their extension=
+# lines load.
+# The php.ini files of the installed build: --with-config-file-path (a file, or
+# <dir>/php.ini and <dir>/php-*.ini; <prefix>/lib/php.ini without it) and
+# --with-config-file-scan-dir (<dir>/*.ini) of its options, the layout of the hand
+# builds (<prefix>/etc/php*.ini, /usr/local/etc/phpXY.ini, /usr/local/etc/phpXY/*.ini)
+# and the PHPIniDir lines of Apache that name phpXY or the prefix. Existing files
+# only, each once (symbolic links resolved).
+ini_candidates() {
+    pfx="$(sed -n 's/^--prefix=//p' "$tmp/installed" | head -n 1)"
+    [ -n "$pfx" ] || pfx="$(cd "$(dirname "$php")/.." 2>/dev/null && pwd)"
+    vt="$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    [ -n "$vt" ] && vt="$vt$(sed -n 's/^#define PHP_MINOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    [ -n "$vt" ] || vt="$(basename "$pfx" | sed -n 's/^php\([0-9][0-9]*\)$/\1/p')"
+    cfp="$(sed -n 's/^--with-config-file-path=//p' "$tmp/installed" | head -n 1)"
+    csd="$(sed -n 's/^--with-config-file-scan-dir=//p' "$tmp/installed" | head -n 1)"
+    {
+        if [ -z "$cfp" ]; then
+            echo "$pfx/lib/php.ini"
+        elif [ -d "$cfp" ]; then
+            ls "$cfp"/php.ini "$cfp"/php-*.ini 2>/dev/null
+        else
+            echo "$cfp"
+        fi
+        [ -n "$csd" ] && ls "$csd"/*.ini 2>/dev/null
+        ls "$pfx"/etc/php*.ini 2>/dev/null
+        if [ -n "$vt" ]; then
+            echo "/usr/local/etc/php$vt.ini"
+            ls "/usr/local/etc/php$vt"/*.ini 2>/dev/null
+        fi
+        for d in /usr/local/etc/apache24 /usr/local/etc/apache22; do
+            [ -d "$d" ] || continue
+            grep -rhs -E '^[[:space:]]*PHPIniDir[[:space:]]' "$d" | awk '{ v = $2; gsub(/"/, "", v); print v }' |
+                while IFS= read -r v; do
+                    case "$v" in
+                        "$pfx" | "$pfx"/*) ;;
+                        *) [ -n "$vt" ] || continue; case "$v" in *"php$vt"*) ;; *) continue ;; esac ;;
+                    esac
+                    if [ -d "$v" ]; then ls "$v"/php.ini "$v"/php-apache2handler.ini 2>/dev/null; else echo "$v"; fi
+                done
+        done
+    } | while IFS= read -r f; do
+        [ -f "$f" ] && [ -r "$f" ] || continue
+        printf '%s %s\n' "$(realpath "$f" 2>/dev/null || echo "$f")" "$f"
+    done | awk '!seen[$1]++ { sub(/^[^ ]* /, ""); print }'
+}
+: > "$tmp/ini_files"
+if [ -n "$broken" ]; then
+    ini_candidates > "$tmp/ini_files"
+    while IFS= read -r f; do
+        sed -n -E "s/^[[:space:]]*extension[[:space:]]*=[[:space:]]*[\"']?([^\"';[:space:]]*)[\"']?.*/\\1/p" "$f"
+    done < "$tmp/ini_files" | sed 's#.*/##; s/\.so$//' | tr 'A-Z' 'a-z' | sort -u > "$tmp/modules"
+else
+    "$php" -m 2>/dev/null | tr 'A-Z' 'a-z' > "$tmp/modules"
+fi
 : > "$tmp/pecl_hint"
 : > "$tmp/pecl_note"
 if [ -n "$broken" ]; then
-    echo "the installed build cannot be read, so its shared PECL modules are not known: check the extension= lines of its php.ini by hand" >> "$tmp/pecl_note"
+    if [ -s "$tmp/ini_files" ]; then
+        echo "the installed build cannot be read: its shared modules are those of the extension= lines of $(tr '\n' ' ' < "$tmp/ini_files" | sed 's/ *$//'); check that this is the php.ini it loads" >> "$tmp/pecl_note"
+    else
+        echo "the installed build cannot be read and no php.ini of it was found (--with-config-file-path, <prefix>/etc/php*.ini, /usr/local/etc/phpXY.ini, Apache PHPIniDir): check the extension= lines of its php.ini by hand" >> "$tmp/pecl_note"
+    fi
 fi
 : > "$tmp/pecl_opts"
 : > "$tmp/pecl_names"
@@ -930,24 +992,34 @@ done
 
 # What they need from PHP itself, when the installed build has not got it.
 need() { grep -qx -e "$1" "$tmp/pecl_opts" "$tmp/installed" || printf '%s\n' "$1" >> "$tmp/pecl_opts"; }
+# Whether the installed build has module $1 (json, hash, session: on by default).
+# Without "php -m" (a binary that does not run) its options tell.
+has_mod() {
+    grep -qx "$1" "$tmp/modules" && return 0
+    [ -n "$broken" ] || return 1
+    grep -qx -e "--enable-$1" -e "--enable-$1=.*" "$tmp/installed" && return 0
+    ! grep -qx -e "--disable-$1" -e --disable-all "$tmp/installed"
+}
 fam="${ver%%.*}"
 if grep -qx redis "$tmp/pecl_names"; then
-    case "$fam" in 5 | 7) grep -qx json "$tmp/modules" || need --enable-json ;; esac
-    if [ "$fam" = 5 ]; then grep -qx hash "$tmp/modules" || need --enable-hash; fi
+    case "$fam" in 5 | 7) has_mod json || need --enable-json ;; esac
+    if [ "$fam" = 5 ]; then has_mod hash || need --enable-hash; fi
 fi
 if grep -qx -e redis -e memcached "$tmp/pecl_names"; then
-    grep -qx session "$tmp/modules" || need --enable-session
+    has_mod session || need --enable-session
 fi
 pecl_line="$(awk '!seen[$0]++' "$tmp/pecl_opts" | tr '\n' ' ' | sed 's/ *$//')"
 
 # The extension= lines that load them now (php --ini: php.ini and the scanned
 # directory), to be removed once they are built in.
 if [ -s "$tmp/pecl_names" ]; then
-    "$php" --ini 2>/dev/null | awk '
-        /^Loaded Configuration File:/ { sub(/^Loaded Configuration File:[ \t]*/, ""); print; next }
-        /^Additional \.ini files parsed:/ { sub(/^Additional \.ini files parsed:[ \t]*/, ""); add = 1 }
-        add { n = split($0, a, ","); for (i = 1; i <= n; i++) { f = a[i]; gsub(/^[ \t]+|[ \t]+$/, "", f); if (f != "") print f } }
-    ' | grep -v '^(none)$' > "$tmp/ini_files"
+    if [ -z "$broken" ]; then
+        "$php" --ini 2>/dev/null | awk '
+            /^Loaded Configuration File:/ { sub(/^Loaded Configuration File:[ \t]*/, ""); print; next }
+            /^Additional \.ini files parsed:/ { sub(/^Additional \.ini files parsed:[ \t]*/, ""); add = 1 }
+            add { n = split($0, a, ","); for (i = 1; i <= n; i++) { f = a[i]; gsub(/^[ \t]+|[ \t]+$/, "", f); if (f != "") print f } }
+        ' | grep -v '^(none)$' > "$tmp/ini_files"
+    fi
     names="$(tr '\n' '|' < "$tmp/pecl_names" | sed 's/|$//')"
     while IFS= read -r f; do
         [ -r "$f" ] || continue
