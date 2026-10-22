@@ -28,8 +28,16 @@ and `freebsd/8.4` carry the official fixed releases 8.2.35, 8.3.36 and 8.4.27.
 (Arnaud Le Blanc) from Remi Collet's branches, the minimal source backport that the
 PHP security team provided for 7.4, 8.0 and 8.1. It is smaller than the complete fix
 of 8.2+ (for example, it disables session upload progress in the code), so keep the
-configuration mitigations from the announcement on these versions. `freebsd/5.6` has
-no fix for these vulnerabilities.
+configuration mitigations from the announcement on these versions. `freebsd/5.6`
+carries our port of that same commit to the PHP 5 engine,
+[`backport-php2shell.patch`](freebsd/patches/5.6/backport-php2shell.patch), not
+reviewed upstream: fatal errors of the allocator end the worker with `_exit()`
+instead of a `longjmp()`, the state an error before the next request can reach is
+reset, multipart parsing keeps only the headers it uses, and session upload
+progress is off in the code. On memory exhaustion the worker exits at once, as with
+the official fix: shutdown functions do not run and buffered output is lost; the
+error goes to stderr (the php-fpm or Apache error log). Keep the configuration
+mitigations there too.
 
 Every branch is upstream plus these commits, in this order:
 
