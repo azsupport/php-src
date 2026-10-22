@@ -380,6 +380,13 @@ lists the `extension=` lines (file and line) to remove after `make install`. Wit
 `--pkg`, the installed `phpXY-pecl-*` packages are converted like the other extension
 packages.
 
+A daily workflow, [`upstream-check.yml`](.github/workflows/upstream-check.yml), looks
+for newer releases of these extensions (repository tags and PECL, checked against the
+PHP versions each release supports) and for FreeBSD ports commits that change the
+patches or the build of their ports and of `lang/php8x`. Each finding opens one issue
+labelled `upstream`; nothing is applied on its own. What it follows is listed in
+[`freebsd/upstream.conf`](freebsd/upstream.conf).
+
 ### OpenSSL
 
 - 8.1 and newer support OpenSSL 3 upstream: build against the base system
