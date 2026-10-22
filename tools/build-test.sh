@@ -262,6 +262,14 @@ for target in "$@"; do
     echo "smoke:    $(grep -c '^ok ' "$out/smoke.txt") ok, $(grep -c '^FAIL ' "$out/smoke.txt") failed (smoke.txt)" >> "$sum"
 
     if [ "$run_tests" = 1 ]; then
+        # Tests that never finish here and would stop the rest of the suite (the
+        # run-tests.php of 5.6 has no time limit per test): stream_server_reneg_limit
+        # runs "openssl s_client", which keeps the connection open, and the server of
+        # the test waits for it to close.
+        : > "$out/tests-left-out.txt"
+        for t in ext/openssl/tests/stream_server_reneg_limit.phpt; do
+            if [ -f "$t" ]; then mv "$t" "$t.left-out"; echo "$t" >> "$out/tests-left-out.txt"; fi
+        done
         jobs=""
         "$php" -n run-tests.php --help 2>/dev/null | grep -q -- '-j<workers>' && jobs="-j$ncpu"
         # A time limit per target (TEST_TIME_LIMIT seconds; default 25 minutes, 60 for a
@@ -286,8 +294,11 @@ for target in "$@"; do
         if grep -q -E '^Tests (passed|failed)' "$out/run-tests.log"; then
             echo "tests:    $(grep -E '^Tests (passed|failed)' "$out/run-tests.log" | tr -s ' ' | tr '\n' ' ')" >> "$sum"
         else
-            echo "tests:    stopped after ${limit}s (exit $trc): $(grep -c -E '^PASS ' "$out/run-tests.lines") passed, $(grep -c -E '^FAIL ' "$out/run-tests.lines") failed so far" >> "$sum"
+            echo "tests:    stopped after ${limit}s (exit $trc): $(grep -c -E '^PASS ' "$out/run-tests.lines") passed, $(grep -c -E '^FAIL ' "$out/run-tests.lines") failed so far, last test started: $(sed 's/\x1b\[[0-9;]*m//g' "$out/run-tests.log" | tr '\r' '\n' | grep -o 'TEST [0-9]*/[0-9]* \[[^]]*\]' | tail -n 1)" >> "$sum"
         fi
+    fi
+    if [ "$run_tests" = 1 ] && [ -s "$out/tests-left-out.txt" ]; then
+        echo "left out: $(tr '\n' ' ' < "$out/tests-left-out.txt")(they hang here)" >> "$sum"
     fi
     echo "result:   OK" >> "$sum"
     say "$target: OK ($(grep -c '^ok ' "$out/smoke.txt") smoke checks ok, $(grep -c '^FAIL ' "$out/smoke.txt") failed)"
