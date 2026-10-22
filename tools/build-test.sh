@@ -24,9 +24,10 @@ work="$top/build-test"
 dist="$top/dist"
 
 deps() {
-    # libmemcached, ImageMagick7-nox11: bundled PECL memcached and imagick; memcached and
+    # libmemcached, ImageMagick7-nox11, GraphicsMagick, libmcrypt: bundled PECL memcached,
+    # imagick, gmagick, mcrypt; memcached and
     # redis: servers for the smoke checks of the PECL extensions
-    pkgs="pkgconf libmemcached ImageMagick7-nox11 memcached redis brotli"
+    pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick libmcrypt memcached redis brotli"
     for t in "$@"; do
         case "$t" in
             5.6) pkgs="$pkgs libxml2 curl jpeg-turbo png freetype2 gettext-runtime libiconv libmcrypt pcre apache24 perl5" ;;
@@ -57,11 +58,13 @@ if grep -q AVX2 /var/run/dmesg.boot 2>/dev/null; then march=x86-64-v3; else marc
 
 # Presets: the configure options of our servers, without the options of the
 # ports framework (--build, build_alias, CPP=cpp, CPPFLAGS=).
-# 7.4 and 8.1 bundle swoole and OpenSwoole, only one can be built: SWOOLE=openswoole
-# takes OpenSwoole there; 8.2 and newer bundle swoole only.
+# 7.4 and newer bundle swoole and OpenSwoole, only one can be built into a PHP:
+# SWOOLE=openswoole takes OpenSwoole. Likewise imagick or gmagick: MAGICK=gmagick.
 preset() {
     sw=swoole
-    case "$1" in 7.4 | 8.1) [ "${SWOOLE:-swoole}" = openswoole ] && sw=openswoole ;; esac
+    [ "${SWOOLE:-swoole}" = openswoole ] && sw=openswoole
+    mg=imagick
+    [ "${MAGICK:-imagick}" = gmagick ] && mg=gmagick
     case "$1" in
         5.6)
             CFLAGS="-O3 -pipe -march=$march -fstack-protector -fno-strict-aliasing"
@@ -80,7 +83,7 @@ preset() {
                 --enable-session --enable-tokenizer --with-xmlrpc --enable-xmlwriter --enable-zip \
                 --with-zlib=/usr --enable-sockets \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
-                --enable-memcache --with-imagick=/usr/local \
+                --enable-memcache --with-$mg=/usr/local \
                 --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary
             ;;
         7.4)
@@ -99,8 +102,9 @@ preset() {
                 --with-external-pcre=/usr/local --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
-                --enable-memcache --with-imagick=/usr/local \
-                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw
+                --enable-memcache --with-$mg=/usr/local \
+                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw \
+                --enable-excimer --with-mcrypt=/usr/local
             ;;
         8.*)
             v="$(echo "$1" | tr -d .)"
@@ -119,8 +123,9 @@ preset() {
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --enable-sockets \
                 --enable-intl --enable-fileinfo --with-zip --enable-xmlwriter --enable-exif \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
-                --enable-memcache --with-imagick=/usr/local \
-                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw
+                --enable-memcache --with-$mg=/usr/local \
+                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw \
+                --enable-excimer --with-mcrypt=/usr/local
             ;;
         *) return 1 ;;
     esac

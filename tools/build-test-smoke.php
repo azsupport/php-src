@@ -282,6 +282,25 @@ if (class_exists('Imagick')) {
     $v = Imagick::getVersion();
     check('imagick', substr($blob, 1, 3) === 'PNG', 'imagick ' . phpversion('imagick') . ', ' . $v['versionString']);
 }
+if (class_exists('Gmagick')) {
+    $g = new Gmagick();
+    $g->newImage(8, 8, 'red', 'png');
+    check('gmagick', substr($g->getImageBlob(), 1, 3) === 'PNG', 'gmagick ' . phpversion('gmagick'));
+}
+if (class_exists('ExcimerProfiler')) {
+    $p = new ExcimerProfiler();
+    $p->setPeriod(0.001);
+    $p->setEventType(EXCIMER_REAL);
+    $p->start();
+    $t = microtime(true);
+    $x = 0;
+    while (microtime(true) - $t < 0.05) {
+        $x++;
+    }
+    $p->stop();
+    $n = count($p->getLog());
+    check('excimer', $n > 0, 'excimer ' . phpversion('excimer') . ", $n samples in 50 ms");
+}
 if (function_exists('igbinary_serialize')) {
     $data = array('a' => 1, 'b' => array(1.5, 'x', true), 'c' => null);
     check('igbinary', igbinary_unserialize(igbinary_serialize($data)) === $data, 'igbinary ' . phpversion('igbinary'));
@@ -306,7 +325,7 @@ if ($sw !== '') {
     Swoole\Coroutine\run(function () use (&$res) {
         $chan = new Swoole\Coroutine\Channel(2);
         Swoole\Coroutine::create(function () use ($chan) {
-            Swoole\Coroutine::sleep(0.01);
+            usleep(10000);
             $chan->push('from coroutine');
         });
         $res[] = $chan->pop(2.0);

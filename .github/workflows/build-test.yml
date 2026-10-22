@@ -21,10 +21,15 @@ on:
         type: boolean
         default: true
       swoole:
-        description: 'For 7.4 and 8.1: build swoole or OpenSwoole (one of the two)'
+        description: 'For 7.4 and newer: build swoole or OpenSwoole (one of the two)'
         type: choice
         options: [swoole, openswoole]
         default: swoole
+      magick:
+        description: 'Build imagick or gmagick (one of the two)'
+        type: choice
+        options: [imagick, gmagick]
+        default: imagick
 
 permissions:
   contents: read
@@ -58,9 +63,10 @@ jobs:
           TARGETS: ${{ inputs.targets }}
           TESTS: ${{ inputs.tests && '--tests' || '' }}
           SWOOLE: ${{ inputs.swoole }}
+          MAGICK: ${{ inputs.magick }}
         with:
           release: ${{ inputs.release }}
-          envs: 'TARGETS TESTS SWOOLE'
+          envs: 'TARGETS TESTS SWOOLE MAGICK'
           prepare: |
             sh tools/build-test.sh --deps $TARGETS
           run: |
