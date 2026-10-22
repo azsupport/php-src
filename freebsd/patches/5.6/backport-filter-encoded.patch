@@ -1,0 +1,34 @@
+Description: GHSA-ch8v-r6jh-4vvr: FILTER_SANITIZE_ENCODED percent-encodes 0xFF (its table of characters to keep was one byte short and left 0xFF as it is).
+Origin: php-src commit f517508eb09d of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports) (29.07.2026, Ilia Alshanetsky), applies to 5.6 as it is
+
+diff --git a/ext/filter/sanitizing_filters.c b/ext/filter/sanitizing_filters.c
+index 9f3053e6..581667c8 100644
+--- a/ext/filter/sanitizing_filters.c
++++ b/ext/filter/sanitizing_filters.c
+@@ -71,7 +71,7 @@ static void php_filter_encode_url(zval *value, const unsigned char* chars, const
+ 	unsigned char *s = (unsigned char *)chars;
+ 	unsigned char *e = s + char_len;
+ 
+-	memset(tmp, 1, sizeof(tmp)-1);
++	memset(tmp, 1, sizeof(tmp));
+ 
+ 	while (s < e) {
+ 		tmp[*s++] = 0;
+diff --git a/ext/filter/tests/filter_sanitize_encoded_0xff.phpt b/ext/filter/tests/filter_sanitize_encoded_0xff.phpt
+new file mode 100644
+index 00000000..cb72c6f1
+--- /dev/null
++++ b/ext/filter/tests/filter_sanitize_encoded_0xff.phpt
+@@ -0,0 +1,12 @@
++--TEST--
++FILTER_SANITIZE_ENCODED percent-encodes 0xFF
++--SKIPIF--
++<?php if (!extension_loaded('filter')) die('skip filter extension not available'); ?>
++--FILE--
++<?php
++var_dump(filter_var("\xFF", FILTER_SANITIZE_ENCODED));
++var_dump(filter_var("\xFE\xFF\x00A", FILTER_SANITIZE_ENCODED));
++?>
++--EXPECT--
++string(3) "%FF"
++string(10) "%FE%FF%00A"

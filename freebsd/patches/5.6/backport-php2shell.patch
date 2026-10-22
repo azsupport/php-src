@@ -1,4 +1,4 @@
-Description: CVE-2026-109618 and CVE-2026-109619 for PHP 5.6: the official EOL fix "Avoid state corruption via bailout" (PHP 7.4) carried over to the PHP 5 engine: fatal errors of the allocator (memory limit, integer overflow in allocation sizes, string size overflow in concatenation, Balloc) print and _exit() the worker instead of a zend_error() longjmp() out of a half-initialized request; state that an error before the next request startup can reach is reset (user error and exception handler stacks, error handling mode, exception, freed $_GET/$_POST/... pointers, SAPI request strings, modules_activated, zend_llist head and tail); multipart parsing keeps only Content-Disposition and Content-Type headers, without duplicates; session upload progress stays off whatever session.upload_progress.enabled says. Left out, as PHP 5 has no counterpart: the singleton arrays of php_variables.c and HT_HASH_RESET of the PHP 7 hash tables; the CONCAT overflow checks of the PHP 7 VM are those of concat_function() here.
+Description: CVE-2026-109618 and CVE-2026-109619 for PHP 5.6: the official EOL fix "Avoid state corruption via bailout" (PHP 7.4) carried over to the PHP 5 engine: fatal errors of the allocator (memory limit, integer overflow in allocation sizes, string size overflow in concatenation, Balloc) print and _exit() the worker instead of a zend_error() longjmp() out of a half-initialized request; state that an error before the next request startup can reach is reset (user error and exception handler stacks, error handling mode, exception, freed $_GET/$_POST/... pointers, SAPI request strings and header callback, modules_activated, the autoload guard table, zend_llist head and tail); multipart parsing keeps only Content-Disposition and Content-Type headers, without duplicates; session upload progress stays off whatever session.upload_progress.enabled says. $_GET, $_POST, $_COOKIE and their sub-arrays start as the smallest array (2 buckets: nTableMask 0 marks an uninitialized table in PHP 5), as the singleton arrays of the official fix, so that request variables cost as little memory as they can. Left out, as PHP 5 has no counterpart: HT_HASH_RESET of the PHP 7 hash tables; the CONCAT overflow checks of the PHP 7 VM are those of concat_function() here. Cross-checked with the independent 5.6 port of Ondrej Sury (php5.6 5.6.40-104, debian/patches/0261-Avoid-state-corruption-via-bailout.patch), which brought the singleton arrays, the reset of SG(callback_func) and the earlier reset of EG(error_handling) and EG(exception), and with the one of vperetti/php-cve-2026-109618-109619-backports (patches/php-5.6-CVE-2026-109618-109619.patch), which brought the reset of EG(in_autoload).
 Origin: azsupport, port of php-src commit 802c21075308 (PHP 7.4, Arnaud Le Blanc, 18.10.2026, cherry-pick of b62095c75da7; GHSA-w8hw-w9fx-j79w, GHSA-6wmf-4rv5-p3rp) to remicollet PHP-5.6-security-backports-openssl11 @ 5c2cc46b45cf; replaces backport-oom-exit.patch. Drop when that branch gets its own fix
 
 diff --git a/Zend/zend_alloc.c b/Zend/zend_alloc.c
@@ -82,10 +82,7 @@ diff --git a/Zend/zend_alloc.c b/Zend/zend_alloc.c
 -			zend_error_noreturn(E_ERROR,
 -				format,
 -				limit,
-+	(void) heap;
-+	zend_mm_safe_error_ex(format,
-+		limit,
- #if ZEND_DEBUG
+-#if ZEND_DEBUG
 -				filename,
 -				lineno,
 -#endif
@@ -96,10 +93,15 @@ diff --git a/Zend/zend_alloc.c b/Zend/zend_alloc.c
 -				fprintf(stderr,
 -					format,
 -					limit,
--#if ZEND_DEBUG
++	(void) heap;
++	zend_mm_safe_error_ex(format,
++		limit,
+ #if ZEND_DEBUG
 -					filename,
 -					lineno,
--#endif
++		filename,
++		lineno,
+ #endif
 -					size);
 -				fprintf(stderr, " in %s on line %d\n", error_filename, error_lineno);
 -			}
@@ -112,9 +114,6 @@ diff --git a/Zend/zend_alloc.c b/Zend/zend_alloc.c
 -		heap->overflow = 2;
 -	}
 -	zend_bailout();
-+		filename,
-+		lineno,
-+#endif
 +		size);
  }
  
@@ -222,14 +221,69 @@ diff --git a/Zend/zend_alloc.h b/Zend/zend_alloc.h
  END_EXTERN_C()
  
  /* fast cache for zval's */
+diff --git a/Zend/zend_API.c b/Zend/zend_API.c
+--- a/Zend/zend_API.c
++++ b/Zend/zend_API.c
+@@ -1016,6 +1016,18 @@
+ }
+ /* }}} */
+ 
++/* The smallest array: $_GET, $_POST, $_COOKIE and their sub-arrays start with
++ * it, so that request variables cost as little memory as possible (the
++ * "singleton" arrays of the official fix). nTableMask == 0 marks a table that is
++ * not initialized yet in PHP 5, so 2 is the smallest size that works. */
++ZEND_API int _array_init_singleton(zval *arg ZEND_FILE_LINE_DC) /* {{{ */
++{
++	_array_init(arg, 0 ZEND_FILE_LINE_RELAY_CC);
++	Z_ARRVAL_P(arg)->nTableSize = 2;
++	return SUCCESS;
++}
++/* }}} */
++
+ static int zend_merge_property(zval **value TSRMLS_DC, int num_args, va_list args, const zend_hash_key *hash_key) /* {{{ */
+ {
+ 	/* which name should a numeric property have ? */
+diff --git a/Zend/zend_API.h b/Zend/zend_API.h
+--- a/Zend/zend_API.h
++++ b/Zend/zend_API.h
+@@ -363,10 +363,12 @@
+ 
+ #define array_init(arg)			_array_init((arg), 0 ZEND_FILE_LINE_CC)
+ #define array_init_size(arg, size) _array_init((arg), (size) ZEND_FILE_LINE_CC)
++#define array_init_singleton(arg)	_array_init_singleton((arg) ZEND_FILE_LINE_CC)
+ #define object_init(arg)		_object_init((arg) ZEND_FILE_LINE_CC TSRMLS_CC)
+ #define object_init_ex(arg, ce)	_object_init_ex((arg), (ce) ZEND_FILE_LINE_CC TSRMLS_CC)
+ #define object_and_properties_init(arg, ce, properties)	_object_and_properties_init((arg), (ce), (properties) ZEND_FILE_LINE_CC TSRMLS_CC)
+ ZEND_API int _array_init(zval *arg, uint size ZEND_FILE_LINE_DC);
++ZEND_API int _array_init_singleton(zval *arg ZEND_FILE_LINE_DC);
+ ZEND_API int _object_init(zval *arg ZEND_FILE_LINE_DC TSRMLS_DC);
+ ZEND_API int _object_init_ex(zval *arg, zend_class_entry *ce ZEND_FILE_LINE_DC TSRMLS_DC);
+ ZEND_API int _object_and_properties_init(zval *arg, zend_class_entry *ce, HashTable *properties ZEND_FILE_LINE_DC TSRMLS_DC);
 diff --git a/Zend/zend_execute_API.c b/Zend/zend_execute_API.c
 --- a/Zend/zend_execute_API.c
 +++ b/Zend/zend_execute_API.c
-@@ -329,6 +329,18 @@
+@@ -307,6 +307,11 @@
+ 		}
+ 	} zend_end_try();
+ 
++	/* May be used by an error in the rest of the shutdown or before the next
++	 * init_executor(): the exception object is freed above. */
++	EG(error_handling) = EH_NORMAL;
++	EG(exception) = NULL;
++
+ 	zend_try {
+ 		clean_non_persistent_constants(TSRMLS_C);
+ 	} zend_end_try();
+@@ -325,11 +330,24 @@
+ 		if (EG(in_autoload)) {
+ 			zend_hash_destroy(EG(in_autoload));
+ 			FREE_HASHTABLE(EG(in_autoload));
++			EG(in_autoload) = NULL;
+ 		}
  	} zend_end_try();
  
  	zend_shutdown_fpu(TSRMLS_C);
-+
+ 
 +	/* May be used by an error before the next init_executor(): the stacks
 +	 * are destroyed above (or left behind by a bailout), the handlers freed
 +	 * (as in the official fix of PHP 7.4 and 8.x). */
@@ -241,9 +295,10 @@ diff --git a/Zend/zend_execute_API.c b/Zend/zend_execute_API.c
 +	EG(error_handling) = EH_NORMAL;
 +	EG(exception_class) = NULL;
 +	EG(exception) = NULL;
- 
++
  	EG(active) = 0;
  }
+ /* }}} */
 diff --git a/Zend/zend_llist.c b/Zend/zend_llist.c
 --- a/Zend/zend_llist.c
 +++ b/Zend/zend_llist.c
@@ -349,6 +404,14 @@ diff --git a/main/SAPI.c b/main/SAPI.c
  	}
  	if (sapi_module.deactivate) {
  		sapi_module.deactivate(TSRMLS_C);
+@@ -557,6 +562,7 @@
+ 	SG(callback_run) = 0;
+ 	if (SG(callback_func)) {
+ 		zval_ptr_dtor(&SG(callback_func));
++		SG(callback_func) = NULL;
+ 	}
+ 	SG(request_info).headers_read = 0;
+ 	SG(global_request_time) = 0;
 diff --git a/main/main.c b/main/main.c
 --- a/main/main.c
 +++ b/main/main.c
@@ -380,6 +443,36 @@ diff --git a/main/main.c b/main/main.c
  }
  /* }}} */
  
+diff --git a/main/php_variables.c b/main/php_variables.c
+--- a/main/php_variables.c
++++ b/main/php_variables.c
+@@ -191,7 +191,7 @@
+ 
+ 			if (!index) {
+ 				MAKE_STD_ZVAL(gpc_element);
+-				array_init(gpc_element);
++				array_init_singleton(gpc_element);
+ 				if (zend_hash_next_index_insert(symtable1, &gpc_element, sizeof(zval *), (void **) &gpc_element_p) == FAILURE) {
+ 					zval_ptr_dtor(&gpc_element);
+ 					zval_dtor(val);
+@@ -208,7 +208,7 @@
+ 				if (zend_symtable_find(symtable1, index, index_len + 1, (void **) &gpc_element_p) == FAILURE
+ 					|| Z_TYPE_PP(gpc_element_p) != IS_ARRAY) {
+ 					MAKE_STD_ZVAL(gpc_element);
+-					array_init(gpc_element);
++					array_init_singleton(gpc_element);
+ 					zend_symtable_update(symtable1, index, index_len + 1, &gpc_element, sizeof(zval *), (void **) &gpc_element_p);
+ 				}
+ 			}
+@@ -406,7 +406,7 @@
+ 		case PARSE_GET:
+ 		case PARSE_COOKIE:
+ 			ALLOC_ZVAL(array_ptr);
+-			array_init(array_ptr);
++			array_init_singleton(array_ptr);
+ 			INIT_PZVAL(array_ptr);
+ 			switch (arg) {
+ 				case PARSE_POST:
 diff --git a/main/rfc1867.c b/main/rfc1867.c
 --- a/main/rfc1867.c
 +++ b/main/rfc1867.c
@@ -403,10 +496,9 @@ diff --git a/main/rfc1867.c b/main/rfc1867.c
  
  			*value = '\0';
 -			do { value++; } while(isspace(*value));
--
+ 
 -			key = estrdup(line);
 -			smart_str_appends(&buf_value, value);
-+
 +			/* Keep only headers we use, and ignore duplicates */
 +			if (!php_mime_should_save_hdr(line)
 +					|| php_mime_get_hdr_value(*header, line)) {

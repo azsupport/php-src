@@ -1,0 +1,86 @@
+Description: GHSA-62xp-839h-2637: listen.allowed_clients of php-fpm compared only the first 96 bits of an IPv6 client address, so that an allowed ::dead:beef let ::1 in; all 128 bits are compared now.
+Origin: php-src commit 7fb805393478 of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports) (25.08.2026, Alexandre Daubois), in sapi/fpm/fpm/fastcgi.c of 5.6 (main/fastcgi.c of 7.x); the test is rewritten for the FPM test helpers of 5.6, the IPv4-mapped one is left out (php-fpm 5.6 does not clear IPV6_V6ONLY, which FreeBSD sets by default)
+
+diff --git a/sapi/fpm/fpm/fastcgi.c b/sapi/fpm/fpm/fastcgi.c
+index 778119e4..6ac568bf 100644
+--- a/sapi/fpm/fpm/fastcgi.c
++++ b/sapi/fpm/fpm/fastcgi.c
+@@ -786,7 +786,7 @@ static int fcgi_is_allowed() {
+ 	if (client_sa.sa.sa_family == AF_INET6) {
+ 		for (i=0 ; allowed_clients[i].sa.sa_family ; i++) {
+ 			if (allowed_clients[i].sa.sa_family == AF_INET6
+-				&& !memcmp(&client_sa.sa_inet6.sin6_addr, &allowed_clients[i].sa_inet6.sin6_addr, 12)) {
++				&& !memcmp(&client_sa.sa_inet6.sin6_addr, &allowed_clients[i].sa_inet6.sin6_addr, sizeof(client_sa.sa_inet6.sin6_addr))) {
+ 				return 1;
+ 			}
+ #ifdef IN6_IS_ADDR_V4MAPPED
+diff --git a/sapi/fpm/tests/ghsa-62xp-839h-2637-ipv6-allowed-clients.phpt b/sapi/fpm/tests/ghsa-62xp-839h-2637-ipv6-allowed-clients.phpt
+new file mode 100644
+index 00000000..bc992ac9
+--- /dev/null
++++ b/sapi/fpm/tests/ghsa-62xp-839h-2637-ipv6-allowed-clients.phpt
+@@ -0,0 +1,64 @@
++--TEST--
++FPM: GHSA-62xp-839h-2637 - IPv6 listen.allowed_clients compared on all 128 bits
++--SKIPIF--
++<?php include "skipif.inc";
++      @stream_socket_client('tcp://[::1]:0', $errno);
++      if ($errno != 111 && $errno != 61) die('skip IPv6 not supported.');
++?>
++--FILE--
++<?php
++
++include "include.inc";
++
++$logfile = dirname(__FILE__).'/php-fpm.log.tmp';
++$srcfile = dirname(__FILE__).'/php-fpm.tmp.php';
++$port1 = 9000+PHP_INT_SIZE;
++$port2 = $port1+1;
++
++/* ::dead:beef shares its first 96 bits with ::1 */
++$cfg = <<<EOT
++[global]
++error_log = $logfile
++[exact]
++listen = [::]:$port1
++listen.allowed_clients = ::1
++pm = static
++pm.max_children = 1
++[prefix]
++listen = [::]:$port2
++listen.allowed_clients = ::dead:beef
++pm = static
++pm.max_children = 1
++EOT;
++
++file_put_contents($srcfile, '<?php echo "ghsa-62xp-reached\n";');
++$fpm = run_fpm($cfg, $tail);
++if (is_resource($fpm)) {
++    fpm_display_log($tail, 2);
++    foreach (array('exact' => $port1, 'prefix' => $port2) as $name => $port) {
++        try {
++            $req = run_request('[::1]', $port, $srcfile);
++            echo $name, ": ", strpos($req, "ghsa-62xp-reached") !== false ? "ok" : "error", "\n";
++        } catch (Exception $e) {
++            echo $name, ": error\n";
++        }
++    }
++    proc_terminate($fpm);
++    stream_get_contents($tail);
++    fclose($tail);
++    proc_close($fpm);
++}
++
++?>
++Done
++--EXPECTF--
++[%s] NOTICE: fpm is running, pid %d
++[%s] NOTICE: ready to handle connections
++exact: ok
++prefix: error
++Done
++--CLEAN--
++<?php
++    @unlink(dirname(__FILE__).'/php-fpm.log.tmp');
++    @unlink(dirname(__FILE__).'/php-fpm.tmp.php');
++?>

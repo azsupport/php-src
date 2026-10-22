@@ -37,7 +37,37 @@ reset, multipart parsing keeps only the headers it uses, and session upload
 progress is off in the code. On memory exhaustion the worker exits at once, as with
 the official fix: shutdown functions do not run and buffered output is lost; the
 error goes to stderr (the php-fpm or Apache error log). Keep the configuration
-mitigations there too.
+mitigations there too. The port was cross-checked with the two other 5.6 ports
+known to us, of Ondřej Surý (php5.6 5.6.40-104, patch 0261) and of
+[vperetti](https://github.com/vperetti/php-cve-2026-109618-109619-backports), and
+took over what they had and it had not (the patch header lists it).
+
+Remi Collet's 5.6 branch has had no update since 02.07.2026, while his 7.4 branch
+got the fixes of the PHP releases of July to October 2026. `freebsd/5.6` carries
+our ports of them, one patch per area in
+[`freebsd/patches/5.6/`](freebsd/patches/5.6) (`backport-*.patch`, the upstream
+commits in each `Origin:` line), with their tests:
+
+| Patch | Fixes |
+|---|---|
+| `backport-gd-gif-lzw.patch` | CVE-2026-9672: GIF LZW decoder of the bundled libgd |
+| `backport-pgsql-quotes.patch` | GHSA-7qpv-r5mr-78m4 (CVE-2026-17543): SQL injection through `pg_insert()` and co. (`E'...'` quoting) |
+| `backport-phar-tar.patch` | GHSA-vc5h-9ppw-p5f3 (CVE-2026-7260): loops of symbolic links in tar archives; GHSA-j3wh-g957-2m85: tar entry injection |
+| `backport-date-period.patch` | double `DatePeriod::__construct()` (leak), arguments not initialized by their constructor |
+| `backport-convert-filters.patch` | GHSA-88hq-2827-7pg6: heap over-read in the convert.* stream filters |
+| `backport-fpm-allowed-clients.patch` | GHSA-62xp-839h-2637: `listen.allowed_clients` compared 96 of 128 bits of IPv6 addresses |
+| `backport-openssl-peer-name.patch` | GHSA-vvx9-73fr-5jjx: no CN fallback with a DNS, URI or SRV name in the certificate; GHSA-xr7j-rvgx-xq5p: over-read in the wildcard match |
+| `backport-http-redirects.patch` | GHSA-fpwc-w8rq-cr92: credentials kept on redirects to another origin; GH-11274: 307/308 keep POST |
+| `backport-soap.patch` | GHSA-rgrp-mwpx-f6rm: unbounded recursion in ext/soap; GHSA-cj93-vc83-wgqv: chunk sizes of the SOAP HTTP client |
+| `backport-filter-encoded.patch` | GHSA-ch8v-r6jh-4vvr: `FILTER_SANITIZE_ENCODED` left 0xFF as it is |
+
+Not ported: GHSA-9f67-6fw4-hpfp (Windows only) and the fixes for an empty and a
+1-character `Location` (5.6 is not affected: it does not follow an empty one and
+reads it into a fixed buffer). The partial mysqlnd fix GHSA-r6x9-5r99-36j7 (a
+hostile MySQL server) needs the mysqlnd hardening of 2024 (GHSA-h35g-vwh6-m678,
+CVE-2024-8929), which neither Remi Collet's nor Ondřej Surý's 5.6 has; it is still
+to come here. Of these, TuxCare's alt-php56 (5.6.40-138, 11.08.2026) fixes
+CVE-2026-9672, CVE-2026-17543 and CVE-2026-7260.
 
 Every branch is upstream plus these commits, in this order:
 
