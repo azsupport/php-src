@@ -1,0 +1,38 @@
+name: Upstream check
+
+# Once a day: newer releases of the bundled PECL extensions, and FreeBSD ports
+# commits that change the patches or the build of these extensions and of PHP.
+# Each finding opens or updates one issue (label "upstream"); nothing is applied.
+# Closing an issue means "not wanted", the check does not reopen it.
+# What is followed: freebsd/pecl.conf, freebsd/targets.conf, freebsd/upstream.conf.
+# By hand: Actions, "Upstream check", "Run workflow".
+
+on:
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only print the findings, do not touch issues'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check releases and FreeBSD ports
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python3 tools/upstream-check.py --repo "$GITHUB_REPOSITORY" $DRY_RUN
