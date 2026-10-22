@@ -362,6 +362,10 @@ for 8.3 and 8.4 the patch ports it: the new `php_url_encode_hash_ex()` of 8.3,
 "Maximum call stack size reached"), `exit()` in a coroutine or a server still throws
 `Swoole\ExitException` on 8.4 (where exit became a function), and the embedded PHP
 library declares its nullable parameters explicitly (PHP 8.4 deprecation notices).
+OpenSwoole has no FreeBSD port, and upstream it did not compile on FreeBSD: its
+`swoole_socket.h` includes `<netinet/ip6.h>` before `<sys/types.h>`, and its hiredis
+sets `_XOPEN_SOURCE`, which hides the BSD types `<netinet/ip6.h>` needs; the patch
+fixes both, and the build test builds it with gmagick on 7.4 to 8.4.
 
 Upstream, swoole and OpenSwoole are on by default (`--enable-swoole`,
 `--enable-openswoole`), and OpenSwoole's configure tests the variable of swoole
