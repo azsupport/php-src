@@ -297,6 +297,24 @@ build_one() {
     return "$rc"
 }
 
+# pc_add <file.pc> <Libs|Libs.private> <-lname>...: add to that line of a .pc file the
+# libraries it does not name yet (the line is added when there is none). Idempotent;
+# nothing when the file is not there.
+pc_add() {
+    pc="$1"; field="$2"; shift 2
+    [ -f "$pc" ] || return 0
+    awk -v field="$field:" -v libs="$*" '
+        function add(line,   n, i, t, have) {
+            n = split(line, t, " "); for (i = 2; i <= n; i++) have[t[i]] = 1
+            n = split(libs, t, " "); for (i = 1; i <= n; i++) if (!(t[i] in have)) line = line " " t[i]
+            return line
+        }
+        $1 == field { $0 = add($0); found = 1 }
+        { print }
+        END { if (!found) print add(field) }
+    ' "$pc" > "$pc.new" && mv "$pc.new" "$pc"
+}
+
 # After the builds: only static libraries, the .pc files in lib/pkgconfig, the
 # *-config scripts and headers; every archive position independent.
 finish() {
@@ -309,12 +327,14 @@ finish() {
         find "$P/bin" -type f ! -name '*-config' ! -name '*-config.orig' -delete
     fi
     rm -rf "$P/share/man" "$P/share/doc" "$P/share/info" "$P/share/gtk-doc" "$P/share/locale" "$P/share/emacs"
-    # The C++ runtime of libmemcached for static links (its .pc does not name it).
-    pc="$P/lib/pkgconfig/libmemcached.pc"
-    if [ -f "$pc" ] && ! grep -q -- '-lc++' "$pc"; then
-        if grep -q '^Libs.private:' "$pc"; then sed -i '' 's/^Libs.private:.*/& -lc++ -lm/' "$pc"
-        else echo 'Libs.private: -lc++ -lm' >> "$pc"; fi
-    fi
+    # Static link lines that the .pc files, written for shared libraries, leave short
+    # (tools/check-deps-links.py below finds them): libmemcached needs libhashkit
+    # (libmemcached.so links it itself: every PHP build failed on hashkit_* symbols), the
+    # C++ runtime, backtrace() of libexecinfo and the threads; libevent_extra needs
+    # libevent_core.
+    pc_add "$P/lib/pkgconfig/libmemcached.pc" Libs -lhashkit
+    pc_add "$P/lib/pkgconfig/libmemcached.pc" Libs.private -lc++ -lm -lexecinfo -lpthread
+    pc_add "$P/lib/pkgconfig/libevent_extra.pc" Libs.private -levent_core
     # curl-config: --libs gives the static link line, as in freebsd/curl/build-libcurl.sh.
     if [ -f "$P/bin/curl-config" ] && [ ! -f "$P/bin/curl-config.orig" ]; then
         libs="$(pkgconf --static --libs libcurl)"
@@ -349,6 +369,12 @@ finish() {
     # Nothing may point to /usr/local outside the bundle (the libraries of pkg).
     grep -rn '/usr/local/' "$P/lib/pkgconfig" "$P/bin" 2>/dev/null | sed 's#/usr/local/phpdeps##g' |
         grep '/usr/local/' > "$res/localbase.txt" || true
+    # Every .pc names the archives of the bundle that its archives need (a short one
+    # fails the PHP builds at the link only); a finding stops the tarball.
+    : > "$res/links.txt"
+    if ! python3 "$top/tools/check-deps-links.py" "$P" /usr/libdata/pkgconfig > "$res/links.log" 2>&1; then
+        cp "$res/links.log" "$res/links.txt"
+    fi
 }
 
 manifest() {
@@ -385,7 +411,7 @@ finish
 manifest
 # Known vulnerabilities of these versions (FreeBSD VuXML), for the report.
 pkg audit -F -q $(awk '{ print $2 }' "$res/built.txt") > "$res/audit.txt" 2>&1 || true
-if [ "$rc" = 0 ] && [ ! -s "$res/pic.txt" ]; then
+if [ "$rc" = 0 ] && [ ! -s "$res/pic.txt" ] && [ ! -s "$res/links.txt" ]; then
     tarball="$dist/phpdeps-fbsd$major-amd64.tar.xz"
     tar -cJf "$tarball" -C "$(dirname "$P")" "$(basename "$P")"
     sha256 -q "$tarball" > "$tarball.sha256"

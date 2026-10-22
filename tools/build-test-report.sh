@@ -30,6 +30,17 @@ for dir in "$res"/*/; do
             grep '^FAIL ' "$dir/smoke.txt" | cut -c1-200
         fi
         if [ -s "$dir/errors.txt" ] && ! grep -q '^result: *OK' "$dir/summary.txt"; then
+            # a link that fails on a static library: every undefined symbol once, with the
+            # archive that wants it (the first errors below show only a few)
+            if grep -q 'undefined symbol: ' "$dir/errors.txt"; then
+                echo "undefined symbols (archive that needs them):"
+                awk '
+                    function flush() { if (s != "") print s " (" (a == "" ? "?" : a) ")"; s = "" }
+                    /undefined symbol: / { flush(); s = $0; sub(/.*undefined symbol: /, "", s); a = ""; next }
+                    s != "" && a == "" && / in archive / { a = $0; sub(/.* in archive /, "", a); sub(/.*\//, "", a) }
+                    END { flush() }
+                ' "$dir/errors.txt" | sort -u | head -n 40 | cut -c1-200
+            fi
             echo "first errors:"
             head -n 20 "$dir/errors.txt" | sed 's#.*/build-test/[^/]*/##' | cut -c1-240
         fi

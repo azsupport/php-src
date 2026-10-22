@@ -15,12 +15,13 @@ escape() { sed 's/%/%25/g; s/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }'; }
 {
     cat "$res/summary.txt"
     if [ -s "$res/pic.txt" ]; then echo; echo "not position independent:"; cat "$res/pic.txt"; fi
+    if [ -s "$res/links.txt" ]; then echo; echo "static link lines that miss libraries of the bundle (tools/check-deps-links.py):"; cat "$res/links.txt"; fi
     if [ -s "$res/pic-notes.txt" ]; then echo; echo "link test notes:"; cat "$res/pic-notes.txt"; fi
     if [ -s "$res/localbase.txt" ]; then echo; echo "files that name /usr/local/lib:"; cat "$res/localbase.txt"; fi
     if [ -s "$res/audit.txt" ]; then echo; echo "pkg audit (FreeBSD VuXML):"; head -n 30 "$res/audit.txt"; fi
 } > "$res/report.txt"
 cat "$res/report.txt"
-if grep -q ' FAIL ' "$res/summary.txt" || [ -s "$res/pic.txt" ] || ! grep -q '^tarball:' "$res/summary.txt"; then
+if grep -q ' FAIL ' "$res/summary.txt" || [ -s "$res/pic.txt" ] || [ -s "$res/links.txt" ] || ! grep -q '^tarball:' "$res/summary.txt"; then
     level=error; rc=1
 else
     level=notice; rc=0
