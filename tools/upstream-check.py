@@ -175,9 +175,9 @@ class Upstream:
             log("%s: no PECL releases: %s" % (name, e))
 
     def stable(self, v):
-        if v in self.pecl:
-            return self.pecl[v] == "stable"
-        return vkey(v)[4] == 3
+        """A final release: no alpha, beta or RC in its name, and stable on PECL where
+        PECL has it (PECL lists igbinary 3.2.17RC1 as stable, memcache 3.0.8 as beta)."""
+        return vkey(v)[4] == 3 and self.pecl.get(v, "stable") == "stable"
 
     def versions(self):
         return set(self.tags) | set(self.pecl)
