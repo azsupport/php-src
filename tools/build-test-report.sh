@@ -53,7 +53,24 @@ for dir in "$res"/*/; do
         level=error
         rc=1
     fi
-    printf '::%s title=PHP %s build test::%s\n' "$level" "$target" "$(head -c 3800 "$dir/report.txt" | escape)"
+    # An annotation holds about 4 KB: a report that is longer (the list of failed
+    # tests of a full test run) goes on in more annotations, cut at spaces.
+    rm -f "$dir"/annot.*
+    fold -b -s -w 3600 "$dir/report.txt" |
+        LC_ALL=C awk -v d="$dir" '
+            { line = $0 "\n"
+              if (n == 0 || size + length(line) > 3800) { if (n) close(f); n++; size = 0; f = d "/annot." n }
+              printf "%s", line > f; size += length(line) }'
+    part=1
+    while [ -f "$dir/annot.$part" ]; do
+        if [ "$part" -eq 1 ]; then
+            title="PHP $target build test"
+        else
+            title="PHP $target build test, continued ($part)"
+        fi
+        printf '::%s title=%s::%s\n' "$level" "$title" "$(escape < "$dir/annot.$part")"
+        part=$((part + 1))
+    done
     {
         echo "### PHP $target"
         echo
