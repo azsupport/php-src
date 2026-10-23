@@ -144,7 +144,7 @@ lib_brotli() {
     done
     mkdir -p "$2/include/brotli"
     cp "$1"/c/include/brotli/*.h "$2/include/brotli/"
-    v="$(awk '$2 ~ /^BROTLI_VERSION_(MAJOR|MINOR|PATCH)$/ { v = v (v == "" ? "" : ".") $3 } END { print v }' "$1/c/common/version.h")"
+    v="$(awk '$1 == "#define" && $2 ~ /^BROTLI_VERSION_(MAJOR|MINOR|PATCH)$/ { v = v (v == "" ? "" : ".") $3 } END { print v }' "$1/c/common/version.h")"
     pc_file "$2" libbrotlicommon "$v" "Brotli common dictionary library" -lbrotlicommon "" -lm
     pc_file "$2" libbrotlidec "$v" "Brotli decoder library" -lbrotlidec libbrotlicommon ""
     pc_file "$2" libbrotlienc "$v" "Brotli encoder library" -lbrotlienc libbrotlicommon ""

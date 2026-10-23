@@ -20,7 +20,8 @@
 #     file to look for at run time is left empty, so that libpsl uses the built-in
 #     list only (psl-make-dafsa writes the base name of its input, which
 #     psl_latest() would look for in the current directory);
-#   - libpsl/fuzz (46 MB of fuzzing data) is left out.
+#   - libpsl/fuzz (46 MB of fuzzing data) and brotli/tests (16 MB of test data in
+#     its PyPI release) are left out.
 #
 # Downloads are kept in CURL_DISTFILES (default ${TMPDIR:-/tmp}/curl-distfiles);
 # a release file that cannot be downloaded is taken from the distfile cache of
@@ -111,6 +112,7 @@ for n in c-ares nghttp2 brotli zstd libidn2 libpsl psl-list; do
 done
 
 # libpsl: the built-in list from psl-list, no file looked for at run time
+rm -rf "$dir/deps/brotli/tests"
 psl="$dir/deps/libpsl"
 rm -rf "$psl/fuzz"
 python3 -I "$psl/src/psl-make-dafsa" --output-format=cxx+ \
