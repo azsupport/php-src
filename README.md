@@ -347,6 +347,44 @@ the script warns: PHP built with it would stop with `Illegal instruction` there.
 Building straight from a branch also works, but then autoconf, bison and re2c
 are required (`./buildconf --force` first).
 
+### Choosing what goes in: php-menu.sh
+
+[`tools/php-menu.sh`](tools/php-menu.sh) is the `make config` of the ports for this
+fork: dialogs (bsddialog on FreeBSD 14 and later, dialog on 13) with the options of
+`lang/phpXY` and `mod_phpXY` (SAPI, ZTS, debug, IPv6, OPcache JIT, the system PCRE),
+the extensions of `phpXY-extensions` plus the bundled PECL extensions, and the
+options of single extensions (which libcurl, the OpenSSL legacy provider, which libgd
+and its formats, the DBA handlers, sessions, serializers and compression of redis and
+memcached, Argon2 of libargon2 or of OpenSSL 3.2 in 8.4, ...), with the descriptions
+of the ports. Unlike the ports, everything is built into one PHP. What needs what is
+checked while you choose, from the configure scripts and the C sources of every
+branch: an extension another one needs is turned on with a note (XSL turns on DOM, the
+igbinary serializer of redis turns on igbinary), and items that cannot go together
+are refused (the Apache module and the embed library, imagick and gmagick, swoole and
+openswoole, ZTS and the Argon2 of OpenSSL).
+
+Run it inside the source tree, after `config-check.sh`, and build with the script it
+writes instead of `config.installed.sh`:
+
+```sh
+fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/php-menu.sh
+sh php-menu.sh
+sh config.menu.sh
+```
+
+It starts from what the installed build has (the `config.installed.sh` of
+`config-check.sh`), keeps its environment and its other options (prefix, layout,
+php.ini paths, `--build`) and writes `config.menu.sh`, a script of the same form,
+with the SAPI, the build options and the extensions chosen in the menu. Without
+`config.installed.sh` it starts from our standard set and writes our base build
+(`/usr/local/phpXY`, `--disable-all`, OPcache) with the compiler flags of every build.
+The bundled curl is the default where the base system has OpenSSL 3 (FreeBSD 14 and
+later), the Argon2 of OpenSSL where it has 3.2 (FreeBSD 15). The choices are saved the
+way the ports save theirs, in `/var/db/php-menu/phpXY.options`, and are the start of
+the next run (`--reset` starts over). At the end it names the packages the choices
+need. `sh php-menu.sh --batch +GD -CGI` writes the script without dialogs,
+`sh php-menu.sh --list` shows the items and their state.
+
 ### Build test on FreeBSD
 
 [`.github/workflows/build-test.yml`](.github/workflows/build-test.yml) builds the
