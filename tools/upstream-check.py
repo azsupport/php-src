@@ -3,7 +3,9 @@
 
 Releases. For every extension in freebsd/pecl.conf: the release tags of its
 repository and its PECL releases; for curl (freebsd/curl.conf) the tags of
-github.com/curl/curl. A stable release newer than the bundled one
+github.com/curl/curl; for PCRE2 (freebsd/pcre.conf) the tags of
+github.com/PCRE2Project/pcre2 (PCRE 8.45 of 5.6 is the last PCRE1 release). A
+stable release newer than the bundled one
 is reported for the targets whose PHP version it supports (package.xml of the
 tag, else the PECL dependencies). A "pin" line in freebsd/upstream.conf keeps
 an extension to one series. Pre-releases count only where the bundled version
@@ -99,9 +101,11 @@ def vkey(v):
 
 def tag_version(tag):
     """Version of a release tag: 6.3.0, v3.4.0, release-2.0.1, RELEASE_3_0_6, memcache-3.0.8,
-    curl-8_23_0."""
+    curl-8_23_0, pcre2-10.49."""
     if tag.startswith("curl-"):
         tag = tag[len("curl-"):].replace("_", ".")
+    if tag.startswith("pcre2-"):
+        tag = tag[len("pcre2-"):]
     if tag.startswith("RELEASE_"):
         tag = tag[len("RELEASE_"):].replace("_", ".")
     v = re.sub(r"^(v|release-|memcache-)", "", tag)
@@ -164,7 +168,7 @@ class Upstream:
         except RuntimeError as e:
             warn("%s: no tags from %s: %s" % (name, url, e))
         try:
-            if name == "curl":
+            if name in ("curl", "pcre2"):
                 raise RuntimeError("not a PECL package")
             xml = http("%s/%s/allreleases.xml" % (PECL_REST, name.lower()))
             for v, s in re.findall(r"<r>\s*<v>([^<]+)</v>\s*<s>([^<]+)</s>", xml):
@@ -271,6 +275,10 @@ def check_releases(workdir, pins):
     if os.path.exists(os.path.join(ROOT, "freebsd", "curl.conf")):
         for target, version, _url, _sha in conf("curl.conf"):
             rows.setdefault("curl", []).append((target, version, "https://github.com/curl/curl"))
+    if os.path.exists(os.path.join(ROOT, "freebsd", "pcre.conf")):
+        for target, version, _url, _sha in conf("pcre.conf"):
+            if not version.startswith("8."):
+                rows.setdefault("pcre2", []).append((target, version, "https://github.com/PCRE2Project/pcre2"))
     findings, checked = [], set()
     for name, entries in rows.items():
         up = Upstream(name, entries[0][2], workdir)
@@ -309,6 +317,22 @@ def release_finding(up, v, hits, pin):
         "|---|---|",
     ]
     lines += ["| %s | %s |" % (t, c) for t, c in hits]
+    if up.name == "pcre2":
+        lines[2] = "Bundled in place of the PCRE2 of php-src (freebsd/pcre.conf)."
+        lines += [
+            "",
+            "To take it: in `freebsd/pcre.conf` set version `%s`, the release tarball and its SHA-256 "
+            "(the same as freebsd-ports `devel/pcre2/distinfo` once the port has it); run "
+            "`freebsd/pcre/import-pcre2.sh <tree> <unpacked release>` on a tree of each target, build it "
+            "and run `ext/pcre/tests` (new messages of the library may need "
+            "`freebsd/pcre/tests-<target>.patch`), then the build test. Not wanted: close this issue." % v,
+        ]
+        return {
+            "key": "release:pcre2:%s" % v,
+            "kind": "release",
+            "title": "PCRE2 %s is out (bundled: %s for %s)" % (v, ", ".join(current), targets),
+            "body": "\n".join(lines),
+        }
     if up.name == "curl":
         lines[2] = "It needs OpenSSL 3.0 or later, as the bundled curl does now."
         lines += [

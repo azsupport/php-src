@@ -127,7 +127,7 @@ preset() {
             LIBS="-lpthread"
             set -- --prefix=/usr/local/php5640 --with-apxs2=/usr/local/sbin/apxs --disable-all \
                 --with-layout=GNU --with-zend-vm=CALL --enable-libxml --with-libxml-dir=/usr/local \
-                --enable-xml --enable-simplexml --with-regex=php --with-pcre-regex=/usr/local --with-bz2 \
+                --enable-xml --enable-simplexml --with-regex=php --with-bz2 \
                 --enable-ctype --with-curl=bundled --with-openssl-legacy-provider --enable-dom --enable-fileinfo --enable-filter --enable-ftp \
                 --with-gd --with-jpeg-dir=/usr/local --with-png-dir=/usr/local \
                 --with-freetype-dir=/usr/local --with-gettext --enable-hash --with-iconv=/usr/local \
@@ -153,7 +153,7 @@ preset() {
                 --enable-ctype --enable-ftp --enable-mbstring --enable-opcache --enable-session \
                 --enable-simplexml --enable-sockets --enable-tokenizer --enable-phar --enable-posix \
                 --enable-xml --with-zip --with-zlib --enable-gd --with-external-gd --with-webp \
-                --with-external-pcre=/usr/local --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
+                --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-openssl-legacy-provider \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
                 --enable-memcache --with-$mg=/usr/local \
@@ -173,7 +173,7 @@ preset() {
                 --enable-filter --with-iconv=/usr/local --enable-ctype --enable-ftp --enable-mbstring \
                 --enable-opcache --enable-opcache-jit --enable-phar --enable-session --enable-simplexml \
                 --enable-xml --with-zlib --enable-gd --with-external-gd --with-webp \
-                --with-external-pcre=/usr/local --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
+                --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --enable-sockets \
                 --enable-intl --enable-fileinfo --with-zip --enable-xmlwriter --enable-exif \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \

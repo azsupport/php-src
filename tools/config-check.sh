@@ -62,6 +62,8 @@
 # Where the source tree bundles curl (ext/curl/libcurl) and the build's OpenSSL is
 # 3.0 or later, --with-curl becomes --with-curl=bundled (curl built into PHP); with
 # OpenSSL 1.1.1 (FreeBSD 13.x base) the libcurl of pkg stays, the report says why.
+# --with-external-pcre (5.6: --with-pcre-regex) is left out when the PCRE the tree
+# bundles (the newest release, in this fork) is not older than the system's one.
 # --with-openssl=<dir> loses its directory for PHP 7.4 and later, whose configure
 # ignores it (pkg-config finds OpenSSL); for PHP 5.6 a directory that has no
 # OpenSSL headers any more (security/openssl removed) becomes /usr, the base system.
@@ -234,6 +236,43 @@ curl_opts() {
             pkg info -e "$p" 2>/dev/null || curl_pkgs="$curl_pkgs $p"
         done
     fi
+}
+
+# The PCRE option of the script ($1: options, one per line, changed in place):
+# --with-external-pcre[=DIR] (7.4 and later) and --with-pcre-regex[=DIR] (5.6) are
+# left out when the PCRE this source tree bundles is not older than the one of DIR
+# (/usr/local without one): the fork bundles the newest release (freebsd/pcre.conf
+# of azsupport/php-src), PHP is then built with its own copy, whose functions are
+# all renamed (php_pcre*, so the libpcre2 that Apache loads is no matter), and needs
+# no pcre2 or pcre package. A newer library in DIR keeps the option. Sets pcre_note.
+pcre_note=""
+pcre_ver() {   # "10.49" or "8.45" of a pcre2.h or pcre.h
+    sed -n 's/^#define PCRE2*_MAJOR[[:space:]]*\([0-9]*\).*/\1/p; s/^#define PCRE2*_MINOR[[:space:]]*\([0-9]*\).*/\1/p' "$1" 2>/dev/null |
+        head -n 2 | tr '\n' ' ' | awk 'NF == 2 { print $1 "." $2 }'
+}
+pcre_opts() {
+    o="$(grep -E -m 1 '^--with-(external-pcre|pcre-regex)(=|$)' "$1")" || return 0
+    v="${o#*=}"
+    [ "$v" = "$o" ] && v=yes
+    [ "$v" = no ] && return 0
+    if [ -f ext/pcre/pcre2lib/pcre2.h ]; then
+        own="$(pcre_ver ext/pcre/pcre2lib/pcre2.h)" h=pcre2.h lib=PCRE2
+    elif [ -f ext/pcre/pcrelib/pcre.h ]; then
+        own="$(pcre_ver ext/pcre/pcrelib/pcre.h)" h=pcre.h lib=PCRE
+    else
+        return 0
+    fi
+    [ -n "$own" ] || return 0
+    d=/usr/local
+    case "$v" in /*) d="$v" ;; esac
+    sys="$(pcre_ver "$d/include/$h")"
+    if [ -n "$sys" ] && [ "$(printf '%s\n%s\n' "$own" "$sys" | sort -t. -k1,1n -k2,2n | tail -n 1)" != "$own" ]; then
+        pcre_note="$o kept: $d has $lib $sys, newer than the $lib $own of this tree"
+        return 0
+    fi
+    { grep -v -x -F -e "$o" "$1" || true; } > "$1.new"
+    mv "$1.new" "$1"
+    pcre_note="$o left out: PHP is built with the $lib $own of this tree (its functions renamed to php_pcre*)${sys:+, not older than the $lib $sys of $d}; no pcre package needed. For the library of $d instead: sh config.installed.sh $o"
 }
 
 # --with-openssl-legacy-provider (the option of PHP 8.4, in this fork for every
@@ -560,11 +599,9 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     opt DTRACE on && note "DTRACE is on in the package: not carried over (add --enable-dtrace to keep the DTrace probes)."
     opt MAILHEAD on && note "MAILHEAD (the mail() header patch of the php56 port) is not in this fork."
     if [ "$fam" = 5 ]; then
-        if has pcre.h; then add --with-pcre-regex=/usr/local
-        else note "No $lb/include/pcre.h (package pcre): the old bundled PCRE 8.38 is used."; fi
+        if has pcre.h; then add --with-pcre-regex=/usr/local; fi
     elif ! opt PCRE off; then
-        if has pcre2.h; then add --with-external-pcre=/usr/local
-        else note "No $lb/include/pcre2.h (package pcre2): the bundled PCRE2 is used."; fi
+        if has pcre2.h; then add --with-external-pcre=/usr/local; fi
     fi
     if [ "$fam" = 8 ]; then
         add --with-openssl=/usr
@@ -607,6 +644,8 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
 
     curl_opts "$tmp/opts" /dev/null
     [ -n "$curl_note" ] && note "curl: $curl_note"
+    pcre_opts "$tmp/opts"
+    [ -n "$pcre_note" ] && note "pcre: $pcre_note"
     legacy_opts "$tmp/opts" /dev/null "$lb/bin/php"
     [ -n "$legacy_note" ] && note "openssl: $legacy_note"
     : > "$tmp/pkg_env"
@@ -902,6 +941,7 @@ cur_march="$mm"
 lacks="$(cpu_lacks "$mm")"
 ossl_opts "$tmp/installed_order" "$tmp/env"
 curl_opts "$tmp/installed_order" "$tmp/env"
+pcre_opts "$tmp/installed_order"
 legacy_opts "$tmp/installed_order" "$tmp/env" "$php"
 deps_opts "$tmp/installed_order" "$tmp/env"
 
@@ -950,6 +990,10 @@ if [ -n "$deps_note" ]; then
     echo
     echo "phpdeps: $deps_note"
 fi
+if [ -n "$pcre_note" ]; then
+    echo
+    echo "pcre: $pcre_note"
+fi
 if [ -n "$curl_note" ]; then
     echo
     echo "curl: $curl_note"
@@ -982,6 +1026,7 @@ out="$out_dir/$out_name"
     [ -s "$tmp/dropped" ] && echo "# not carried over from the old build: $(awk '{ printf "%s%s", (NR > 1 ? "; " : ""), $0 }' "$tmp/dropped")."
     echo "# build: $build_note."
     [ -n "$curl_note" ] && echo "# curl: $curl_note."
+    [ -n "$pcre_note" ] && echo "# pcre: $pcre_note."
     [ -n "$ossl_note" ] && echo "# openssl: $ossl_note."
     [ -n "$legacy_note" ] && echo "# openssl: $legacy_note."
     [ -n "$deps_note" ] && echo "# phpdeps: $deps_note."
