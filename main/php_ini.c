@@ -330,6 +330,24 @@ static void php_load_zend_extension_cb(void *arg)
 	(void) length;
 #endif
 
+#ifdef HAVE_OPCACHE_STATIC
+	/* OPcache is built into this PHP (--enable-opcache-static): skip
+	 * zend_extension=opcache.so, also when an old opcache.so is still there */
+	{
+		const char *base = strrchr(filename, '/');
+
+		base = base ? base + 1 : filename;
+		if (strcmp(base, "opcache") == 0 || strcmp(base, "opcache.so") == 0) {
+			return;
+		}
+	}
+#endif
+
+#ifdef PHP_NO_EXTENSION_LOADING
+	php_error(E_CORE_WARNING, "Cannot load Zend extension %s: this PHP loads no extensions at run time (--disable-extension-loading)", filename);
+	return;
+#endif
+
 	if (IS_ABSOLUTE_PATH(filename, length)) {
 		zend_load_extension(filename);
 	} else {
