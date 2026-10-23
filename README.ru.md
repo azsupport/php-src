@@ -9,7 +9,7 @@
 добавляет небольшой отобранный набор патчей портов FreeBSD и исправления для
 современной FreeBSD.
 
-| Зачем | |
+| Зачем | Что это даёт |
 |---|---|
 | Исправления безопасности | для каждой версии PHP, которая ещё работает на сервере, — в тот же день и без ожидания портов: официальные релизы php-src для 8.2–8.4, бэкпорты Remi Collet для 5.6, 7.4 и 8.1, у которых закончилась поддержка, и наши переносы для 5.6 |
 | Тарболы релизов | каждое обновление, с уже сгенерированными `configure` и парсерами bison/re2c: на сервере нужны только компилятор C и `make` — как с тарболами с php.net |
@@ -45,14 +45,16 @@
 
 ## Ветки
 
-| Ветка | PHP | Источник | Поддержка источника | Последний тарбол |
+| Ветка | PHP | Источник | Поддержка источника | Тарбол |
 |---|---|---|---|---|
-| [`freebsd/8.4`](https://github.com/azsupport/php-src/tree/freebsd/8.4) | 8.4.x | новейший официальный тег релиза `php-8.4.N` ([php/php-src](https://github.com/php/php-src)) | исправления безопасности до 31.12.2028 | [freebsd-8.4-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.4-latest) |
-| [`freebsd/8.3`](https://github.com/azsupport/php-src/tree/freebsd/8.3) | 8.3.x | новейший официальный тег релиза `php-8.3.N` | исправления безопасности до 31.12.2027 | [freebsd-8.3-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.3-latest) |
-| [`freebsd/8.2`](https://github.com/azsupport/php-src/tree/freebsd/8.2) | 8.2.x | новейший официальный тег релиза `php-8.2.N` | исправления безопасности до 31.12.2026 | [freebsd-8.2-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.2-latest) |
-| [`freebsd/8.1`](https://github.com/azsupport/php-src/tree/freebsd/8.1) | 8.1.34 + бэкпорты | Remi Collet, [`PHP-8.1-security-backports`](https://github.com/remicollet/php-src-security/tree/PHP-8.1-security-backports) | поддержка закончилась 31.12.2025 | [freebsd-8.1-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.1-latest) |
-| [`freebsd/7.4`](https://github.com/azsupport/php-src/tree/freebsd/7.4) | 7.4.33 + бэкпорты | Remi Collet, [`PHP-7.4-security-backports`](https://github.com/remicollet/php-src-security/tree/PHP-7.4-security-backports) | поддержка закончилась 28.11.2022 | [freebsd-7.4-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-7.4-latest) |
-| [`freebsd/5.6`](https://github.com/azsupport/php-src/tree/freebsd/5.6) | 5.6.40 + бэкпорты | Remi Collet, [`PHP-5.6-security-backports-openssl11`](https://github.com/remicollet/php-src-security/tree/PHP-5.6-security-backports-openssl11) (поддержка OpenSSL 1.1; OpenSSL 3 — патчем совместимости здесь) | поддержка закончилась 31.12.2018 | [freebsd-5.6-latest](https://github.com/azsupport/php-src/releases/tag/freebsd-5.6-latest) |
+| [`freebsd/8.4`](https://github.com/azsupport/php-src/tree/freebsd/8.4) | 8.4.x | новейший официальный релиз (теги `php-8.4.N` в [php/php-src](https://github.com/php/php-src)) | исправления безопасности до 31.12.2028 | [latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.4-latest) |
+| [`freebsd/8.3`](https://github.com/azsupport/php-src/tree/freebsd/8.3) | 8.3.x | новейший официальный релиз (`php-8.3.N`) | исправления безопасности до 31.12.2027 | [latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.3-latest) |
+| [`freebsd/8.2`](https://github.com/azsupport/php-src/tree/freebsd/8.2) | 8.2.x | новейший официальный релиз (`php-8.2.N`) | исправления безопасности до 31.12.2026 | [latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.2-latest) |
+| [`freebsd/8.1`](https://github.com/azsupport/php-src/tree/freebsd/8.1) | 8.1.34 + бэкпорты | Remi Collet, [`PHP-8.1-security-backports`](https://github.com/remicollet/php-src-security/tree/PHP-8.1-security-backports) | поддержка закончилась 31.12.2025 | [latest](https://github.com/azsupport/php-src/releases/tag/freebsd-8.1-latest) |
+| [`freebsd/7.4`](https://github.com/azsupport/php-src/tree/freebsd/7.4) | 7.4.33 + бэкпорты | Remi Collet, [`PHP-7.4-security-backports`](https://github.com/remicollet/php-src-security/tree/PHP-7.4-security-backports) | поддержка закончилась 28.11.2022 | [latest](https://github.com/azsupport/php-src/releases/tag/freebsd-7.4-latest) |
+| [`freebsd/5.6`](https://github.com/azsupport/php-src/tree/freebsd/5.6) | 5.6.40 + бэкпорты | Remi Collet, [`PHP-5.6-security-backports-openssl11`](https://github.com/remicollet/php-src-security/tree/PHP-5.6-security-backports-openssl11) (поддержка OpenSSL 1.1; OpenSSL 3 — патчем совместимости здесь) | поддержка закончилась 31.12.2018 | [latest](https://github.com/azsupport/php-src/releases/tag/freebsd-5.6-latest) |
+
+Ссылки на тарболы ведут на релизы `freebsd-<версия>-latest`.
 
 **Релиз безопасности PHP от 21.10.2026** (CVE-2026-109618, CVE-2026-109619,
 [анонс](https://www.php.net/archive/2026.php)):
@@ -73,10 +75,12 @@
 | Session upload progress | выключен в коде |
 | Исчерпание памяти | воркер сразу завершается, как и с официальным исправлением: shutdown-функции не выполняются, буферизованный вывод теряется, ошибка уходит в stderr (лог ошибок php-fpm или Apache) |
 
-| Часть | Что в ней |
+Перенос из двух частей:
+
+| Часть | Патч |
 |---|---|
-| [`backport-php2shell-1.patch`](freebsd/patches/5.6/backport-php2shell-1.patch) | код, предложенный в ветку Remi Collet в [pull request #32](https://github.com/remicollet/php-src-security/pull/32), — тот же код, что и наш перенос, как есть, чтобы синк пропустил его, когда он появится в его ветке |
-| [`backport-php2shell-2-extra.patch`](freebsd/patches/5.6/backport-php2shell-2-extra.patch) | то, что есть в официальном исправлении и в других известных нам переносах для 5.6 (php5.6 5.6.40-104 Ondřej Surý, патч 0261, и перенос [vperetti](https://github.com/vperetti/php-cve-2026-109618-109619-backports)), но нет в том pull request: самые маленькие массивы для `$_GET`, `$_POST`, `$_COOKIE`, более ранний сброс исключения после освобождения объектов и сброс header callback |
+| 1 | [`backport-php2shell-1.patch`](freebsd/patches/5.6/backport-php2shell-1.patch): код, предложенный в ветку Remi Collet в [pull request #32](https://github.com/remicollet/php-src-security/pull/32), — тот же код, что и наш перенос, как есть, чтобы синк пропустил его, когда он появится в его ветке |
+| 2 | [`backport-php2shell-2-extra.patch`](freebsd/patches/5.6/backport-php2shell-2-extra.patch): то, что есть в официальном исправлении и в других известных нам переносах для 5.6 (php5.6 5.6.40-104 Ondřej Surý, патч 0261, и перенос [vperetti](https://github.com/vperetti/php-cve-2026-109618-109619-backports)), но нет в том pull request: самые маленькие массивы для `$_GET`, `$_POST`, `$_COOKIE`, более ранний сброс исключения после освобождения объектов и сброс header callback |
 
 **Исправления июля–октября 2026 в 5.6.** Ветка 5.6 у Remi Collet не обновлялась с
 02.07.2026, а его ветка 7.4 получила исправления релизов PHP с июля по октябрь 2026. В
@@ -84,21 +88,23 @@
 [`freebsd/patches/5.6/`](freebsd/patches/5.6) (`backport-*.patch`, коммиты апстрима —
 в строке `Origin:` каждого), с их тестами:
 
-| Патч | Что исправляет |
+| Область (патч) | Что исправляет |
 |---|---|
-| `backport-gd-gif-lzw.patch` | CVE-2026-9672: декодер GIF LZW встроенной libgd |
-| `backport-pgsql-quotes.patch` | GHSA-7qpv-r5mr-78m4 (CVE-2026-17543): SQL-инъекция через `pg_insert()` и родственные функции (кавычки `E'...'`) |
-| `backport-phar-tar.patch` | GHSA-vc5h-9ppw-p5f3 (CVE-2026-7260): циклы символических ссылок в tar-архивах; GHSA-j3wh-g957-2m85: подмена записей tar |
-| `backport-date-period.patch` | повторный `DatePeriod::__construct()` (утечка), аргументы, не инициализированные своим конструктором |
-| `backport-convert-filters.patch` | GHSA-88hq-2827-7pg6: чтение за границей кучи в фильтрах потоков convert.* |
-| `backport-fpm-allowed-clients.patch` | GHSA-62xp-839h-2637: `listen.allowed_clients` сравнивал 96 из 128 бит адресов IPv6 |
-| `backport-openssl-peer-name.patch` | GHSA-vvx9-73fr-5jjx: нет перехода на CN, если в сертификате есть имя DNS, URI или SRV; GHSA-xr7j-rvgx-xq5p: чтение за границей при сравнении по маске |
-| `backport-http-redirects.patch` | GHSA-fpwc-w8rq-cr92: учётные данные сохранялись при редиректе на другой origin; GH-11274: 307/308 сохраняют POST |
-| `backport-soap.patch` | GHSA-rgrp-mwpx-f6rm: неограниченная рекурсия в ext/soap; GHSA-cj93-vc83-wgqv: размеры чанков в HTTP-клиенте SOAP |
-| `backport-filter-encoded.patch` | GHSA-ch8v-r6jh-4vvr: `FILTER_SANITIZE_ENCODED` оставлял 0xFF как есть |
-| `backport-mysqlnd-overread.patch` | GHSA-h35g-vwh6-m678 (CVE-2024-8929) и частичное исправление GHSA-r6x9-5r99-36j7: враждебный сервер MySQL выуживал байты кучи через чтение пакетов за границей в mysqlnd |
+| [GD: GIF](freebsd/patches/5.6/backport-gd-gif-lzw.patch) | CVE-2026-9672: декодер GIF LZW встроенной libgd |
+| [pgsql](freebsd/patches/5.6/backport-pgsql-quotes.patch) | GHSA-7qpv-r5mr-78m4 (CVE-2026-17543): SQL-инъекция через `pg_insert()` и родственные функции (кавычки `E'...'`) |
+| [phar: tar](freebsd/patches/5.6/backport-phar-tar.patch) | GHSA-vc5h-9ppw-p5f3 (CVE-2026-7260): циклы символических ссылок в tar-архивах; GHSA-j3wh-g957-2m85: подмена записей tar |
+| [DatePeriod](freebsd/patches/5.6/backport-date-period.patch) | повторный `DatePeriod::__construct()` (утечка), аргументы, не инициализированные своим конструктором |
+| [фильтры convert.*](freebsd/patches/5.6/backport-convert-filters.patch) | GHSA-88hq-2827-7pg6: чтение за границей кучи в фильтрах потоков convert.* |
+| [FPM](freebsd/patches/5.6/backport-fpm-allowed-clients.patch) | GHSA-62xp-839h-2637: `listen.allowed_clients` сравнивал 96 из 128 бит адресов IPv6 |
+| [OpenSSL](freebsd/patches/5.6/backport-openssl-peer-name.patch) | GHSA-vvx9-73fr-5jjx: нет перехода на CN, если в сертификате есть имя DNS, URI или SRV; GHSA-xr7j-rvgx-xq5p: чтение за границей при сравнении по маске |
+| [редиректы HTTP](freebsd/patches/5.6/backport-http-redirects.patch) | GHSA-fpwc-w8rq-cr92: учётные данные сохранялись при редиректе на другой origin; GH-11274: 307/308 сохраняют POST |
+| [SOAP](freebsd/patches/5.6/backport-soap.patch) | GHSA-rgrp-mwpx-f6rm: неограниченная рекурсия в ext/soap; GHSA-cj93-vc83-wgqv: размеры чанков в HTTP-клиенте SOAP |
+| [filter](freebsd/patches/5.6/backport-filter-encoded.patch) | GHSA-ch8v-r6jh-4vvr: `FILTER_SANITIZE_ENCODED` оставлял 0xFF как есть |
+| [mysqlnd](freebsd/patches/5.6/backport-mysqlnd-overread.patch) | GHSA-h35g-vwh6-m678 (CVE-2024-8929) и частичное исправление GHSA-r6x9-5r99-36j7: враждебный сервер MySQL выуживал байты кучи через чтение пакетов за границей в mysqlnd |
 
-| Не перенесено | Почему |
+Не перенесено:
+
+| Исправление | Почему нет |
 |---|---|
 | GHSA-9f67-6fw4-hpfp | только Windows |
 | Исправления для пустого и односимвольного `Location` | 5.6 не затронута: по пустому она не переходит и читает его в буфер фиксированного размера |
@@ -127,7 +133,7 @@ CVE-2024-8929), которого нет ни в 5.6 у Remi Collet, ни у Ond�
 
 Id сборки:
 
-| | |
+| Где | Что показывает |
 |---|---|
 | `php -v` | `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`: новый макрос `PHP_FORK_BUILD` дописывается в баннер склейкой строковых литералов C |
 | `PHP_VERSION` | остаётся чистой версией апстрима `7.4.33`, поэтому `phpversion()`, `version_compare()` и разборщики `PHP x.y.z` не сбиваются |
@@ -136,7 +142,7 @@ Id сборки:
 
 **Зеркала.**
 
-| Что зеркалируется | |
+| Что зеркалируется | Как |
 |---|---|
 | Ветки Remi Collet | под исходными именами (`PHP-5.6-security-backports-openssl11`, `PHP-7.4-security-backports`, `PHP-8.1-security-backports`), поддерживаются в актуальном виде workflow |
 | Теги релизов | `php-5.6.40`, `php-7.4.33`, `php-8.1.34`, `php-8.2.34`, `php-8.3.35` и `php-8.4.26`, один раз 21.10.2026. Более новые официальные теги не зеркалируются, потому что их push запустил бы здесь CI php-src, который срабатывает на теги, но их полная история входит в ветки `freebsd/8.x` |
@@ -172,28 +178,28 @@ Id сборки:
 
 ## Сборка на FreeBSD из тарбола релиза
 
-| Релиз | |
+| Релиз | Что это |
 |---|---|
-| `freebsd-<версия>-latest` | всегда несёт новейший тарбол ветки |
+| `freebsd-<версия>-latest` | всегда новейший тарбол ветки |
 | `freebsd-<версия>-<ГГГГММДД>-<коммит>` | датированные релизы, сохраняются |
-| Каталог в тарболе | дата и коммит апстрима, например `php-7.4.33-fbsd-20261021-802c2107/` |
-| `php -v` сборки | то же: `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`; сама версия остаётся `7.4.33`. У тарболов, выпущенных до появления этого (21.10.2026), `(fork: ...)` в баннере нет |
+
+Тарбол распаковывается в каталог с датой и коммитом апстрима, например
+`php-7.4.33-fbsd-20261021-802c2107/`, и PHP из него показывает то же в баннере `php -v`:
+`PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`. Сама версия остаётся
+`7.4.33`. У тарболов, выпущенных до появления этого (21.10.2026), `(fork: ...)` в
+баннере нет.
 
 Каждый блок ниже пересобирает одну версию с опциями PHP, установленного в
-`/usr/local/phpXY`:
+`/usr/local/phpXY`: скачивает и проверяет новейший тарбол, распаковывает его в `/root`,
+пишет `config.installed.sh` скриптом [`tools/config-check.sh`](tools/config-check.sh),
+затем конфигурирует, собирает и ставит.
 
-| Шаг | Команды |
-|---|---|
-| Скачать и проверить новейший тарбол | `fetch`, `sha256 -c` |
-| Распаковать его в `/root` | `tar xf` |
-| Записать `config.installed.sh` скриптом [`tools/config-check.sh`](tools/config-check.sh) | `sh config-check.sh /usr/local/phpXY` |
-| Сконфигурировать, собрать и поставить | `sh config.installed.sh`, `make`, `make install` |
-
-| | |
-|---|---|
-| Вставка | вставляйте блок как есть: команды работают и в `sh`, и в `csh`, а комментариев в них нет нарочно — интерактивный csh не считает `#` комментарием |
-| Другой каталог | если PHP стоит в другом месте (например, `/usr/local/php5640`), поменяйте префикс в строке `config-check.sh` и в последней строке |
-| После сборки | перезапустите Apache или php-fpm, чтобы ни один воркер не остался на старом бинарнике |
+- Вставляйте блок как есть: команды работают и в `sh`, и в `csh`, а комментариев в них
+  нет нарочно — интерактивный csh не считает `#` комментарием.
+- Если PHP стоит в другом месте (например, `/usr/local/php5640`), поменяйте префикс в
+  строке `config-check.sh` и в последней строке.
+- После сборки перезапустите Apache или php-fpm, чтобы ни один воркер не остался на
+  старом бинарнике.
 
 Модуль Apache ставится в `/usr/local/libexec/apache24/` как `libphpXY.so`
 (`libphp84.so`, `libphp83.so`, … `libphp74.so`, `libphp56.so`), а не как `libphp.so`,
@@ -322,10 +328,10 @@ make install
 |---|---|
 | Его аргумент | каталог установки (`/usr/local/php82`): скрипт запускает из него `bin/php` (или `sbin/php-fpm`, `bin/php-cgi`); подойдёт и путь к одному из этих бинарников |
 | Опции | из установленного PHP (`php -n -i`, строка Configure Command), никогда не из `config.nice` вслепую: `config.nice` может остаться от запуска configure, который так и не был установлен |
-| `config.nice` старой сборки | сравнивается с этими опциями. Скрипт находит его сам: `/root/php-<установленная версия>/config.nice` или новейший `/root/php-<установленная версия>-fbsd-*/config.nice` от прошлой сборки этого форка; другой можно указать вторым аргументом (`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`) |
+| Старый `config.nice` | сравнивается с этими опциями. Скрипт находит его сам: `/root/php-<установленная версия>/config.nice` или новейший `/root/php-<установленная версия>-fbsd-*/config.nice` от прошлой сборки этого форка; другой можно указать вторым аргументом (`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`) |
 | Кавычки PHP 5.6 | 5.6 записывает опции с пробелами в сломанных кавычках (`'CFLAGS=-O3 '-pipe' ...''`): скрипт читает их так, как прочитал бы shell, — одной опцией |
-| `php-config --configure-options` | используется, когда бинарник не запускается. Он печатает опции совсем без кавычек, так что `CFLAGS=-O3 -pipe ...` распадается на отдельные слова: скрипт возвращает слова после `ИМЯ=значение` в его значение |
-| PHP из пакетов (`lang/phpXY`, `phpXY-*`, `mod_phpXY`) | `sh config-check.sh --pkg` (или `--pkg php74`, если пакетами стоит несколько версий PHP) пишет `config.installed.sh` для ручной сборки в `/usr/local/phpXY`: по опции на каждый установленный пакет расширения плюс опции порта `phpXY`, `CFLAGS` и `CPUTYPE` из `/etc/make.conf`. Он перечисляет то, что не переносит (пакеты PECL, утилиты), и печатает строку `pkg set -A 0`, которая сохранит библиотеки, когда пакеты потом удалят |
+| Бинарник не запускается | опции берутся из `php-config --configure-options`, а он печатает их совсем без кавычек, так что `CFLAGS=-O3 -pipe ...` распадается на отдельные слова: скрипт возвращает слова после `ИМЯ=значение` в его значение |
+| PHP из пакетов | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (или `--pkg php74`, если пакетами стоит несколько версий PHP) пишет `config.installed.sh` для ручной сборки в `/usr/local/phpXY`: по опции на каждый установленный пакет расширения плюс опции порта `phpXY`, `CFLAGS` и `CPUTYPE` из `/etc/make.conf`. Он перечисляет то, что не переносит (пакеты PECL, утилиты), и печатает строку `pkg set -A 0`, которая сохранит библиотеки, когда пакеты потом удалят |
 | Пакеты встроенных расширений PECL | сохраняют то, с чем были собраны, — как показывает `php --ri` PHP из пакетов: lz4 и zstd для redis (в `databases/php-redis` включены по умолчанию), SASL, сериализатор JSON и `MemcachedServer` для memcached (умолчания `databases/pecl-memcached`), igbinary, хуки swoole |
 | Стоит `mod_phpXY` | одна сборка делает только один модуль SAPI (`./configure`: «You can build only one SAPI module»), а порты собирают модуль Apache (`mod_phpXY`) и embed-библиотеку (опция `EMBED` у `phpXY`, `libphp7.so` в `/usr/local/lib`) отдельно: скрипт оставляет модуль Apache, опускает `--enable-embed` и говорит, линкуется ли с embed-библиотекой какой-нибудь пакет (`pkg shlib -R libphp7.so`) |
 
@@ -337,7 +343,7 @@ CXXFLAGS='-O3 -pipe -march=<CPUTYPE из /etc/make.conf> -fstack-protector-stron
 LIBS='-lpthread'
 ```
 
-| | |
+| Переменная или опция | Правило |
 |---|---|
 | `LDFLAGS` | нет: clang не нужен `-fstack-protector` при линковке; `/usr/local/phpdeps` добавляет свои |
 | `-std=c++17` | в `CXXFLAGS` только для intl в PHP 7.4 и новее, когда `c++` по умолчанию берёт более старый стандарт: clang 16 и новее (FreeBSD 13.3 и новее) и так берёт C++17, а PHP 8.1 и новее сам выбирает его для ICU 74 и новее |
@@ -378,7 +384,7 @@ sh php-menu.sh
 sh config.menu.sh
 ```
 
-| | |
+| Что | Как |
 |---|---|
 | Начинает с | того, что есть в установленной сборке (`config.installed.sh` от `config-check.sh`), сохраняя её окружение и прочие опции (layout, пути php.ini, `--build`). Без `config.installed.sh` — только с нашей базовой сборки (`/usr/local/phpXY`, `--disable-all`, CLI и OPcache; SAPI и расширения выбираются) с флагами компилятора, общими для всех сборок |
 | Пишет | `config.menu.sh` — скрипт того же вида, с SAPI, опциями сборки и расширениями, выбранными в меню |
@@ -402,7 +408,9 @@ sh config.menu.sh
 |---|---|---|
 | `roundcube` | 7.4 и новее | php-fpm и CLI (скрипты из `bin/`, cron) для [Roundcube](https://roundcube.net/) 1.6 (PHP 7.3+) и 1.7 (PHP 8.1+); сверено с Roundcube 1.6.20 и 1.7.5 |
 
-| `roundcube` | Расширения |
+Что шаблон `roundcube` включает и чего в нём нет:
+
+| Группа | Расширения |
 |---|---|
 | Требует его инсталлятор | ctype, dom, filter, intl, json, mbstring с функциями регэкспов, openssl, session, PDO, xml |
 | Его [страница wiki](https://github.com/roundcube/roundcubemail/wiki/Install-Requirements) и его библиотеки | fileinfo, iconv, sockets |
@@ -445,10 +453,10 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 `php-menu.sh` включает обе по умолчанию — в том числе когда начинает с
 `config.installed.sh` сборки, сделанной до них.
 
-| | `--enable-opcache-static` | `--disable-extension-loading` |
+| Что | `--enable-opcache-static` | `--disable-extension-loading` |
 |---|---|---|
-| Что делает | OPcache встраивается в PHP (одинаково в CLI, php-fpm, php-cgi и модуль Apache), как в PHP 8.5: `opcache.so` нет, строка `zend_extension` не нужна | PHP не загружает расширения во время работы; `php -i` показывает `Dynamic Library Support => disabled (--disable-extension-loading)` |
-| Строки php.ini | оставшаяся `zend_extension=opcache.so` молча пропускается, даже если старый `opcache.so` ещё лежит в `extension_dir`; `opcache.enable` и прочие настройки `opcache.*` работают как раньше | строки `extension=` и `zend_extension=`, `dl()` и `php -z` отклоняются с предупреждением при старте, где назван файл; строка расширения, которое уже встроено (`extension=mysqli`), молча пропускается |
+| Действие | OPcache встраивается в PHP (одинаково в CLI, php-fpm, php-cgi и модуль Apache), как в PHP 8.5: `opcache.so` нет, строка `zend_extension` не нужна | PHP не загружает расширения во время работы; `php -i` показывает `Dynamic Library Support => disabled (--disable-extension-loading)` |
+| Старые строки php.ini | оставшаяся `zend_extension=opcache.so` молча пропускается, даже если старый `opcache.so` ещё лежит в `extension_dir`; `opcache.enable` и прочие настройки `opcache.*` работают как раньше | строки `extension=` и `zend_extension=`, `dl()` и `php -z` отклоняются с предупреждением при старте, где назван файл; строка расширения, которое уже встроено (`extension=mysqli`), молча пропускается |
 | configure останавливается | в 8.x вместе с ZTS и JIT (до PHP 8.5 JIT достаёт данные потока способом, который работает только из `opcache.so`): добавьте `--disable-opcache-jit` или соберите `opcache.so` | если какое-то расширение собиралось бы как `.so` (для OPcache добавьте `--enable-opcache-static`) |
 
 Без меню добавьте их к сборке: `sh config.installed.sh --enable-opcache-static
@@ -457,7 +465,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 
 ### Тестовая сборка на FreeBSD
 
-| | |
+| Что | Как |
 |---|---|
 | Workflow | [`.github/workflows/build-test.yml`](.github/workflows/build-test.yml): запуск — на https://github.com/azsupport/php-src/actions/workflows/build-test.yml кнопкой **Run workflow** |
 | Машина | виртуальная машина FreeBSD, по умолчанию 15.1: clang 19, OpenSSL 3.5 из базы, библиотеки из `pkg` |
@@ -472,19 +480,20 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 же, как штатные, и не требуют ни `phpize`, ни строки `extension=`. Ничего не меняется,
 пока не задана их опция:
 
-| PHP | redis | memcached | memcache | igbinary | imagick | gmagick |
-|---|---|---|---|---|---|---|
-| 8.2, 8.3, 8.4 | 6.3.0 | 3.4.0 | 8.2 | 3.2.16 | 3.8.1 | 2.0.6RC1 |
-| 8.1 | 6.3.0 | 3.4.0 | 8.2 | 3.2.16 | 3.8.1 | 2.0.6RC1 |
-| 7.4 | 6.3.0 | 3.4.0 | 4.0.5.3 | 3.2.16 | 3.8.1 | 2.0.6RC1 |
-| 5.6 | 4.3.0 | 2.2.0 | 3.0.8 | 2.0.8 | 3.8.1 | 1.1.7RC3 |
-
-| PHP | swoole | OpenSwoole | excimer | mcrypt |
+| Расширение | PHP 8.2, 8.3, 8.4 | PHP 8.1 | PHP 7.4 | PHP 5.6 |
 |---|---|---|---|---|
-| 8.2, 8.3, 8.4 | 6.2.3 | 4.12.1 | 1.2.7 | 1.0.9 |
-| 8.1 | 6.1.10 | 4.12.1 | 1.2.7 | 1.0.9 |
-| 7.4 | 4.8.13 | 4.12.1 | 1.2.7 | 1.0.9 |
-| 5.6 | | | | в самом PHP 5.6 |
+| redis | 6.3.0 | 6.3.0 | 6.3.0 | 4.3.0 |
+| memcached | 3.4.0 | 3.4.0 | 3.4.0 | 2.2.0 |
+| memcache | 8.2 | 8.2 | 4.0.5.3 | 3.0.8 |
+| igbinary | 3.2.16 | 3.2.16 | 3.2.16 | 2.0.8 |
+| imagick | 3.8.1 | 3.8.1 | 3.8.1 | 3.8.1 |
+| gmagick | 2.0.6RC1 | 2.0.6RC1 | 2.0.6RC1 | 1.1.7RC3 |
+| swoole | 6.2.3 | 6.1.10 | 4.8.13 | — |
+| OpenSwoole | 4.12.1 | 4.12.1 | 4.12.1 | — |
+| excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
+| mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | в самом PHP 5.6 |
+
+Как их включить:
 
 | Расширение | Опция configure | Пакет FreeBSD |
 |---|---|---|
@@ -494,10 +503,10 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | [igbinary](https://pecl.php.net/package/igbinary) | `--enable-igbinary`; как сериализатор для redis и memcached ещё `--enable-redis-igbinary` и `--enable-memcached-igbinary` | |
 | [imagick](https://pecl.php.net/package/imagick) | `--with-imagick=/usr/local`; не вместе с gmagick | `ImageMagick7` или `ImageMagick7-nox11` |
 | [gmagick](https://pecl.php.net/package/gmagick) | `--with-gmagick=/usr/local`; не вместе с imagick | `GraphicsMagick` |
-| [swoole](https://pecl.php.net/package/swoole) (7.4 и новее) | `--enable-swoole`; не вместе с OpenSwoole | `brotli` (по желанию, для сжатия brotli) |
-| [OpenSwoole](https://pecl.php.net/package/openswoole) (7.4 и новее) | `--enable-openswoole`; не вместе со swoole | |
-| [excimer](https://pecl.php.net/package/excimer) (7.4 и новее) | `--enable-excimer` | |
-| [mcrypt](https://pecl.php.net/package/mcrypt) (7.4 и новее) | `--with-mcrypt=/usr/local` | `libmcrypt` |
+| [swoole](https://pecl.php.net/package/swoole) (7.4+) | `--enable-swoole`; не вместе с OpenSwoole | `brotli` (по желанию, для сжатия brotli) |
+| [OpenSwoole](https://pecl.php.net/package/openswoole) (7.4+) | `--enable-openswoole`; не вместе со swoole | |
+| [excimer](https://pecl.php.net/package/excimer) (7.4+) | `--enable-excimer` | |
+| [mcrypt](https://pecl.php.net/package/mcrypt) (7.4+) | `--with-mcrypt=/usr/local` | `libmcrypt` |
 
 Версии — новейшие стабильные релизы PECL для каждой версии PHP, с такими исключениями:
 
@@ -529,8 +538,8 @@ OpenSwoole 22 и новее изменили API (пространство им�
 
 | PHP | Изменение |
 |---|---|
-| 8.3, 8.4 | новый `php_url_encode_hash_ex()` из 8.3 |
-| 8.3, 8.4 | границы стека C, которые проверяет PHP 8.3, следуют за стеками корутин (иначе каждый вызов в корутине падает с «Maximum call stack size reached») |
+| 8.3+ | новый `php_url_encode_hash_ex()` из 8.3 |
+| 8.3+ | границы стека C, которые проверяет PHP 8.3, следуют за стеками корутин (иначе каждый вызов в корутине падает с «Maximum call stack size reached») |
 | 8.4 | `zend_str_tolower()` вместо `php_strtolower()` (её нет в 8.4) |
 | 8.4 | `exit()` в корутине или сервере по-прежнему бросает `Swoole\ExitException` (в 8.4 exit стал функцией) |
 | 8.4 | встроенная библиотека PHP явно объявляет свои nullable-параметры (уведомления об устаревании в PHP 8.4) |
@@ -548,18 +557,18 @@ OpenSwoole 22 и новее изменили API (пространство им�
 
 igbinary как сериализатор (`--enable-memcached-igbinary`, `--enable-redis-igbinary`):
 
-| | |
+| Расширение | С igbinary как сериализатором |
 |---|---|
 | memcached | igbinary становится сериализатором по умолчанию (`memcached.serializer = igbinary`) для массивов и объектов. PHP без igbinary такие значения прочитать не сможет, поэтому, пока серверы с ним и без него делят один memcached, задайте в `php.ini` `memcached.serializer = php`. Значения, уже сохранённые сериализатором php, читаются в любом случае |
 | redis | ничего не сериализует, пока не задан `Redis::OPT_SERIALIZER`, так что там igbinary используется только там, где код просит `Redis::SERIALIZER_IGBINARY` |
 
 Как добавить их к пересборке:
 
-| | |
+| Способ | Что делать |
 |---|---|
 | Вручную | допишите опции после `sh config.installed.sh`, например `sh config.installed.sh --enable-redis --enable-memcache`, и уберите из `php.ini` строки `extension=redis.so` старых отдельных модулей |
-| `config-check.sh` | сам не добавляет их в `config.installed.sh`: для отдельных модулей установленного PHP, которые есть в дереве, он в конце печатает готовую к копированию полную команду — `sh config.installed.sh` с их опциями. Опции несут то, с чем модули были собраны (`php --ri`: сериализатор igbinary, lzf/zstd/lz4, SASL, curl у swoole, c-ares, pgsql), плюс `--enable-json`, `--enable-hash` или `--enable-session`, если в установленной сборке нет того, что им нужно; отчёт перечисляет строки `extension=` (файл и строку), которые надо убрать после `make install` |
-| `config-check.sh --pkg` | превращает установленные пакеты `phpXY-pecl-*` в опции, как и прочие пакеты расширений |
+| Скрипт | `config-check.sh` сам не добавляет их в `config.installed.sh`: для отдельных модулей установленного PHP, которые есть в дереве, он в конце печатает готовую к копированию полную команду — `sh config.installed.sh` с их опциями. Опции несут то, с чем модули были собраны (`php --ri`: сериализатор igbinary, lzf/zstd/lz4, SASL, curl у swoole, c-ares, pgsql), плюс `--enable-json`, `--enable-hash` или `--enable-session`, если в установленной сборке нет того, что им нужно; отчёт перечисляет строки `extension=` (файл и строку), которые надо убрать после `make install` |
+| Пакеты | `config-check.sh --pkg` превращает установленные пакеты `phpXY-pecl-*` в опции, как и прочие пакеты расширений |
 
 Новые релизы этих расширений находит ежедневная [проверка апстрима](#проверка-апстрима).
 
@@ -567,26 +576,28 @@ igbinary как сериализатор (`--enable-memcached-igbinary`, `--enab
 
 | PHP | С OpenSSL 3 базовой системы (FreeBSD 14 и 15; 3.5.6 во FreeBSD 15.1) |
 |---|---|
-| 8.1 и новее | поддерживается в апстриме: `--with-openssl` |
+| 8.1+ | поддерживается в апстриме: `--with-openssl` |
 | 7.4 | [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch): хватает `--with-openssl`, потому что FreeBSD поставляет `openssl.pc`. RC4 (по умолчанию у `openssl_seal()`), Blowfish, DES, RC2, CAST5 и MD4 требуют `--with-openssl-legacy-provider` (ниже) |
 | 5.6 | [`compat-openssl3.patch`](freebsd/patches/5.6/compat-openssl3.patch) с `--with-openssl=/usr` и тем же `--with-openssl-legacy-provider`, что и 7.4. Сверх того `tls://` и `STREAM_CRYPTO_METHOD_TLS_*` договариваются о TLS 1.0–1.3: 5.6 ограничивает их TLS 1.0, который OpenSSL 3 на своём уровне безопасности по умолчанию отвергает, так что они не могли соединиться вовсе (`ssl://`, `https://` и `STREAM_CRYPTO_METHOD_SSLv23_*` и так выбирали новейшую версию) |
 
 Что в 7.4 и 5.6 ведёт себя иначе, чем с OpenSSL 1.1, — это сам OpenSSL 3, так же как с
 PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведёт себя как раньше:
 
-| С OpenSSL 3 | |
+| Случай | С OpenSSL 3 |
 |---|---|
 | TLS 1.0 и 1.1 | по умолчанию выключены |
 | Расшифровка RSA PKCS#1 v1.5 неверным ключом | возвращает случайные байты вместо ошибки (защита от атаки Marvin) |
 | Ключи DSA/DH короче 512 бит, сертификаты с неправильно записанным временем | отклоняются |
 
-| `--with-openssl-legacy-provider` | |
+Опция `--with-openssl-legacy-provider`:
+
+| Что | Как |
 |---|---|
-| Что делает | загружает legacy-провайдер OpenSSL 3 вместе с провайдером по умолчанию при старте, так что RC4, Blowfish, DES, RC2, CAST5, MD4 и подобные работают без правки `openssl.cnf` |
+| Действие | загружает legacy-провайдер OpenSSL 3 вместе с провайдером по умолчанию при старте, так что RC4, Blowfish, DES, RC2, CAST5, MD4 и подобные работают без правки `openssl.cnf` |
 | Где есть | в апстриме PHP 8.4 ([php-src GH-13951](https://github.com/php/php-src/pull/13951)); этот форк добавляет ту же опцию в 5.6, 7.4, 8.1, 8.2 и 8.3. По умолчанию выключена, как в апстриме |
 | Модуль | `/usr/lib/ossl-modules/legacy.so`, часть базовой системы FreeBSD 14 и 15; если его нет, PHP стартует, а эти алгоритмы остаются недоступны |
-| С OpenSSL 1.1 (база FreeBSD 13.x) | ничего не меняет — алгоритмы там встроены |
-| `config-check.sh` | добавляет её к сборке с OpenSSL 3, если установленный PHP умеет RC4 (собран с OpenSSL 1.1 или с legacy-провайдером), чтобы данные, зашифрованные на старой сборке `openssl_encrypt(..., "rc4", ...)`, оставались читаемыми, и всегда для 5.6 и 7.4, у которых `openssl_seal()` по умолчанию использует RC4. `sh config.installed.sh --without-openssl-legacy-provider` её убирает |
+| OpenSSL 1.1 | в базовой системе FreeBSD 13.x: ничего не меняет — алгоритмы там встроены |
+| Скрипт | `config-check.sh` добавляет её к сборке с OpenSSL 3, если установленный PHP умеет RC4 (собран с OpenSSL 1.1 или с legacy-провайдером), чтобы данные, зашифрованные на старой сборке `openssl_encrypt(..., "rc4", ...)`, оставались читаемыми, и всегда для 5.6 и 7.4, у которых `openssl_seal()` по умолчанию использует RC4. `sh config.installed.sh --without-openssl-legacy-provider` её убирает |
 
 ### Встроенный curl
 
@@ -607,7 +618,9 @@ PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведё�
 | libpsl | 0.23.3 | `dns/libpsl` | список публичных суффиксов: никаких cookies на целый публичный суффикс вроде `co.uk` |
 | список публичных суффиксов | 21.09.2026 | `dns/public_suffix_list` | встроен в libpsl |
 
-| | |
+Как он собирается и работает:
+
+| Что | Как |
 |---|---|
 | Сборка | `--with-curl=bundled` собирает всё это во время `configure` (две-три минуты, лог в `ext/curl/libcurl-build.log`) одними cc и make и линкует в PHP статически, с тем OpenSSL, который берёт сам PHP |
 | Пакеты | не нужны: PHP не зависит ни от пакета curl, ни от его библиотек, а его curl так же свеж, как тарбол |
@@ -632,13 +645,15 @@ PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведё�
 c-ares здесь не ради скорости: время уходит на ответ DNS-сервера, а A и AAAA curl 8.23 и
 так спрашивает параллельно. Разница — когда DNS-сервер не отвечает:
 
-| | Threaded-резолвер (`getaddrinfo()`) | c-ares |
+| Случай | Threaded-резолвер (`getaddrinfo()`) | c-ares |
 |---|---|---|
 | DNS-сервер не отвечает | `getaddrinfo()` прервать нельзя, поэтому хэндл ждёт на `curl_close()` (в 8.x — когда `$ch` уничтожается, самое позднее в конце запроса), пока тот не сдастся: с `resolv.conf` FreeBSD по умолчанию — не меньше 15 секунд на имя, а воркеры Apache и FPM тем временем копятся | бросает запрос сразу, и `CURLOPT_TIMEOUT` соблюдается. Проверено с DNS-сервером, который не отвечает, и `CURLOPT_TIMEOUT_MS` 1500: `curl_exec()` вернулся через 1,5 с, хэндл освободился сразу |
 | `CURLOPT_DNS_SERVERS` и соседние опции | недоступны | работают |
 | Что читает | резолвер системы, с модулями NSS | сам читает `/etc/resolv.conf`, `/etc/hosts` и строку `hosts:` из `/etc/nsswitch.conf`; модули NSS не используются |
 
-| Оставлено | |
+Что встроенный curl оставляет:
+
+| Оставлено | Что |
 |---|---|
 | Протоколы | HTTP(S), FTP(S), FILE (им могут пользоваться старые скрипты) |
 | Возможности | HTTP/2, прокси, cookies, multipart (`CURLFile`), Unix-сокеты, IDN, PSL, brotli, zstd |
@@ -659,21 +674,25 @@ php-src несёт старую PCRE с известными ошибками б
 | 7.4 | PCRE2 10.35 | PCRE2 10.49 |
 | 5.6 | PCRE 8.38, 2015 года | PCRE 8.45, последний релиз PCRE1 |
 
-| Ошибка старых копий | Исправлена в | Ветки |
+Ошибки старых копий:
+
+| Ошибка | Исправлена в | Ветки |
 |---|---|---|
 | чтение за границей в JIT-компиляторе ([CVE-2022-1586](https://osv.dev/vulnerability/CVE-2022-1586), [CVE-2022-1587](https://osv.dev/vulnerability/CVE-2022-1587)) | PCRE2 10.40 | 7.4, 8.1 |
 | чтение и запись за границей, в том числе в `pcre2_match` после отката JIT на неверном UTF ([CVE-2026-89156](https://security-tracker.debian.org/tracker/CVE-2026-89156); [oss-security, 04.09.2026](https://openwall.com/lists/oss-security/2026/09/04/7)) | PCRE2 10.48 | 7.4–8.4 |
 | запись за границей в JIT с шаблоном под контролем атакующего ([CVE-2026-103111](https://app.opencve.io/cve/CVE-2026-103111)) | PCRE2 10.49 | 7.4–8.4 |
 | ошибки JIT CVE-2017-6004 и CVE-2019-20838, переполнение целого CVE-2020-14155 и прочие исправления 8.39–8.45 (сама 5.6 JIT не использует) | PCRE 8.39–8.45 | 5.6 |
 
-| | |
+Как релиз попадает в дерево:
+
+| Что | Как |
 |---|---|
 | Релиз | синк распаковывает тарбол релиза (его SHA-256 — тот же, что в `devel/pcre2` или `devel/pcre` freebsd-ports) |
 | Импорт | [`freebsd/pcre/import-pcre2.sh`](freebsd/pcre/import-pcre2.sh) (5.6: [`import-pcre1.sh`](freebsd/pcre/import-pcre1.sh)) так же, как это делает php-src: исходники библиотеки, собственный `config.h` PHP (плюс умолчания релиза, которых в нём нет, например `MAX_VARLOOKBEHIND` для 7.4–8.3), список исходников в `ext/pcre/config0.m4` |
 | Имена функций | PHP переименовывает функции своей встроенной PCRE в `main/php_compat.h` (`pcre2_compile_8` становится `php_pcre2_compile`), так что libpcre2, которую загрузил Apache, не перехватывает их вызовы. В списке php-src нет функций, добавленных после PCRE2 10.30 (и функций JIT у PCRE 8.x), а `pcre2_substitute` в 10.49 вызывает одну из них, поэтому импорт переименовывает и их |
 | Тесты | тесты `ext/pcre` проходят как раньше; те, что печатают сообщения библиотеки, ожидают и старую, и новую формулировку, как в php-src с 8.1 и 8.3 (`freebsd/pcre/tests-<версия>.patch`) |
 | Новые возможности | новая PCRE приносит их и в старые ветки: PHP 7.4 с 10.49 понимает lookbehind ограниченной переменной длины, например `(?<=a{1,3})b` |
-| PCRE системы | её по-прежнему берёт `--with-external-pcre` (5.6: `--with-pcre-regex=DIR`). `config-check.sh` не пишет эти опции, если PCRE дерева не старее системной, так что сборке не нужен пакет `pcre2` или `pcre`, и говорит об этом; если в системе библиотека новее, опция остаётся |
+| Системная PCRE | её по-прежнему берёт `--with-external-pcre` (5.6: `--with-pcre-regex=DIR`). `config-check.sh` не пишет эти опции, если PCRE дерева не старее системной, так что сборке не нужен пакет `pcre2` или `pcre`, и говорит об этом; если в системе библиотека новее, опция остаётся |
 | Новые релизы | ежедневная [проверка апстрима](#проверка-апстрима) открывает issue на каждый новый релиз PCRE2 |
 
 ## Как приходят обновления
