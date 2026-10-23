@@ -5,7 +5,10 @@
 # fork bundles, and the options of single extensions. Unlike the ports, all of it
 # is built into one PHP. What needs what is checked as you choose (an extension
 # that another one needs is turned on, two that cannot go together are refused),
-# from the sources of every branch.
+# from the sources of every branch. An extension with a screen of its own (the
+# options of GD, the drivers of PDO) is marked ---> in the list: its screen
+# follows the list when it is on, and the button Options of the list opens the
+# screen of the item under the cursor at once.
 #
 # Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree:
 #   sh php-menu.sh                  the menu for the branch of this tree
@@ -61,6 +64,7 @@ menu_data() {
     cat <<'EOF'
 *	S	000	core	check	-	-	PHP %B: build options (OPcache is always built)
 *	S	001	ext	check	-	-	PHP %B: extensions, built into PHP
+*	S	016	pdo	check	PDO	-	PDO: drivers
 *	S	003	curl	radio	CURL	-	curl: which libcurl
 *	S	014	openssl	check	OPENSSL	-	OpenSSL options
 *	S	006	gd	check	GD	-	GD options
@@ -69,8 +73,8 @@ menu_data() {
 *	S	004	dba	check	DBA	-	DBA handlers
 *	S	010	ldap	check	LDAP	-	LDAP options
 5.6-8.3	S	009	imap	check	IMAP	-	IMAP options
-*	S	016	readline	radio	READLINE	-	readline for php -a: which library
-*	S	017	redis	check	REDIS	-	phpredis options
+*	S	017	readline	radio	READLINE	-	readline for php -a: which library
+*	S	018	redis	check	REDIS	-	phpredis options
 *	S	013	memcached	check	MEMCACHED	-	php-memcached options
 *	S	012	memcache	check	MEMCACHE	-	php-memcache options
 *	I	core	000	CLI	1	-	--disable-cli	Build CLI version	bin/php: scripts, cron, composer; config-check.sh runs it
@@ -121,13 +125,13 @@ menu_data() {
 *	I	ext	036	ODBC	0	--with-unixODBC=/usr/local	-	ODBC support	package unixODBC
 5.6	I	ext	037	OPENSSL	0	--with-openssl=/usr	-	SSL/TLS support via OpenSSL	OpenSSL of the base system
 *	I	ext	039	PCNTL	0	--enable-pcntl	-	pcntl support (CLI only)	CLI only: daemons and queue workers
-*	I	ext	040	PDO	0	--enable-pdo	-	PHP Data Objects Interface (PDO)	-
-*	I	ext	041	PDO_DBLIB	0	--with-pdo-dblib=/usr/local	-	PDO DBLIB-DB driver	package freetds
-*	I	ext	042	PDO_FIREBIRD	0	--with-pdo-firebird=/usr/local	-	PDO Firebird driver	Firebird client package (firebirdNN-client)
-5.6	I	ext	043	PDO_MYSQL	0	--with-pdo-mysql	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
-*	I	ext	044	PDO_ODBC	0	--with-pdo-odbc=unixODBC,/usr/local	-	PDO ODBC driver	package unixODBC
-5.6	I	ext	045	PDO_PGSQL	0	--with-pdo-pgsql=/usr/local	-	PDO PostgreSQL driver	PostgreSQL client package (postgresqlNN-client)
-5.6	I	ext	046	PDO_SQLITE	0	--with-pdo-sqlite	-	PDO sqlite driver	SQLite built in
+*	I	ext	040	PDO	0	--enable-pdo	-	PHP Data Objects Interface (PDO)	drivers (MySQL, PostgreSQL, SQLite, ...): next screen
+*	I	pdo	041	PDO_DBLIB	0	--with-pdo-dblib=/usr/local	-	PDO DBLIB-DB driver	package freetds
+*	I	pdo	042	PDO_FIREBIRD	0	--with-pdo-firebird=/usr/local	-	PDO Firebird driver	Firebird client package (firebirdNN-client)
+5.6	I	pdo	043	PDO_MYSQL	0	--with-pdo-mysql	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
+*	I	pdo	044	PDO_ODBC	0	--with-pdo-odbc=unixODBC,/usr/local	-	PDO ODBC driver	package unixODBC
+5.6	I	pdo	045	PDO_PGSQL	0	--with-pdo-pgsql=/usr/local	-	PDO PostgreSQL driver	PostgreSQL client package (postgresqlNN-client)
+5.6	I	pdo	046	PDO_SQLITE	0	--with-pdo-sqlite	-	PDO sqlite driver	SQLite built in
 5.6	I	ext	047	PGSQL	0	--with-pgsql=/usr/local	-	PostgreSQL database support	PostgreSQL client package (postgresqlNN-client)
 *	I	ext	048	PHAR	0	--enable-phar	-	phar support	needed by composer
 *	I	ext	049	POSIX	0	--enable-posix	-	POSIX-like functions	posix_*: CLI scripts, composer
@@ -883,7 +887,7 @@ menu_data() {
 *	V	PREFIX	/usr/local/php%S	-	Install directory	--prefix=%V --mandir=%V/man	bin, sbin, lib, include, etc (php.ini with --with-layout=GNU) and man go there
 5.6	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysql/mysqli/pdo_mysql.default_socket; 5.6 takes it only with the mysql extension; empty: none (mysqlnd uses /tmp/mysql.sock)
 7.4+	S	007	gdformats	check	GD	GD.EXTERNAL=0	GD: formats of the libgd of PHP
-7.4+	S	018	swoole	check	SWOOLE	-	Swoole options
+7.4+	S	019	swoole	check	SWOOLE	-	Swoole options
 7.4+	S	015	openswoole	check	OPENSWOOLE	-	OpenSwoole options
 7.4+	I	core	005	PHPDBG	0	--enable-phpdbg	--disable-phpdbg	Interactive PHP debugger	bin/phpdbg; PHP builds it by default, also with --disable-all (configure reads the SAPIs first)
 7.4	I	core	007	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
@@ -899,9 +903,9 @@ menu_data() {
 7.4+	I	ext	035	MYSQLI	0	--with-mysqli=mysqlnd	-	MySQLi database support	on mysqlnd: no MySQL client needed
 7.4+	I	ext	037	OPENSSL	0	--with-openssl	-	OpenSSL support	OpenSSL of the base system
 7.4+	I	ext	038	OPENSWOOLE	0	--enable-openswoole	-	OpenSwoole: coroutines, asynchronous servers (PECL)	heavy: only for applications on OpenSwoole; not with swoole
-7.4+	I	ext	043	PDO_MYSQL	0	--with-pdo-mysql=mysqlnd	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
-7.4+	I	ext	045	PDO_PGSQL	0	--with-pdo-pgsql	-	PDO PostgreSQL driver	PostgreSQL client package (postgresqlNN-client)
-7.4+	I	ext	046	PDO_SQLITE	0	--with-pdo-sqlite	-	PDO sqlite driver	package sqlite3
+7.4+	I	pdo	043	PDO_MYSQL	0	--with-pdo-mysql=mysqlnd	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
+7.4+	I	pdo	045	PDO_PGSQL	0	--with-pdo-pgsql	-	PDO PostgreSQL driver	PostgreSQL client package (postgresqlNN-client)
+7.4+	I	pdo	046	PDO_SQLITE	0	--with-pdo-sqlite	-	PDO sqlite driver	package sqlite3
 7.4+	I	ext	047	PGSQL	0	--with-pgsql	-	PostgreSQL database support	PostgreSQL client package (postgresqlNN-client)
 7.4+	I	ext	060	SODIUM	0	--with-sodium	-	Sodium encryption support	package libsodium
 7.4+	I	ext	061	SQLITE3	0	--with-sqlite3	-	sqlite3 support	package sqlite3
@@ -1310,6 +1314,15 @@ if [ -z "$batch" ] && [ -z "$list" ]; then
     [ -n "$DIALOG" ] || die "neither bsddialog nor dialog found (FreeBSD 13: dialog is in the base system)"
     [ -t 0 ] || die "the menu needs a terminal (or use --batch)"
 fi
+# the button Options needs the items that are on in the answer of Help
+# (--help-status): bsddialog 1.0 and later (FreeBSD 14 and later), and dialog
+opt_button=""
+if [ -n "${DIALOG:-}" ]; then
+    case "$("$DIALOG" --version 2>&1)" in
+        *"Version: 0."*) ;;
+        *) opt_button=1 ;;
+    esac
+fi
 # the answer of the dialog comes on stderr, the dialog itself goes to the terminal
 # shellcheck disable=SC2069
 dlg() { "$DIALOG" --backtitle "$backtitle" "$@" 2>&1 >/dev/tty; }
@@ -1380,7 +1393,13 @@ set_off() { case "$ON" in *" $1 "*) ON="${ON%%" $1 "*} ${ON#*" $1 "}" ;; esac; }
 
 engine() {
     awk -F '\t' -v mode="$1" -v on="$ON" -v d="$tmp" '
-    function parent(id,   p) { p = id; if (index(p, ".")) { sub(/\..*/, "", p); return p } return "" }
+    # the parent of an item: the item its screen belongs to (PDO for PDO_MYSQL, GD
+    # for GD.F_JPEG), else the part of its id before the dot
+    function parent(id,   p) {
+        p = sparent[scr[id]]
+        if (p != "" && p != "-") return p
+        p = id; if (index(p, ".")) { sub(/\..*/, "", p); return p } return ""
+    }
     function act(id,   p, c, x) {
         if (!(id in st)) return 0
         p = parent(id)
@@ -1478,18 +1497,21 @@ engine() {
                 }
             }
             for (x in pk) print x
-        } else if (mode == "help") {     # the dialog lines: screen, tag, description, help
+        } else if (mode == "help") {     # the dialog lines: screen, tag, description, help, has screens
             for (i = 1; i <= r; i++) {
-                if (rk[i] == "R") needs[ra[i]] = needs[ra[i]] (needs[ra[i]] == "" ? "" : ", ") shown(ro[i])
+                # (not the item of its own screen: a PDO driver needs PDO, it is on that screen)
+                if (rk[i] == "R" && ro[i] != parent(ra[i])) needs[ra[i]] = needs[ra[i]] (needs[ra[i]] == "" ? "" : ", ") shown(ro[i])
                 if (rk[i] == "X") excl[ra[i]] = excl[ra[i]] (excl[ra[i]] == "" ? "" : ", ") shown(ro[i])
             }
+            for (s = 1; s <= sn; s++) if (sparent[sids[s]] != "-") kids[sparent[sids[s]]] = 1
             for (i = 1; i <= n; i++) {
-                id = ids[i]; tag = id
+                id = ids[i]; tag = id; p = parent(id)
                 if (index(tag, ".")) { sub(/^[^.]*\./, "", tag); sub(/^F_/, "", tag) }
+                else if (p != "" && index(tag, p "_") == 1) tag = substr(tag, length(p) + 2)
                 h = (help[id] == "-" ? "" : help[id])
                 if (needs[id] != "") h = h (h == "" ? "" : "; ") "needs " needs[id]
                 if (excl[id] != "") h = h (h == "" ? "" : "; ") "not with " excl[id]
-                print scr[id] "\t" id "\t" tag "\t" desc[id] "\t" (h == "" ? " " : h)
+                print scr[id] "\t" id "\t" tag "\t" desc[id] "\t" (h == "" ? " " : h) "\t" ((id in kids) ? 1 : 0)
             }
         }
     }'
@@ -1690,27 +1712,65 @@ elif [ -z "$reset" ] && [ -f "$installed" ]; then
     start="what the build of $installed has"
 fi
 
-# one screen: 0 OK, 1 cancel
+# one screen: 0 OK, 1 cancel. In a list with items that have screens of their own
+# (marked --->: the options of GD, the drivers of PDO) the button Options opens the
+# screens of the item under the cursor at once (open_options); then the list comes
+# back, with the cursor on that item. The dialog answers the button with the
+# status of Help (2; 4 is ITEM_HELP of older dialogs): "HELP <item>", then the
+# items that are on (--help-tags: the item, not its help; --help-status: the items).
 show_screen() {
+    local sid kind title kids focus res rc sel ftag fid fkid scr id tag desc help kid st
     sid="$1"
     kind="$(awk -F '\t' -v s="$sid" '$2 == s { print $3; exit }' "$tmp/screens")"
     title="$(awk -F '\t' -v s="$sid" '$2 == s { print $6; exit }' "$tmp/screens")"
+    kids="$(awk -F '\t' -v s="$sid" '$1 == s && $6 == 1 { f = 1 } END { print f + 0 }' "$tmp/help")"
+    focus=""
     while :; do
         set --
-        while IFS="$TAB" read -r scr id tag desc help; do
+        while IFS="$TAB" read -r scr id tag desc help kid; do
             [ "$scr" = "$sid" ] || continue
             st=off; is_on "$id" && st=on
+            [ "$kid" = 1 ] && desc="$desc --->"
             set -- "$@" "$tag" "$desc" "$st" "$help"
         done < "$tmp/help"
         [ $# -gt 0 ] || return 0
+        [ -n "$focus" ] || focus="$1"
         if [ "$kind" = radio ]; then
             res="$(dlg --title "$title" --item-help --radiolist "Choose one. Start: $start" 0 0 0 "$@")" || return 1
+        elif [ "$kids" = 1 ] && [ -n "$opt_button" ]; then
+            res="$(dlg --title "$title" --item-help --separate-output --default-item "$focus" \
+                --help-button --help-label Options --help-status --help-tags --checklist \
+                "Space turns an item on or off. Options: the screen of the item under the cursor (an item marked --->). Start: $start" \
+                0 0 0 "$@")"
+            rc=$?
+            case "$rc" in
+                0) ;;
+                2|4)
+                    set -- $(printf '%s\n' "${res#HELP }" | tr -d "\"'")
+                    ftag="${1:-}"
+                    [ $# -gt 0 ] && shift
+                    sel=" $* "
+                    fid="" fkid=0
+                    while IFS="$TAB" read -r scr id tag desc help kid; do
+                        [ "$scr" = "$sid" ] || continue
+                        case "$sel" in *" $tag "*) set_on "$id" ;; *) set_off "$id" ;; esac
+                        [ "$tag" = "$ftag" ] && fid="$id" fkid="$kid"
+                    done < "$tmp/help"
+                    [ -n "$ftag" ] && focus="$ftag"
+                    if [ "$fkid" = 1 ]; then
+                        open_options "$fid"
+                    elif [ -n "$fid" ]; then
+                        dlg --title "$ftag" --msgbox "$ftag has no options of its own: the items marked ---> have." 0 0
+                    fi
+                    continue ;;
+                *) return 1 ;;
+            esac
         else
             res="$(dlg --title "$title" --item-help --separate-output --checklist \
                 "Space turns an item on or off. Start: $start" 0 0 0 "$@")" || return 1
         fi
         sel=" $(printf '%s' "$res" | tr -d '"' | tr '\n' ' ') "
-        while IFS="$TAB" read -r scr id tag desc help; do
+        while IFS="$TAB" read -r scr id tag desc help kid; do
             [ "$scr" = "$sid" ] || continue
             case "$sel" in *" $tag "*) set_on "$id" ;; *) set_off "$id" ;; esac
         done < "$tmp/help"
@@ -1726,6 +1786,35 @@ Turn one of them off." 0 0
         [ -z "$msgs" ] || dlg --title "Turned on as well" --msgbox "$msgs" 0 0
         return 0
     done
+}
+
+# the screens of an item at once (the button Options of a list): the item is
+# turned on for them, Cancel puts back the choices of before; the screens shown
+# here are not shown again right after the list (visited)
+visited=" "
+open_options() {
+    local oid saved s shown
+    oid="$1"
+    saved="$ON"
+    set_on "$oid"
+    fix_radios
+    conflicts
+    if [ -n "$bad" ]; then
+        ON="$saved"
+        dlg --title "Not together" --msgbox "$bad
+
+Turn one of them off first." 0 0
+        return 0
+    fi
+    shown=""
+    for s in $(awk -F '\t' -v p="$oid" '$4 == p { print $2 }' "$tmp/screens"); do
+        [ "$(engine "visible $s")" = 1 ] || continue
+        show_screen "$s" || { ON="$saved"; return 0; }
+        visited="$visited$s "
+        shown=1
+    done
+    [ -n "$shown" ] || ON="$saved"
+    return 0
 }
 
 # make.conf: the -march of this server (CPUTYPE, else -march= of CFLAGS)
@@ -1820,13 +1909,18 @@ report() {
     echo "next, in the PHP $branch source tree: sh $out && make && make install"
 }
 
-# an item on; in a radio screen it replaces the one that was on
+# an item on; in a radio screen it replaces the one that was on; the item its
+# screen belongs to goes on too (+PDO_MYSQL turns on PDO, +REDIS.LZ4 REDIS)
 item_on() {
+    local scr o ipar
     scr="$(awk -F '\t' -v id="$1" '$4 == id { print $3; exit }' "$tmp/items")"
     if [ "$(awk -F '\t' -v s="$scr" '$2 == s { print $3; exit }' "$tmp/screens")" = radio ]; then
         for o in $(awk -F '\t' -v s="$scr" '$3 == s { print $4 }' "$tmp/items"); do set_off "$o"; done
     fi
     set_on "$1"
+    ipar="$(awk -F '\t' -v s="$scr" '$2 == s { print $4; exit }' "$tmp/screens")"
+    if [ -n "$ipar" ] && [ "$ipar" != "-" ] && ! is_on "$ipar"; then item_on "$ipar"; fi
+    return 0
 }
 
 # --- templates: a set of choices to start from -------------------------------------------
@@ -1915,10 +2009,15 @@ fi
 
 # the screens in order, then a menu to go back to any of them; a screen of
 # options shows when its extension is on (and its show-if holds), decided again
-# before each one, since the screen before can change it
+# before each one, since the screen before can change it; "rest": not the ones
+# the button Options of the list has shown already
 sub_screens() {
+    local sid
     awk -F '\t' '$4 != "-" { print $2 }' "$tmp/screens" > "$tmp/subs"
     while IFS= read -r sid; do
+        if [ "${1:-}" = rest ]; then
+            case "$visited" in *" $sid "*) continue ;; esac
+        fi
         [ "$(engine "visible $sid")" = 1 ] || continue
         show_screen "$sid" < /dev/tty || return 1
     done < "$tmp/subs"
@@ -1940,7 +2039,7 @@ An absolute path of letters, digits and . _ / + - (no spaces)." 0 0
 if [ -z "$template" ]; then
     start_menu "$start" || { echo "php-menu: cancelled, nothing written" >&2; exit 1; }
 fi
-show_screen core && show_screen ext && sub_screens || { echo "php-menu: cancelled, nothing written" >&2; exit 1; }
+show_screen core && show_screen ext && sub_screens rest || { echo "php-menu: cancelled, nothing written" >&2; exit 1; }
 while :; do
     set -- WRITE "Write ${out##*/} and save the choices" \
         CORE "Build options" \

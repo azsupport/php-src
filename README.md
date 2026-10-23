@@ -364,7 +364,14 @@ of the ports. Unlike the ports, everything is built into one PHP.
 |---|---|
 | Build options | the options of `lang/phpXY` and `mod_phpXY`: SAPI, ZTS, debug, IPv6, OPcache JIT, the system PCRE |
 | Extensions | the extensions of `phpXY-extensions` plus the bundled PECL extensions |
-| Options of single extensions | which libcurl, the OpenSSL legacy provider, which libgd and its formats, the DBA handlers, sessions, serializers and compression of redis and memcached, Argon2 of libargon2 or of OpenSSL 3.2 in 8.4, ... |
+| Options of single extensions | which libcurl, the OpenSSL legacy provider, which libgd and its formats, the drivers of PDO, the DBA handlers, sessions, serializers and compression of redis and memcached, Argon2 of libargon2 or of OpenSSL 3.2 in 8.4, ... |
+
+An extension with a screen of its own (curl, GD, PDO, redis, ...) is marked `--->` in
+the list. Its screen follows the list when the extension is on, and the button
+**Options** of the list opens the screen of the item under the cursor at once, then
+brings the list back with the cursor on that item (Cancel there undoes it); a screen
+seen that way does not come again right after the list. Dialogs have no drop-down
+lists, so this is the way to open the choices of one item.
 
 What needs what is checked while you choose, from the configure scripts and the C
 sources of every branch:
@@ -393,7 +400,7 @@ sh config.menu.sh
 | Left out | `--infodir` (PHP installs no info pages); `--localstatedir=/var` comes with FPM only (php-fpm alone reads it) |
 | The choices | saved the way the ports save theirs, in `/var/db/php-menu/phpXY.options`, and the start of the next run (`--reset` starts over) |
 | At the end | the packages the choices need |
-| Without dialogs | `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84` writes the script |
+| Without dialogs | `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84` writes the script; an item of a screen of its own turns on its extension too (`+PDO_MYSQL`: PDO) |
 | `--list` | `sh php-menu.sh --list` shows the items, the paths, their state and the templates |
 
 **Templates.** The menu first asks where to start: what it found (the saved choices,
@@ -418,10 +425,16 @@ What the `roundcube` template turns on and leaves out:
 | Not in it | mysqli, PostgreSQL, SQLite, LDAP; pspell and enchant, which only the spell checker uses (`spellcheck_engine`), and that is off by default since Roundcube 1.5.0 (`enable_spellcheck`) |
 
 The menu with the `roundcube` template (bsddialog in the 80x25 console of FreeBSD,
-Terminus font): where to start, the build options, the extensions, the options of
-curl, GD, mbstring and OpenSSL, the main menu and the script it writes:
+Terminus font): where to start, the build options, the extensions, the drivers of PDO
+through the button Options, the options of curl, GD, mbstring and OpenSSL, the main
+menu and the script it writes:
 
 <p><img src="docs/images/menu-roundcube.gif" alt="php-menu.sh with the roundcube template" width="800"></p>
+
+The button Options on PDO, and the screen it opens:
+
+<p><img src="docs/images/menu-roundcube-options.png" alt="The button Options on PDO" width="800"></p>
+<p><img src="docs/images/menu-roundcube-pdo.png" alt="The drivers of PDO" width="800"></p>
 
 The extensions with the `roundcube` template, and of the bare build (the defaults:
 the CLI and OPcache only):
