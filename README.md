@@ -20,7 +20,7 @@ writes the configure options of the PHP a server has, [`php-menu.sh`](tools/php-
 chooses what goes in with dialogs, as `make config` of the ports.
 
 Not affiliated with the PHP Group, Remi Collet or the FreeBSD Project.
-Provided as is, without warranty.
+Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
 
 ## Contents
 
