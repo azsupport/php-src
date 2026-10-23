@@ -1,0 +1,16 @@
+Description: make install puts the Apache module into the modules directory of Apache as libphp84.so instead of libphp.so (every branch of this fork: libphpXY.so), so that the builds of several PHP versions do not overwrite each other. httpd.conf is not changed: the install names the LoadModule line it needs.
+Origin: azsupport
+
+diff --git a/sapi/apache2handler/config.m4 b/sapi/apache2handler/config.m4
+index a3d189b7f..1d6471aa6 100644
+--- a/sapi/apache2handler/config.m4
++++ b/sapi/apache2handler/config.m4
+@@ -107,7 +107,7 @@ if test "$PHP_APXS2" != "no"; then
+       php_sapi_apache2handler_type=bundle
+       INSTALL_IT="$INSTALL_IT $SAPI_SHARED"
+     ],
+-    [INSTALL_IT="$INSTALL_IT $SAPI_LIBTOOL"])
++    [INSTALL_IT="\$(mkinstalldirs) '$APXS_LIBEXECDIR' && \$(INSTALL) -m 0755 $SAPI_SHARED '$APXS_LIBEXECDIR/libphp$PHP_MAJOR_VERSION$PHP_MINOR_VERSION.so' && echo 'Installed the Apache module as $APXS_LIBEXECDIR/libphp$PHP_MAJOR_VERSION$PHP_MINOR_VERSION.so (azsupport/php-src: libphpXY.so for every version); httpd.conf is not changed: LoadModule php_module $APXS_LIBEXECDIR/libphp$PHP_MAJOR_VERSION$PHP_MINOR_VERSION.so'"])
+ 
+   PHP_SELECT_SAPI([apache2handler],
+     [$php_sapi_apache2handler_type],
