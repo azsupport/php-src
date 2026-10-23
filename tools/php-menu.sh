@@ -22,8 +22,8 @@
 # (INSTALLED=/path to change), the menu starts from what that build has, and its
 # environment and its other options (prefix, layout, php.ini paths, --build) are
 # kept; the menu decides the SAPI, the build options and the extensions. Without
-# it: our base build (/usr/local/phpXY, --disable-all, OPcache) and the compiler
-# flags of every build (-march of /etc/make.conf).
+# it: our base build (/usr/local/phpXY, --disable-all, CLI and OPcache, nothing
+# else) and the compiler flags of every build (-march of /etc/make.conf).
 #
 # The choices are saved as the ports save theirs, in
 # /var/db/php-menu/phpXY.options (PHP_MENU_DB to change), and are the start of the
@@ -43,7 +43,7 @@ die() { echo "php-menu: $*" >&2; exit 2; }
 # --- data (tools/configure/menu.py of azsupport writes it) ---
 menu_data() {
     cat <<'EOF'
-*	S	000	core	check	-	-	PHP %B: build options (CLI and OPcache are always built)
+*	S	000	core	check	-	-	PHP %B: build options (OPcache is always built)
 *	S	001	ext	check	-	-	PHP %B: extensions, built into PHP
 *	S	003	curl	radio	CURL	-	curl: which libcurl
 *	S	014	openssl	check	OPENSSL	-	OpenSSL options
@@ -57,87 +57,88 @@ menu_data() {
 *	S	017	redis	check	REDIS	-	phpredis options
 *	S	013	memcached	check	MEMCACHED	-	php-memcached options
 *	S	012	memcache	check	MEMCACHE	-	php-memcache options
-*	I	core	000	APACHE	1	--with-apxs2=/usr/local/sbin/apxs	-	Apache 2 module mod_php (www/mod_phpXY)	libphp in the Apache modules directory; a non-ZTS module needs the prefork MPM
-*	I	core	001	FPM	0	--enable-fpm --with-fpm-user=www --with-fpm-group=www --localstatedir=/var	-	Build FPM version	sbin/php-fpm; pid and error_log relative to /var
-*	I	core	002	CGI	0	--enable-cgi	--disable-cgi	Build CGI version	bin/php-cgi: FastCGI without FPM, suPHP, mod_fcgid
-*	I	core	003	EMBED	0	--enable-embed	-	Build embedded library	libphp for programs that embed PHP; only if one links with it
-*	I	core	004	PHPDBG	0	--enable-phpdbg	-	Interactive PHP debugger	bin/phpdbg
-5.6-7.4	I	core	005	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
-*	I	core	007	DEBUG	0	--enable-debug	-	Build with debugging support	slow; for developers
-*	I	core	008	DTRACE	0	--enable-dtrace	-	Build with DTrace probes	the ports turn it on in 7.4 and later; not needed on a web server
-*	I	core	009	IPV6	1	-	--disable-ipv6	IPv6 protocol support	on by default in PHP (the ports turn it off)
-5.6	I	core	011	PCRE	0	--with-pcre-regex=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE 8.45 is the last release: not needed (package pcre)
+*	I	core	000	CLI	1	-	--disable-cli	Build CLI version	bin/php: scripts, cron, composer; config-check.sh runs it
+*	I	core	001	APACHE	0	--with-apxs2=/usr/local/sbin/apxs	-	Apache 2 module mod_php (www/mod_phpXY)	libphp in the Apache modules directory; a non-ZTS module needs the prefork MPM
+*	I	core	002	FPM	0	--enable-fpm --with-fpm-user=www --with-fpm-group=www --localstatedir=/var	-	Build FPM version	sbin/php-fpm; pid and error_log relative to /var
+*	I	core	003	CGI	0	--enable-cgi	--disable-cgi	Build CGI version	bin/php-cgi: FastCGI without FPM, suPHP, mod_fcgid
+*	I	core	004	EMBED	0	--enable-embed	-	Build embedded library	libphp for programs that embed PHP; only if one links with it
+*	I	core	005	PHPDBG	0	--enable-phpdbg	-	Interactive PHP debugger	bin/phpdbg
+5.6-7.4	I	core	006	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
+*	I	core	008	DEBUG	0	--enable-debug	-	Build with debugging support	slow; for developers
+*	I	core	009	DTRACE	0	--enable-dtrace	-	Build with DTrace probes	the ports turn it on in 7.4 and later; not needed on a web server
+*	I	core	010	IPV6	1	-	--disable-ipv6	IPv6 protocol support	on by default in PHP (the ports turn it off)
+5.6	I	core	012	PCRE	0	--with-pcre-regex=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE 8.45 is the last release: not needed (package pcre)
 *	I	ext	001	BCMATH	0	--enable-bcmath	-	bc style precision math functions	-
-*	I	ext	002	BZ2	1	--with-bz2	-	bzip2 library support	bzip2 of the base system
+*	I	ext	002	BZ2	0	--with-bz2	-	bzip2 library support	bzip2 of the base system
 *	I	ext	003	CALENDAR	0	--enable-calendar	-	calendar conversion support	-
-*	I	ext	004	CTYPE	1	--enable-ctype	-	ctype functions	-
-*	I	ext	005	CURL	1	-	-	CURL support	which libcurl: next screen
+*	I	ext	004	CTYPE	0	--enable-ctype	-	ctype functions	-
+*	I	ext	005	CURL	0	-	-	CURL support	which libcurl: next screen
 *	I	ext	006	DBA	0	--enable-dba	-	dba support	handlers: next screen
-*	I	ext	007	DOM	1	--enable-dom	-	DOM support	-
+*	I	ext	007	DOM	0	--enable-dom	-	DOM support	-
 *	I	ext	008	ENCHANT	0	--with-enchant=/usr/local	-	Enchant spelling support	package enchant2
-*	I	ext	010	EXIF	1	--enable-exif	-	EXIF support	photo orientation and metadata (WordPress)
-*	I	ext	012	FILEINFO	1	--enable-fileinfo	-	fileinfo support	mime types of uploads; magic database built in
-*	I	ext	013	FILTER	1	--enable-filter	-	input filter support	-
-*	I	ext	014	FTP	1	--enable-ftp	-	FTP support	-
-5.6	I	ext	015	GD	1	--with-gd	-	GD library support	libgd of PHP; formats: next screen
-*	I	ext	016	GETTEXT	1	--with-gettext=/usr/local	-	gettext library support	package gettext-runtime
+*	I	ext	010	EXIF	0	--enable-exif	-	EXIF support	photo orientation and metadata (WordPress)
+*	I	ext	012	FILEINFO	0	--enable-fileinfo	-	fileinfo support	mime types of uploads; magic database built in
+*	I	ext	013	FILTER	0	--enable-filter	-	input filter support	-
+*	I	ext	014	FTP	0	--enable-ftp	-	FTP support	-
+5.6	I	ext	015	GD	0	--with-gd	-	GD library support	libgd of PHP; formats: next screen
+*	I	ext	016	GETTEXT	0	--with-gettext=/usr/local	-	gettext library support	package gettext-runtime
 *	I	ext	017	GMAGICK	0	--with-gmagick=/usr/local	-	GraphicsMagick image library (Gmagick, PECL)	package GraphicsMagick; not with imagick
 *	I	ext	018	GMP	0	--with-gmp=/usr/local	-	GNU MP support	package gmp
-5.6	I	ext	019	HASH	1	--enable-hash	-	HASH Message Digest Framework	built in from PHP 7.4; mhash: next screen
-*	I	ext	020	ICONV	1	--with-iconv=/usr/local	-	iconv support	GNU libiconv (package libiconv): //TRANSLIT as on Linux
-*	I	ext	021	IGBINARY	1	--enable-igbinary	-	Binary serializer (igbinary, PECL)	-
-*	I	ext	022	IMAGICK	1	--with-imagick=/usr/local	-	ImageMagick image library (Imagick, PECL)	package ImageMagick7
+5.6	I	ext	019	HASH	0	--enable-hash	-	HASH Message Digest Framework	built in from PHP 7.4; mhash: next screen
+*	I	ext	020	ICONV	0	--with-iconv=/usr/local	-	iconv support	GNU libiconv (package libiconv): //TRANSLIT as on Linux
+*	I	ext	021	IGBINARY	0	--enable-igbinary	-	Binary serializer (igbinary, PECL)	-
+*	I	ext	022	IMAGICK	0	--with-imagick=/usr/local	-	ImageMagick image library (Imagick, PECL)	package ImageMagick7
 5.6-8.3	I	ext	023	IMAP	0	--with-imap=/usr/local	-	IMAP support	package cclient (built with SSL)
 5.6	I	ext	024	INTERBASE	0	--with-interbase=/usr/local	-	Interbase 6 database support (Firebird)	Firebird client package (firebirdNN-client)
-5.6	I	ext	025	INTL	1	--enable-intl --with-icu-dir=/usr/local	-	Internationalization(ICU)	package icu; PHP 5.6 with ICU 7x is untested
-5.6-7.4	I	ext	026	JSON	1	--enable-json	-	JavaScript Object Serialization support	built in from PHP 8.0
+5.6	I	ext	025	INTL	0	--enable-intl --with-icu-dir=/usr/local	-	Internationalization(ICU)	package icu; PHP 5.6 with ICU 7x is untested
+5.6-7.4	I	ext	026	JSON	0	--enable-json	-	JavaScript Object Serialization support	built in from PHP 8.0
 *	I	ext	027	LDAP	0	--with-ldap=/usr/local	-	OpenLDAP support	package openldap26-client
-5.6	I	ext	028	LIBXML	1	--enable-libxml --with-libxml-dir=/usr/local	-	libxml2 support (needed by the XML extensions)	package libxml2
-5.6	I	ext	029	MBSTRING	1	--enable-mbstring	-	multibyte string support	oniguruma built in
-5.6	I	ext	030	MCRYPT	1	--with-mcrypt=/usr/local	-	Encryption support	package libmcrypt
-*	I	ext	031	MEMCACHE	1	--enable-memcache	-	memcache client, the old one (PECL)	-
-*	I	ext	032	MEMCACHED	1	--enable-memcached --with-libmemcached-dir=/usr/local	-	memcached client on libmemcached (PECL)	package libmemcached
+5.6	I	ext	028	LIBXML	0	--enable-libxml --with-libxml-dir=/usr/local	-	libxml2 support (needed by the XML extensions)	package libxml2
+5.6	I	ext	029	MBSTRING	0	--enable-mbstring	-	multibyte string support	oniguruma built in
+5.6	I	ext	030	MCRYPT	0	--with-mcrypt=/usr/local	-	Encryption support	package libmcrypt
+*	I	ext	031	MEMCACHE	0	--enable-memcache	-	memcache client, the old one (PECL)	-
+*	I	ext	032	MEMCACHED	0	--enable-memcached --with-libmemcached-dir=/usr/local	-	memcached client on libmemcached (PECL)	package libmemcached
 5.6	I	ext	033	MSSQL	0	--with-mssql=/usr/local	-	MS-SQL database support	package freetds
-5.6	I	ext	034	MYSQL	1	--with-mysql --with-mysql-sock=/tmp/mysql.sock	-	MySQL database support	on mysqlnd: no MySQL client needed
-5.6	I	ext	035	MYSQLI	1	--with-mysqli --with-mysql-sock=/tmp/mysql.sock	-	MySQLi database support	on mysqlnd: no MySQL client needed
+5.6	I	ext	034	MYSQL	0	--with-mysql --with-mysql-sock=/tmp/mysql.sock	-	MySQL database support	on mysqlnd: no MySQL client needed
+5.6	I	ext	035	MYSQLI	0	--with-mysqli --with-mysql-sock=/tmp/mysql.sock	-	MySQLi database support	on mysqlnd: no MySQL client needed
 *	I	ext	036	ODBC	0	--with-unixODBC=/usr/local	-	ODBC support	package unixODBC
-5.6	I	ext	037	OPENSSL	1	--with-openssl=/usr	-	SSL/TLS support via OpenSSL	OpenSSL of the base system
+5.6	I	ext	037	OPENSSL	0	--with-openssl=/usr	-	SSL/TLS support via OpenSSL	OpenSSL of the base system
 *	I	ext	039	PCNTL	0	--enable-pcntl	-	pcntl support (CLI only)	CLI only: daemons and queue workers
-*	I	ext	040	PDO	1	--enable-pdo	-	PHP Data Objects Interface (PDO)	-
+*	I	ext	040	PDO	0	--enable-pdo	-	PHP Data Objects Interface (PDO)	-
 *	I	ext	041	PDO_DBLIB	0	--with-pdo-dblib=/usr/local	-	PDO DBLIB-DB driver	package freetds
 *	I	ext	042	PDO_FIREBIRD	0	--with-pdo-firebird=/usr/local	-	PDO Firebird driver	Firebird client package (firebirdNN-client)
-5.6	I	ext	043	PDO_MYSQL	1	--with-pdo-mysql --with-mysql-sock=/tmp/mysql.sock	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
+5.6	I	ext	043	PDO_MYSQL	0	--with-pdo-mysql --with-mysql-sock=/tmp/mysql.sock	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
 *	I	ext	044	PDO_ODBC	0	--with-pdo-odbc=unixODBC,/usr/local	-	PDO ODBC driver	package unixODBC
 5.6	I	ext	045	PDO_PGSQL	0	--with-pdo-pgsql=/usr/local	-	PDO PostgreSQL driver	PostgreSQL client package (postgresqlNN-client)
-5.6	I	ext	046	PDO_SQLITE	1	--with-pdo-sqlite	-	PDO sqlite driver	SQLite built in
+5.6	I	ext	046	PDO_SQLITE	0	--with-pdo-sqlite	-	PDO sqlite driver	SQLite built in
 5.6	I	ext	047	PGSQL	0	--with-pgsql=/usr/local	-	PostgreSQL database support	PostgreSQL client package (postgresqlNN-client)
-*	I	ext	048	PHAR	1	--enable-phar	-	phar support	needed by composer
-*	I	ext	049	POSIX	1	--enable-posix	-	POSIX-like functions	posix_*: CLI scripts, composer
+*	I	ext	048	PHAR	0	--enable-phar	-	phar support	needed by composer
+*	I	ext	049	POSIX	0	--enable-posix	-	POSIX-like functions	posix_*: CLI scripts, composer
 5.6-8.3	I	ext	050	PSPELL	0	--with-pspell=/usr/local	-	pspell support	package aspell
-*	I	ext	051	READLINE	1	-	-	readline support (CLI only)	only for php -a; library: next screen
+*	I	ext	051	READLINE	0	-	-	readline support (CLI only)	only for php -a; library: next screen
 5.6	I	ext	052	RECODE	0	--with-recode=/usr/local	-	recode support	package recode
-*	I	ext	053	REDIS	1	--enable-redis	-	Redis client (phpredis, PECL)	serializers, compression, sessions: next screen
-*	I	ext	054	SESSION	1	--enable-session	-	session support	needed by almost every site
+*	I	ext	053	REDIS	0	--enable-redis	-	Redis client (phpredis, PECL)	serializers, compression, sessions: next screen
+*	I	ext	054	SESSION	0	--enable-session	-	session support	needed by almost every site
 *	I	ext	055	SHMOP	0	--enable-shmop	-	shmop support	-
-*	I	ext	056	SIMPLEXML	1	--enable-simplexml	-	simplexml support	-
+*	I	ext	056	SIMPLEXML	0	--enable-simplexml	-	simplexml support	-
 *	I	ext	057	SNMP	0	--with-snmp=/usr/local	-	SNMP support	package net-snmp
 *	I	ext	058	SOAP	0	--enable-soap	-	SOAP support	-
-*	I	ext	059	SOCKETS	1	--enable-sockets	-	sockets support	-
-5.6	I	ext	061	SQLITE3	1	--with-sqlite3	-	sqlite3 support	SQLite built in
+*	I	ext	059	SOCKETS	0	--enable-sockets	-	sockets support	-
+5.6	I	ext	061	SQLITE3	0	--with-sqlite3	-	sqlite3 support	SQLite built in
 5.6	I	ext	063	SYBASE_CT	0	--with-sybase-ct=/usr/local	-	Sybase database support	package freetds
 *	I	ext	064	SYSVMSG	0	--enable-sysvmsg	-	System V message support	-
 *	I	ext	065	SYSVSEM	0	--enable-sysvsem	-	System V semaphore support	-
 *	I	ext	066	SYSVSHM	0	--enable-sysvshm	-	System V shared memory support	-
 *	I	ext	067	TIDY	0	--with-tidy=/usr/local	-	TIDY support	package tidy-html5
-*	I	ext	068	TOKENIZER	1	--enable-tokenizer	-	tokenizer support	needed by composer packages, Laravel, Symfony
+*	I	ext	068	TOKENIZER	0	--enable-tokenizer	-	tokenizer support	needed by composer packages, Laravel, Symfony
 5.6	I	ext	069	WDDX	0	--enable-wddx	-	WDDX support (implies XML)	removed from PHP in 7.4
-*	I	ext	070	XML	1	--enable-xml	-	XML support	-
-*	I	ext	071	XMLREADER	1	--enable-xmlreader	-	XMLReader support	-
-5.6-7.4	I	ext	072	XMLRPC	1	--with-xmlrpc	-	XMLRPC-EPI support	removed from PHP in 8.0
-*	I	ext	073	XMLWRITER	1	--enable-xmlwriter	-	XMLWriter support	-
+*	I	ext	070	XML	0	--enable-xml	-	XML support	-
+*	I	ext	071	XMLREADER	0	--enable-xmlreader	-	XMLReader support	-
+5.6-7.4	I	ext	072	XMLRPC	0	--with-xmlrpc	-	XMLRPC-EPI support	removed from PHP in 8.0
+*	I	ext	073	XMLWRITER	0	--enable-xmlwriter	-	XMLWriter support	-
 5.6	I	ext	074	XSL	0	--with-xsl=/usr/local	-	XSL support (Implies DOM)	package libxslt
-5.6	I	ext	075	ZIP	1	--enable-zip	-	ZIP support	libzip built in
-5.6	I	ext	076	ZLIB	1	--with-zlib=/usr	-	ZLIB support	zlib of the base system
+5.6	I	ext	075	ZIP	0	--enable-zip	-	ZIP support	libzip built in
+5.6	I	ext	076	ZLIB	0	--with-zlib=/usr	-	ZLIB support	zlib of the base system
 *	I	curl	000	CURL.BUNDLED	1	--with-curl=bundled	-	curl bundled in the fork, built into PHP	static, with the OpenSSL of the build (3.0 or later: FreeBSD 14 and later); packages libnghttp2 brotli zstd libidn2 libpsl
 *	I	curl	001	CURL.SYSTEM	0	--with-curl=/usr/local	-	libcurl of ftp/curl, as the ports	package curl; for FreeBSD 13 with OpenSSL 1.1.1 in base
 *	I	openssl	000	OPENSSL.LEGACY	1	--with-openssl-legacy-provider	-	Load the OpenSSL legacy provider	RC4, Blowfish, DES, CAST5, MD4 with OpenSSL 3 (sites that encrypt with RC4)
@@ -854,28 +855,28 @@ menu_data() {
 7.4+	S	007	gdformats	check	GD	GD.EXTERNAL=0	GD: formats of the libgd of PHP
 7.4+	S	018	swoole	check	SWOOLE	-	Swoole options
 7.4+	S	015	openswoole	check	OPENSWOOLE	-	OpenSwoole options
-7.4+	I	core	011	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
-7.4	I	ext	000	ARGON2	1	--with-password-argon2=/usr/local	-	Argon2 in password_hash()	package libargon2
-7.4+	I	ext	009	EXCIMER	1	--enable-excimer	-	Excimer sampling profiler (PECL)	-
+7.4+	I	core	012	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
+7.4	I	ext	000	ARGON2	0	--with-password-argon2=/usr/local	-	Argon2 in password_hash()	package libargon2
+7.4+	I	ext	009	EXCIMER	0	--enable-excimer	-	Excimer sampling profiler (PECL)	-
 7.4+	I	ext	011	FFI	0	--with-ffi	-	Foreign Function Interface support	package libffi
-7.4+	I	ext	015	GD	1	--enable-gd	-	GD library support	libgd of graphics/gd or of PHP: next screen
-7.4+	I	ext	025	INTL	1	--enable-intl	-	Internationalization(ICU)	package icu
-7.4+	I	ext	028	LIBXML	1	--with-libxml	-	libxml2 support (needed by the XML extensions)	package libxml2
-7.4+	I	ext	029	MBSTRING	1	--enable-mbstring	-	multibyte string support	mb_ereg_* need the package oniguruma: next screen
-7.4+	I	ext	030	MCRYPT	1	--with-mcrypt=/usr/local	-	Encryption support	PECL mcrypt bundled in the fork; package libmcrypt
-7.4+	I	ext	035	MYSQLI	1	--with-mysqli=mysqlnd --with-mysql-sock=/tmp/mysql.sock	-	MySQLi database support	on mysqlnd: no MySQL client needed
-7.4+	I	ext	037	OPENSSL	1	--with-openssl	-	OpenSSL support	OpenSSL of the base system
+7.4+	I	ext	015	GD	0	--enable-gd	-	GD library support	libgd of graphics/gd or of PHP: next screen
+7.4+	I	ext	025	INTL	0	--enable-intl	-	Internationalization(ICU)	package icu
+7.4+	I	ext	028	LIBXML	0	--with-libxml	-	libxml2 support (needed by the XML extensions)	package libxml2
+7.4+	I	ext	029	MBSTRING	0	--enable-mbstring	-	multibyte string support	mb_ereg_* need the package oniguruma: next screen
+7.4+	I	ext	030	MCRYPT	0	--with-mcrypt=/usr/local	-	Encryption support	PECL mcrypt bundled in the fork; package libmcrypt
+7.4+	I	ext	035	MYSQLI	0	--with-mysqli=mysqlnd --with-mysql-sock=/tmp/mysql.sock	-	MySQLi database support	on mysqlnd: no MySQL client needed
+7.4+	I	ext	037	OPENSSL	0	--with-openssl	-	OpenSSL support	OpenSSL of the base system
 7.4+	I	ext	038	OPENSWOOLE	0	--enable-openswoole	-	OpenSwoole: coroutines, asynchronous servers (PECL)	heavy: only for applications on OpenSwoole; not with swoole
-7.4+	I	ext	043	PDO_MYSQL	1	--with-pdo-mysql=mysqlnd --with-mysql-sock=/tmp/mysql.sock	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
+7.4+	I	ext	043	PDO_MYSQL	0	--with-pdo-mysql=mysqlnd --with-mysql-sock=/tmp/mysql.sock	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
 7.4+	I	ext	045	PDO_PGSQL	0	--with-pdo-pgsql	-	PDO PostgreSQL driver	PostgreSQL client package (postgresqlNN-client)
-7.4+	I	ext	046	PDO_SQLITE	1	--with-pdo-sqlite	-	PDO sqlite driver	package sqlite3
+7.4+	I	ext	046	PDO_SQLITE	0	--with-pdo-sqlite	-	PDO sqlite driver	package sqlite3
 7.4+	I	ext	047	PGSQL	0	--with-pgsql	-	PostgreSQL database support	PostgreSQL client package (postgresqlNN-client)
 7.4+	I	ext	060	SODIUM	0	--with-sodium	-	Sodium encryption support	package libsodium
-7.4+	I	ext	061	SQLITE3	1	--with-sqlite3	-	sqlite3 support	package sqlite3
+7.4+	I	ext	061	SQLITE3	0	--with-sqlite3	-	sqlite3 support	package sqlite3
 7.4+	I	ext	062	SWOOLE	0	--enable-swoole	-	Swoole: coroutines, asynchronous servers (PECL)	heavy: only for applications on Swoole; not with openswoole
 7.4+	I	ext	074	XSL	0	--with-xsl	-	XSL support (Implies DOM)	package libxslt
-7.4+	I	ext	075	ZIP	1	--with-zip	-	ZIP support	package libzip
-7.4+	I	ext	076	ZLIB	1	--with-zlib	-	ZLIB support	zlib of the base system
+7.4+	I	ext	075	ZIP	0	--with-zip	-	ZIP support	package libzip
+7.4+	I	ext	076	ZLIB	0	--with-zlib	-	ZLIB support	zlib of the base system
 7.4+	I	gd	008	GD.EXTERNAL	1	--with-external-gd	-	Use libgd of graphics/gd	package gd; its formats (JPEG of mozjpeg); off: the libgd of PHP with the formats of the next screen
 7.4+	I	gdformats	000	GD.F_JPEG	1	--with-jpeg	-	JPEG support (mozjpeg)	package mozjpeg
 7.4+	I	gdformats	001	GD.F_FREETYPE	1	--with-freetype	-	FreeType 2 support	package freetype2
@@ -1072,9 +1073,9 @@ menu_data() {
 7.4+	O	--without-webp
 7.4+	O	--without-xpm
 7.4+	O	--without-zstd
-8.1+	I	core	005	ZTS	0	--enable-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
-8.1+	I	core	010	JIT	1	-	--disable-opcache-jit	OPcache JIT	compiled in by default; turned on in php.ini (opcache.jit, opcache.jit_buffer_size)
-8.1-8.3	I	ext	000	ARGON2	1	--with-password-argon2	-	Argon2 in password_hash()	package libargon2
+8.1+	I	core	006	ZTS	0	--enable-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
+8.1+	I	core	011	JIT	1	-	--disable-opcache-jit	OPcache JIT	compiled in by default; turned on in php.ini (opcache.jit, opcache.jit_buffer_size)
+8.1-8.3	I	ext	000	ARGON2	0	--with-password-argon2	-	Argon2 in password_hash()	package libargon2
 8.1+	I	gdformats	003	GD.F_AVIF	0	--with-avif	-	AVIF image format support	package libavif
 8.1+	I	swoole	003	SWOOLE.PGSQL	0	--enable-swoole-pgsql	-	Coroutine PostgreSQL client	PostgreSQL client package
 8.1+	I	swoole	004	SWOOLE.SQLITE	0	--enable-swoole-sqlite	-	Coroutine SQLite (PDO)	package sqlite3
@@ -1178,7 +1179,7 @@ menu_data() {
 8.3+	O	--without-capstone
 8.4	S	002	argon2	radio	ARGON2	-	Argon2: which implementation
 8.4	S	005	ftp	check	FTP	-	FTP options
-8.4	I	ext	000	ARGON2	1	-	-	Argon2 in password_hash()	libargon2 or OpenSSL 3.2: next screen
+8.4	I	ext	000	ARGON2	0	-	-	Argon2 in password_hash()	libargon2 or OpenSSL 3.2: next screen
 8.4	I	argon2	000	ARGON2.LIBARGON2	1	--with-password-argon2	-	libargon2 (security/libargon2)	package libargon2; works with ZTS
 8.4	I	argon2	001	ARGON2.OPENSSL	0	--with-openssl-argon2	-	OpenSSL 3.2 and later (FreeBSD 15 base)	no libargon2; not with ZTS; adds openssl_password_hash(); as the ports on FreeBSD 15
 8.4	I	ftp	000	FTP.SSL	0	--with-ftp-ssl	-	FTP over SSL without the openssl extension	with OPENSSL on, ftp_ssl_connect is there anyway (ext/ftp/config.m4)
@@ -1447,7 +1448,7 @@ while IFS="$TAB" read -r id rule; do
         *) false ;;
     esac && set_on "$id" || set_off "$id"
 done < "$tmp/dyn"
-start="the defaults: our standard set"
+start="the defaults: CLI and OPcache only"
 
 # config.installed.sh: its environment lines and its options, one per line, unquoted
 if [ -f "$installed" ]; then
