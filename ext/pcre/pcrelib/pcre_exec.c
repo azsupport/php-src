@@ -6,7 +6,7 @@
 and semantics are as close as possible to those of the Perl 5 language.
 
                        Written by Philip Hazel
-           Copyright (c) 1997-2014 University of Cambridge
+           Copyright (c) 1997-2021 University of Cambridge
 
 -----------------------------------------------------------------------------
 Redistribution and use in source and binary forms, with or without
@@ -669,7 +669,7 @@ if (ecode == NULL)
     return match((PCRE_PUCHAR)&rdepth, NULL, NULL, 0, NULL, NULL, 1);
   else
     {
-    int len = (char *)&rdepth - (char *)eptr;
+    int len = (int)((char *)&rdepth - (char *)eptr);
     return (len > 0)? -len : len;
     }
   }
@@ -758,7 +758,7 @@ for (;;)
     md->mark = NULL;    /* In case previously set by assertion */
     RMATCH(eptr, ecode + PRIV(OP_lengths)[*ecode] + ecode[1], offset_top, md,
       eptrb, RM55);
-    if ((rrc == MATCH_MATCH || rrc == MATCH_ACCEPT) &&
+    if ((rrc == MATCH_MATCH || rrc == MATCH_ACCEPT || rrc == MATCH_KETRPOS) &&
          md->mark == NULL) md->mark = ecode + 2;
 
     /* A return of MATCH_SKIP_ARG means that matching failed at SKIP with an
@@ -1040,7 +1040,7 @@ for (;;)
     the result of a recursive call to match() whatever happened so it was
     possible to reduce stack usage by turning this into a tail recursion,
     except in the case of a possibly empty group. However, now that there is
-    the possibility of (*THEN) occurring in the final alternative, this
+    the possiblity of (*THEN) occurring in the final alternative, this
     optimization is no longer always possible.
 
     We can optimize if we know there are no (*THEN)s in the pattern; at present
@@ -2305,7 +2305,7 @@ for (;;)
     case OP_ANY:
     if (IS_NEWLINE(eptr)) RRETURN(MATCH_NOMATCH);
     if (md->partial != 0 &&
-        eptr + 1 >= md->end_subject &&
+        eptr == md->end_subject - 1 &&
         NLBLOCK->nltype == NLTYPE_FIXED &&
         NLBLOCK->nllen == 2 &&
         UCHAR21TEST(eptr) == NLBLOCK->nl[0])
@@ -3053,7 +3053,7 @@ for (;;)
             {
             RMATCH(eptr, ecode, offset_top, md, eptrb, RM18);
             if (rrc != MATCH_NOMATCH) RRETURN(rrc);
-            if (eptr-- == pp) break;        /* Stop if tried at original pos */
+            if (eptr-- <= pp) break;        /* Stop if tried at original pos */
             BACKCHAR(eptr);
             }
           }
@@ -3210,7 +3210,7 @@ for (;;)
           {
           RMATCH(eptr, ecode, offset_top, md, eptrb, RM21);
           if (rrc != MATCH_NOMATCH) RRETURN(rrc);
-          if (eptr-- == pp) break;        /* Stop if tried at original pos */
+          if (eptr-- <= pp) break;        /* Stop if tried at original pos */
 #ifdef SUPPORT_UTF
           if (utf) BACKCHAR(eptr);
 #endif
