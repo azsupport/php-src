@@ -448,7 +448,7 @@ EOF
     cat <<EOF
 >
 > The upstream \`.github/\` CI configuration is removed so that php-src CI does not
-> run in this fork. Provided as is, without warranty.
+> run in this fork. Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
 EOF
     if [ -s "$bp_list" ]; then
         cat <<EOF
