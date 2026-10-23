@@ -3,9 +3,48 @@ dnl $Id$
 dnl
 
 PHP_ARG_WITH(curl, for cURL support,
-[  --with-curl[=DIR]         Include cURL support])
+[  --with-curl[=DIR]         Include cURL support (=bundled: ext/curl/libcurl, built into PHP)])
 
 if test "$PHP_CURL" != "no"; then
+  dnl azsupport: --with-curl=bundled builds ext/curl/libcurl (the curl release,
+  dnl static and position independent, with the OpenSSL of this PHP build) and
+  dnl the libraries it needs (ext/curl/deps: c-ares, nghttp2, brotli, zstd,
+  dnl libidn2, libpsl) with ext/curl/build-libcurl.sh and links it into PHP
+  dnl instead of a system libcurl: no package needed. Its curl_* symbols are not
+  dnl exported (those of its libraries are local in libcurl.a), so a libcurl.so
+  dnl that another module loads into the same process stays separate.
+  if test "$PHP_CURL" = "bundled"; then
+    php_curl_bundled="$abs_builddir/ext/curl/libcurl-build"
+    mkdir -p "$abs_builddir/ext/curl"
+    AC_MSG_CHECKING([for the bundled libcurl])
+    if env CC="$CC" CFLAGS="$CFLAGS" CPPFLAGS="$CPPFLAGS" LDFLAGS="$LDFLAGS" \
+        PKG_CONFIG="${PKG_CONFIG:-pkg-config}" \
+        OPENSSL_INCDIR="${OPENSSL_INCDIR:-}" OPENSSL_CFLAGS="${OPENSSL_CFLAGS:-}" \
+        $SHELL "$abs_srcdir/ext/curl/build-libcurl.sh" "$php_curl_bundled" \
+        > "$php_curl_bundled.log" 2>&1; then
+      php_curl_bundled_version=`cat "$php_curl_bundled/VERSION"`
+      AC_MSG_RESULT([curl $php_curl_bundled_version, static, in ext/curl/libcurl-build])
+    else
+      AC_MSG_RESULT([failed])
+      tail -n 15 "$php_curl_bundled.log"
+      AC_MSG_ERROR([the bundled libcurl did not build, see $php_curl_bundled.log])
+    fi
+    PKG_CONFIG_PATH="$php_curl_bundled/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    export PKG_CONFIG_PATH
+    dnl The -L goes first, before /usr/local/lib with the libcurl.so of pkg, and
+    dnl into EXTRA_LDFLAGS too: PHP 5.6 drops the LDFLAGS of the extensions. No
+    dnl PHP_ADD_LIBPATH, which would record a run path into the build tree.
+    LDFLAGS="-L$php_curl_bundled/lib $LDFLAGS"
+    EXTRA_LDFLAGS="-L$php_curl_bundled/lib $EXTRA_LDFLAGS"
+    EXTRA_LDFLAGS_PROGRAM="-L$php_curl_bundled/lib $EXTRA_LDFLAGS_PROGRAM"
+    php_curl_ldflags=$LDFLAGS
+    LDFLAGS="$LDFLAGS -Wl,--exclude-libs,libcurl.a"
+    AC_LINK_IFELSE([AC_LANG_PROGRAM()],
+      [EXTRA_LDFLAGS="$EXTRA_LDFLAGS -Wl,--exclude-libs,libcurl.a"
+      EXTRA_LDFLAGS_PROGRAM="$EXTRA_LDFLAGS_PROGRAM -Wl,--exclude-libs,libcurl.a"],
+      [LDFLAGS=$php_curl_ldflags])
+    PHP_CURL="$php_curl_bundled"
+  fi
   if test -r $PHP_CURL/include/curl/easy.h; then
     CURL_DIR=$PHP_CURL
   else
@@ -47,7 +86,11 @@ if test "$PHP_CURL" != "no"; then
 
   PHP_ADD_INCLUDE($CURL_DIR/include)
   PHP_EVAL_LIBLINE($CURL_LIBS, CURL_SHARED_LIBADD)
-  PHP_ADD_LIBRARY_WITH_PATH(curl, $CURL_DIR/$PHP_LIBDIR, CURL_SHARED_LIBADD)
+  if test "$PHP_CURL" = "$php_curl_bundled"; then
+    PHP_ADD_LIBRARY(curl,, CURL_SHARED_LIBADD)
+  else
+    PHP_ADD_LIBRARY_WITH_PATH(curl, $CURL_DIR/$PHP_LIBDIR, CURL_SHARED_LIBADD)
+  fi
   
   AC_MSG_CHECKING([for SSL support in libcurl])
   CURL_SSL=`$CURL_CONFIG --feature | $EGREP SSL`
