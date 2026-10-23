@@ -196,21 +196,25 @@ def main():
             except FileNotFoundError:
                 pass
 
-    # Roundcube: the template, the screens, the script
+    # Roundcube: the template, the screens (PDO with the button Options), the script
     fresh()
     session('menu-roundcube', menu, [
         (None, 2.5, 'menu-start'),
         ('down', 2.5, 'menu-start-roundcube'),
         ('enter', 2.5, 'menu-roundcube-core'),
         ('enter', 3.0, 'menu-roundcube-ext'),
-        ('pgdn', 2.5, None),
-        ('pgdn', 2.5, None),
-        ('pgdn', 2.5, 'menu-roundcube-ext2'),
-        ('pgdn', 2.5, None),
+        ('P', 0.6, None),      # the items with P: PCNTL,
+        ('P', 2.5, 'menu-roundcube-ext2'),  # PDO
+        ('right', 0.8, None),  # the buttons: Cancel,
+        ('right', 2.0, 'menu-roundcube-options'),  # Options
+        ('enter', 3.0, 'menu-roundcube-pdo'),  # the drivers of PDO
+        ('enter', 2.0, None),  # back in the list, on PDO
+        ('pgdn', 2.0, None),
+        ('pgdn', 2.0, None),
         ('enter', 2.0, None),  # curl: which libcurl
         ('enter', 2.0, None),  # GD options
         ('enter', 2.0, None),  # mbstring options
-        ('enter', 2.0, None),  # OpenSSL options
+        ('enter', 2.0, None),  # OpenSSL options (PDO was shown already)
         ('enter', 2.5, 'menu-main'),
         ('end', 0.8, None),
         ('up', 2.0, None),
