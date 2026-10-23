@@ -30,10 +30,10 @@
 # The installed options come from "<binary> -n -i" (Configure Command; -n skips
 # php.ini, so a broken shared extension does not get in the way) or, failing that,
 # from php-config --configure-options next to the binary. When the binary does not
-# run either way (a library it links against was removed or upgraded, a crash),
-# the options of the config.nice (given or found) are taken instead, as they are,
-# and the report says why the installed build could not be read; its shared PECL
-# modules are then those of the extension= lines of its php.ini, looked for at
+# run (a library it links against was removed or upgraded, a crash), the report
+# says why; without php-config the options of the config.nice (given or found) are
+# taken instead, as they are. The shared PECL modules of a php that does not run
+# are those of the extension= lines of its php.ini, looked for at
 # --with-config-file-path and --with-config-file-scan-dir, <prefix>/etc/php*.ini,
 # /usr/local/etc/phpXY.ini and the Apache PHPIniDir that names it. Environment lines of
 # config.nice (CFLAGS=... and the like) are shown and carried over, but not
@@ -255,11 +255,17 @@ legacy_opts() {
 knows() { grep -q -e "\[$2\]" -e "($2," "ext/$1/config.m4" 2>/dev/null; }
 ri_row() { sed -n "s/^$2 => //p" "$tmp/ri_$1" | head -n 1; }
 pecl_feature_opts() {
-    "$1" --ri "$2" > "$tmp/ri_$2" 2>/dev/null
+    : > "$tmp/ri_$2"
+    # a php that does not run (nobin, below) is not asked
+    [ -n "${nobin:-}" ] || "$1" --ri "$2" > "$tmp/ri_$2" 2>/dev/null
     case "$2" in
         redis | memcached | swoole | openswoole)
-            [ -s "$tmp/ri_$2" ] ||
-                echo "$2: \"$1 --ri $2\" shows nothing, so the features of the installed build (serializers, compression, SASL) are not carried over; compare by hand" >> "$tmp/pecl_note" ;;
+            if [ -s "$tmp/ri_$2" ]; then :
+            elif [ -n "${nobin:-}" ]; then
+                echo "$2: the installed php cannot be asked (php --ri), so the features of its build (serializers, compression, SASL) are not carried over; compare by hand" >> "$tmp/pecl_note"
+            else
+                echo "$2: \"$1 --ri $2\" shows nothing, so the features of the installed build (serializers, compression, SASL) are not carried over; compare by hand" >> "$tmp/pecl_note"
+            fi ;;
     esac
     case "$2" in
         redis)
@@ -280,7 +286,8 @@ pecl_feature_opts() {
             [ "$(ri_row memcached 'zstd support')" = yes ] && knows memcached zstd && o="$o --with-zstd"
             # the MemcachedServer class (libmemcachedprotocol and libevent; the FreeBSD
             # port always builds it), which --ri does not list
-            [ "$("$1" -r 'echo class_exists("MemcachedServer", false) ? "yes" : "no";' 2>/dev/null)" = yes ] &&
+            [ -z "${nobin:-}" ] &&
+                [ "$("$1" -r 'echo class_exists("MemcachedServer", false) ? "yes" : "no";' 2>/dev/null)" = yes ] &&
                 knows memcached memcached-protocol && o="$o --enable-memcached-protocol"
             [ "$(ri_row memcached 'msgpack support')" = yes ] &&
                 echo "memcached: the msgpack serializer needs the msgpack extension, which is not bundled" >> "$tmp/pecl_note"
@@ -694,38 +701,49 @@ to_lines() {
 # Installed build.
 line="$("$php" -n -i 2>/dev/null | sed -n 's/^Configure Command =>[[:space:]]*//p' | head -1)"
 how="$php -n -i"
-if [ -z "$line" ]; then
-    pc="$(dirname "$php")/php-config"
-    if [ -x "$pc" ]; then
-        line="$("$pc" --configure-options 2>/dev/null)"
-        how="$pc --configure-options"
-    fi
+pc="$(dirname "$php")/php-config"
+if [ -z "$line" ] && [ -x "$pc" ]; then
+    line="$("$pc" --configure-options 2>/dev/null)"
+    how="$pc --configure-options"
 fi
-# Options that cannot be read from the installed build (a binary that does not run)
-# come from config.nice (below).
+# Whether the binary runs at all: php-config (a shell script) still gives the
+# options of a php that no longer starts, a library it needs being gone, for one.
+# Then nothing can be asked of it (php -m, --ini, --ri): its shared modules come
+# from the extension= lines of its php.ini files (ini_candidates, below).
+"$php" -n -v > "$tmp/run_out" 2>&1
+brc=$?
+norun=""
+if [ "$brc" != 0 ]; then
+    norun="$php does not run: -n -v exits with $brc"
+    [ "$brc" -gt 128 ] && norun="$norun (signal $((brc - 128)))"
+    err="$(grep -v -e '^[[:space:]]*$' "$tmp/run_out" | head -n 2 | tr '\n' ' ' | sed 's/ *$//')"
+    [ -n "$err" ] && norun="$norun: $err"
+fi
+# Options that cannot be read from the installed build at all come from config.nice
+# (below).
 broken=""
 if [ -n "$line" ]; then
     to_lines "$line" "$how" > "$tmp/installed_order"
     LC_ALL=C sort -u "$tmp/installed_order" > "$tmp/installed"
-    version="$("$php" -n -v 2>/dev/null | head -1)"
-    ver="$(printf '%s\n' "$version" | awk '{print $2}')"
-else
-    "$php" -n -v > "$tmp/broken_out" 2>&1
-    brc=$?
-    if [ "$brc" = 0 ]; then
-        broken="no Configure Command in $php -n -i and no php-config"
-        version="$(head -n 1 "$tmp/broken_out")"
+    if [ -z "$norun" ]; then
+        version="$(head -n 1 "$tmp/run_out")"
         ver="$(printf '%s\n' "$version" | awk '{print $2}')"
     else
-        broken="$php does not run: -n -v exits with $brc"
-        [ "$brc" -gt 128 ] && broken="$broken (signal $((brc - 128)))"
-        err="$(grep -v -e '^[[:space:]]*$' "$tmp/broken_out" | head -n 2 | tr '\n' ' ' | sed 's/ *$//')"
-        [ -n "$err" ] && broken="$broken: $err"
-        version=""
-        # the version of this source tree, to find its config.nice (a rebuild of the same version)
-        ver="$(sed -n 's/^#define PHP_VERSION "\([^"]*\)".*/\1/p' main/php_version.h 2>/dev/null | head -n 1)"
+        ver="$("$pc" --version 2>/dev/null)"
+        version="${ver:+PHP $ver (by php-config: the binary does not run)}"
     fi
+elif [ -z "$norun" ]; then
+    broken="no Configure Command in $php -n -i and no php-config"
+    version="$(head -n 1 "$tmp/run_out")"
+    ver="$(printf '%s\n' "$version" | awk '{print $2}')"
+else
+    broken="$norun"
+    version=""
+    # the version of this source tree, to find its config.nice (a rebuild of the same version)
+    ver="$(sed -n 's/^#define PHP_VERSION "\([^"]*\)".*/\1/p' main/php_version.h 2>/dev/null | head -n 1)"
 fi
+# the binary cannot be asked anything: not readable, or not running
+nobin="${broken:-$norun}"
 
 # The old build's config.nice: given, ./config.nice, or found next to this tree.
 found=""
@@ -821,6 +839,8 @@ printf 'installed:   %s\n             %s\n             %s options, from %s\n' \
     "$php" "${version:-?}" "$(wc -l < "$tmp/installed" | tr -d ' ')" "$how"
 if [ -n "$broken" ]; then
     printf '             NOT READ: %s\n' "$broken"
+elif [ -n "$norun" ]; then
+    printf '             NOT RUN:  %s\n' "$norun"
 fi
 if [ -n "$nice" ]; then
     printf 'config.nice: %s%s\n             %s options\n' "$nice" "$found" "$(wc -l < "$tmp/nice" | tr -d ' ')"
@@ -961,7 +981,7 @@ ini_candidates() {
     done | awk '!seen[$1]++ { sub(/^[^ ]* /, ""); print }'
 }
 : > "$tmp/ini_files"
-if [ -n "$broken" ]; then
+if [ -n "$nobin" ]; then
     ini_candidates > "$tmp/ini_files"
     while IFS= read -r f; do
         sed -n -E "s/^[[:space:]]*extension[[:space:]]*=[[:space:]]*[\"']?([^\"';[:space:]]*)[\"']?.*/\\1/p" "$f"
@@ -971,11 +991,13 @@ else
 fi
 : > "$tmp/pecl_hint"
 : > "$tmp/pecl_note"
-if [ -n "$broken" ]; then
+if [ -n "$nobin" ]; then
+    what="the installed build cannot be read"
+    [ -n "$broken" ] || what="the installed php does not run"
     if [ -s "$tmp/ini_files" ]; then
-        echo "the installed build cannot be read: its shared modules are those of the extension= lines of $(tr '\n' ' ' < "$tmp/ini_files" | sed 's/ *$//'); check that this is the php.ini it loads" >> "$tmp/pecl_note"
+        echo "$what: its shared modules are those of the extension= lines of $(tr '\n' ' ' < "$tmp/ini_files" | sed 's/ *$//'); check that this is the php.ini it loads" >> "$tmp/pecl_note"
     else
-        echo "the installed build cannot be read and no php.ini of it was found (--with-config-file-path, <prefix>/etc/php*.ini, /usr/local/etc/phpXY.ini, Apache PHPIniDir): check the extension= lines of its php.ini by hand" >> "$tmp/pecl_note"
+        echo "$what and no php.ini of it was found (--with-config-file-path, <prefix>/etc/php*.ini, /usr/local/etc/phpXY.ini, Apache PHPIniDir): check the extension= lines of its php.ini by hand" >> "$tmp/pecl_note"
     fi
 fi
 : > "$tmp/pecl_opts"
@@ -1006,7 +1028,7 @@ need() { grep -qx -e "$1" "$tmp/pecl_opts" "$tmp/installed" || printf '%s\n' "$1
 # Without "php -m" (a binary that does not run) its options tell.
 has_mod() {
     grep -qx "$1" "$tmp/modules" && return 0
-    [ -n "$broken" ] || return 1
+    [ -n "$nobin" ] || return 1
     grep -qx -e "--enable-$1" -e "--enable-$1=.*" "$tmp/installed" && return 0
     ! grep -qx -e "--disable-$1" -e --disable-all "$tmp/installed"
 }
@@ -1023,7 +1045,7 @@ pecl_line="$(awk '!seen[$0]++' "$tmp/pecl_opts" | tr '\n' ' ' | sed 's/ *$//')"
 # The extension= lines that load them now (php --ini: php.ini and the scanned
 # directory), to be removed once they are built in.
 if [ -s "$tmp/pecl_names" ]; then
-    if [ -z "$broken" ]; then
+    if [ -z "$nobin" ]; then
         "$php" --ini 2>/dev/null | awk '
             /^Loaded Configuration File:/ { sub(/^Loaded Configuration File:[ \t]*/, ""); print; next }
             /^Additional \.ini files parsed:/ { sub(/^Additional \.ini files parsed:[ \t]*/, ""); add = 1 }
