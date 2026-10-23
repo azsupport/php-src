@@ -11,12 +11,20 @@
 #   sh php-menu.sh                  the menu for the branch of this tree
 #   sh php-menu.sh 8.4              the menu for that branch (outside a tree)
 #   sh php-menu.sh --reset          start from the defaults, not the saved choices
+#   sh php-menu.sh --template=NAME  start from a template (roundcube: php-fpm for
+#                                   Roundcube), not from the saved choices
 #   sh php-menu.sh --batch [+ID -ID ID=value ...]
 #                                   no dialogs: the saved choices (or the defaults),
 #                                   items turned on (+GD, +REDIS.LZ4) or off (-CGI),
 #                                   values typed in (PREFIX=/usr/local/php84,
 #                                   MYSQL_SOCK=/tmp/mysql.sock, MYSQL_SOCK= for none)
-#   sh php-menu.sh --list           the items of the branch, with their state
+#   sh php-menu.sh --list           the items of the branch, with their state, the
+#                                   values and the templates
+#
+# The menu first asks where to start: what it found (below) or a template, a set
+# of choices for one application; the main menu has it again ("Templates"). A
+# template turns its items on and the rest of the SAPIs and extensions it names
+# off, the others keep their defaults; what its items need is turned on as well.
 #
 # It writes ./config.menu.sh (OUT=/path/file.sh to change): ./configure with the
 # chosen options and the environment of our builds, the same form as the
@@ -148,7 +156,7 @@ menu_data() {
 5.6	I	ext	074	XSL	0	--with-xsl=/usr/local	-	XSL support (Implies DOM)	package libxslt
 5.6	I	ext	075	ZIP	0	--enable-zip	-	ZIP support	libzip built in
 5.6	I	ext	076	ZLIB	0	--with-zlib=/usr	-	ZLIB support	zlib of the base system
-*	I	curl	000	CURL.BUNDLED	1	--with-curl=bundled	-	curl bundled in the fork, built into PHP	static, with the OpenSSL of the build (3.0 or later: FreeBSD 14 and later); packages libnghttp2 brotli zstd libidn2 libpsl
+*	I	curl	000	CURL.BUNDLED	1	--with-curl=bundled	-	curl bundled in the fork, built into PHP	static, with the OpenSSL of the build (3.0 or later: FreeBSD 14 and later) and its own c-ares, nghttp2, brotli, zstd, libidn2, libpsl: nothing from pkg
 *	I	curl	001	CURL.SYSTEM	0	--with-curl=/usr/local	-	libcurl of ftp/curl, as the ports	package curl; for FreeBSD 13 with OpenSSL 1.1.1 in base
 *	I	openssl	000	OPENSSL.LEGACY	1	--with-openssl-legacy-provider	-	Load the OpenSSL legacy provider	RC4, Blowfish, DES, CAST5, MD4 with OpenSSL 3 (sites that encrypt with RC4)
 *	I	openssl	001	OPENSSL.SYSCIPHERS	0	--with-system-ciphers	-	Use the system default cipher list	instead of the list hardcoded in PHP
@@ -1097,6 +1105,39 @@ menu_data() {
 7.4+	O	--without-webp
 7.4+	O	--without-xpm
 7.4+	O	--without-zstd
+7.4+	T	roundcube	Roundcube webmail	php-fpm and CLI for Roundcube 1.6/1.7: MySQL (PDO), zip, gd, imagick; no LDAP
+7.4+	U	roundcube	CLI	1
+7.4+	U	roundcube	FPM	1
+7.4+	U	roundcube	CTYPE	1
+7.4+	U	roundcube	CURL	1
+7.4+	U	roundcube	DOM	1
+7.4+	U	roundcube	EXIF	1
+7.4+	U	roundcube	FILEINFO	1
+7.4+	U	roundcube	FILTER	1
+7.4+	U	roundcube	GD	1
+7.4+	U	roundcube	GD.F_JPEG	1
+7.4+	U	roundcube	GD.F_WEBP	1
+7.4+	U	roundcube	GD.F_FREETYPE	1
+7.4+	U	roundcube	ICONV	1
+7.4+	U	roundcube	IMAGICK	1
+7.4+	U	roundcube	INTL	1
+7.4	U	roundcube	JSON	1
+7.4+	U	roundcube	LIBXML	1
+7.4+	U	roundcube	MBSTRING	1
+7.4+	U	roundcube	MBSTRING.REGEX	1
+7.4+	U	roundcube	OPENSSL	1
+7.4+	U	roundcube	PDO	1
+7.4+	U	roundcube	PDO_MYSQL	1
+7.4+	U	roundcube	SESSION	1
+7.4+	U	roundcube	SOCKETS	1
+7.4+	U	roundcube	XML	1
+7.4+	U	roundcube	XMLWRITER	1
+7.4+	U	roundcube	ZIP	1
+7.4+	U	roundcube	APACHE	0
+7.4+	U	roundcube	CGI	0
+7.4+	U	roundcube	EMBED	0
+7.4+	U	roundcube	PHPDBG	0
+7.4+	U	roundcube	LDAP	0
 7.4+	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQLI PDO_MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysqli.default_socket and pdo_mysql.default_socket; empty: none (mysqlnd uses /tmp/mysql.sock)
 8.1+	I	core	007	ZTS	0	--enable-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
 8.1+	I	core	012	JIT	1	-	--disable-opcache-jit	OPcache JIT	compiled in by default; turned on in php.ini (opcache.jit, opcache.jit_buffer_size)
@@ -1242,13 +1283,14 @@ EOF
 # --- end of data ---
 
 # --- arguments ----------------------------------------------------------------------
-branch="" batch="" reset="" list="" changes="" values=""
+branch="" batch="" reset="" list="" changes="" values="" template=""
 for a in "$@"; do
     case "$a" in
         -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
         --batch) batch=1 ;;
         --reset) reset=1 ;;
         --list) list=1 ;;
+        --template=*) template="${a#--template=}" ;;
         [0-9].[0-9]) branch="$a" ;;
         [+-][A-Z]*) changes="$changes $a" ;;
         [A-Z]*=*) values="$values$a
@@ -1295,6 +1337,7 @@ trap 'exit 1' INT TERM HUP
 # items:   screen-order item-order screen id default on off description help
 # rels:    R|X item other why;  dyn: item rule;  defon: item;  owned: option
 # vals_def: value default when description arguments help;  newitems: item
+# tpls: template title description;  tpl_items: template item 1|0
 menu_data | awk -F '\t' -v b="$branch" -v d="$tmp" '
     function v(x,   p) { split(x, p, "."); return p[1] * 100 + p[2] }
     function inspan(s,   p) {
@@ -1313,13 +1356,15 @@ menu_data | awk -F '\t' -v b="$branch" -v d="$tmp" '
     $2 == "O" { print $3 > (d "/owned") }
     $2 == "V" { print $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 > (d "/vals_def") }
     $2 == "N" { print $3 > (d "/newitems") }
+    $2 == "T" { print $3 "\t" $4 "\t" $5 > (d "/tpls") }
+    $2 == "U" { print $3 "\t" $4 "\t" $5 > (d "/tpl_items") }
     END {
         for (i = 1; i <= n; i++) {
             split(il[i], f, "\t")
             print so[f[3]] "\t" f[4] "\t" f[3] "\t" f[5] "\t" f[6] "\t" f[7] "\t" f[8] "\t" f[9] "\t" f[10] > (d "/items.u")
         }
     }'
-for f in rels dyn defon owned vals_def newitems; do [ -f "$tmp/$f" ] || : > "$tmp/$f"; done
+for f in rels dyn defon owned vals_def newitems tpls tpl_items; do [ -f "$tmp/$f" ] || : > "$tmp/$f"; done
 sort -t "$TAB" -k1,1 "$tmp/screens.u" > "$tmp/screens"
 sort -t "$TAB" -k1,1 -k2,2 "$tmp/items.u" > "$tmp/items"
 [ -s "$tmp/items" ] || die "no menu data for PHP $branch"
@@ -1513,20 +1558,25 @@ ossl_ver() {
 }
 
 # defaults of the data, then the rules decided here (OpenSSL 3, 3.2)
-while IFS="$TAB" read -r _ _ _ id dflt _; do
-    [ "$dflt" = 1 ] && set_on "$id"
-done < "$tmp/items"
 ov="$(ossl_ver)"
-while IFS="$TAB" read -r id rule; do
-    case "$rule" in
-        ossl3) [ "$ov" -ge 300 ] ;;
-        '!ossl3') [ "$ov" -lt 300 ] ;;
-        ossl32) [ "$ov" -ge 302 ] ;;
-        '!ossl32') [ "$ov" -lt 302 ] ;;
-        *) false ;;
-    esac && set_on "$id" || set_off "$id"
-done < "$tmp/dyn"
-start="the defaults: CLI and OPcache only"
+defaults() {
+    ON=" "
+    while IFS="$TAB" read -r _ _ _ id dflt _; do
+        [ "$dflt" = 1 ] && set_on "$id"
+    done < "$tmp/items"
+    while IFS="$TAB" read -r id rule; do
+        case "$rule" in
+            ossl3) [ "$ov" -ge 300 ] ;;
+            '!ossl3') [ "$ov" -lt 300 ] ;;
+            ossl32) [ "$ov" -ge 302 ] ;;
+            '!ossl32') [ "$ov" -lt 302 ] ;;
+            *) false ;;
+        esac && set_on "$id" || set_off "$id"
+    done < "$tmp/dyn"
+}
+defaults
+def_start="the defaults: CLI and OPcache only"
+start="$def_start"
 
 # config.installed.sh: its environment lines and its options, one per line, unquoted
 if [ -f "$installed" ]; then
@@ -1770,8 +1820,54 @@ report() {
     echo "next, in the PHP $branch source tree: sh $out && make && make install"
 }
 
+# an item on; in a radio screen it replaces the one that was on
+item_on() {
+    scr="$(awk -F '\t' -v id="$1" '$4 == id { print $3; exit }' "$tmp/items")"
+    if [ "$(awk -F '\t' -v s="$scr" '$2 == s { print $3; exit }' "$tmp/screens")" = radio ]; then
+        for o in $(awk -F '\t' -v s="$scr" '$3 == s { print $4 }' "$tmp/items"); do set_off "$o"; done
+    fi
+    set_on "$1"
+}
+
+# --- templates: a set of choices to start from -------------------------------------------
+tpl_known() { awk -F '\t' -v t="$1" '$1 == t { f = 1 } END { exit !f }' "$tmp/tpls"; }
+tpl_field() { awk -F '\t' -v t="$1" -v n="$2" '$1 == t { print $n; exit }' "$tmp/tpls"; }
+# the defaults, the items of the template on or off, then what they need
+apply_template() {
+    defaults
+    while IFS="$TAB" read -r t id st; do
+        [ "$t" = "$1" ] || continue
+        if [ "$st" = 1 ]; then item_on "$id"; else set_off "$id"; fi
+    done < "$tmp/tpl_items"
+    fix_radios
+    closure
+    start="the template $1 ($(tpl_field "$1" 2))"
+}
+# where the screens start: what there is ($1 says what), the defaults or a
+# template; 0 OK, 1 cancel
+start_menu() {
+    [ -s "$tmp/tpls" ] || return 0
+    set -- KEEP "$1" "$start"
+    [ "$start" = "$def_start" ] || set -- "$@" DEFAULTS "The defaults" "$def_start"
+    while IFS="$TAB" read -r t title desc; do set -- "$@" "$t" "$title" "$desc"; done < "$tmp/tpls"
+    c="$(dlg --title "PHP $branch: start from" --item-help --default-item KEEP --menu \
+        "What the screens start with. Every choice can still be changed there." 0 0 0 "$@")" || return 1
+    case "$c" in
+        KEEP) ;;
+        DEFAULTS) defaults; fix_radios; start="$def_start" ;;
+        *)
+            apply_template "$c"
+            [ -z "$msgs" ] || dlg --title "Turned on as well" --msgbox "$msgs" 0 0 ;;
+    esac
+    return 0
+}
+
 engine help > "$tmp/help"
 fix_radios
+if [ -n "$template" ]; then
+    tpl_known "$template" || die "PHP $branch has no template $template (sh php-menu.sh $branch --list)"
+    apply_template "$template"
+fi
 if [ -n "$list" ]; then
     closure
     echo "PHP $branch, start: $start"
@@ -1781,6 +1877,9 @@ if [ -n "$list" ]; then
         val_used "$vid" || u=" (not used: needs one of $when)"
         printf '%-10s %-20s %s%s\n' value "$vid" "$(val_get "$vid")" "$u"
     done < "$tmp/vals_def"
+    while IFS="$TAB" read -r t title desc; do
+        printf '%-10s %-20s %s\n' template "$t" "$title: $desc"
+    done < "$tmp/tpls"
     exit 0
 fi
 
@@ -1799,11 +1898,7 @@ EOF
         scr="$(awk -F '\t' -v id="$id" '$4 == id { print $3; exit }' "$tmp/items")"
         [ -n "$scr" ] || die "PHP $branch has no item $id (sh php-menu.sh $branch --list)"
         case "$c" in
-            +*) # in a radio screen the item replaces the one that was on
-                if [ "$(awk -F '\t' -v s="$scr" '$2 == s { print $3; exit }' "$tmp/screens")" = radio ]; then
-                    for o in $(awk -F '\t' -v s="$scr" '$3 == s { print $4 }' "$tmp/items"); do set_off "$o"; done
-                fi
-                set_on "$id" ;;
+            +*) item_on "$id" ;;
             -*) set_off "$id" ;;
         esac
     done
@@ -1842,6 +1937,9 @@ An absolute path of letters, digits and . _ / + - (no spaces)." 0 0
     done
 }
 
+if [ -z "$template" ]; then
+    start_menu "$start" || { echo "php-menu: cancelled, nothing written" >&2; exit 1; }
+fi
 show_screen core && show_screen ext && sub_screens || { echo "php-menu: cancelled, nothing written" >&2; exit 1; }
 while :; do
     set -- WRITE "Write ${out##*/} and save the choices" \
@@ -1853,6 +1951,7 @@ while :; do
         v="$(val_get "$vid")"
         set -- "$@" "$vid" "$desc: ${v:-none}"
     done < "$tmp/vals_def"
+    [ -s "$tmp/tpls" ] && set -- "$@" TEMPLATES "Start again from a template or the defaults"
     set -- "$@" SHOW "Show the script it writes" QUIT "Quit without writing"
     choice="$(dlg --title "PHP $branch" --default-item WRITE --menu \
         "Write the configure script, go back to a screen, or change a path" 0 0 0 "$@")" || choice=QUIT
@@ -1870,6 +1969,7 @@ while :; do
         CORE) show_screen core ;;
         EXT) show_screen ext ;;
         OPTIONS) sub_screens ;;
+        TEMPLATES) start_menu "the choices made so far" ;;
         SHOW) compose; dlg --title "$out" --textbox "$tmp/script" 0 0 ;;
         QUIT) command -v clear >/dev/null 2>&1 && clear; echo "php-menu: nothing written" >&2; exit 1 ;;
         *) val_known "$choice" && edit_value "$choice" ;;
