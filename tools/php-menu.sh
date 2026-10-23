@@ -11,19 +11,24 @@
 #   sh php-menu.sh                  the menu for the branch of this tree
 #   sh php-menu.sh 8.4              the menu for that branch (outside a tree)
 #   sh php-menu.sh --reset          start from the defaults, not the saved choices
-#   sh php-menu.sh --batch [+ID -ID ...]
+#   sh php-menu.sh --batch [+ID -ID ID=value ...]
 #                                   no dialogs: the saved choices (or the defaults),
-#                                   items turned on (+GD, +REDIS.LZ4) or off (-CGI)
+#                                   items turned on (+GD, +REDIS.LZ4) or off (-CGI),
+#                                   values typed in (PREFIX=/usr/local/php84,
+#                                   MYSQL_SOCK=/tmp/mysql.sock, MYSQL_SOCK= for none)
 #   sh php-menu.sh --list           the items of the branch, with their state
 #
 # It writes ./config.menu.sh (OUT=/path/file.sh to change): ./configure with the
 # chosen options and the environment of our builds, the same form as the
 # config.installed.sh of config-check.sh. When ./config.installed.sh is there
 # (INSTALLED=/path to change), the menu starts from what that build has, and its
-# environment and its other options (prefix, layout, php.ini paths, --build) are
-# kept; the menu decides the SAPI, the build options and the extensions. Without
-# it: our base build (/usr/local/phpXY, --disable-all, CLI and OPcache, nothing
-# else) and the compiler flags of every build (-march of /etc/make.conf).
+# environment and its other options (layout, php.ini paths, --build) are kept;
+# the menu decides the SAPI, the build options, the extensions and the values
+# typed in: the install directory (PREFIX: --prefix, the man pages in it; the
+# other paths of that build inside the old directory move along) and the MySQL
+# socket (MYSQL_SOCK, with a MySQL extension). Without it: our base build
+# (/usr/local/phpXY, --disable-all, CLI and OPcache, nothing else) and the
+# compiler flags of every build (-march of /etc/make.conf).
 #
 # The choices are saved as the ports save theirs, in
 # /var/db/php-menu/phpXY.options (PHP_MENU_DB to change), and are the start of the
@@ -62,12 +67,12 @@ menu_data() {
 *	I	core	002	FPM	0	--enable-fpm --with-fpm-user=www --with-fpm-group=www --localstatedir=/var	-	Build FPM version	sbin/php-fpm; pid and error_log relative to /var
 *	I	core	003	CGI	0	--enable-cgi	--disable-cgi	Build CGI version	bin/php-cgi: FastCGI without FPM, suPHP, mod_fcgid
 *	I	core	004	EMBED	0	--enable-embed	-	Build embedded library	libphp for programs that embed PHP; only if one links with it
-*	I	core	005	PHPDBG	0	--enable-phpdbg	-	Interactive PHP debugger	bin/phpdbg
-5.6-7.4	I	core	006	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
-*	I	core	008	DEBUG	0	--enable-debug	-	Build with debugging support	slow; for developers
-*	I	core	009	DTRACE	0	--enable-dtrace	-	Build with DTrace probes	the ports turn it on in 7.4 and later; not needed on a web server
-*	I	core	010	IPV6	1	-	--disable-ipv6	IPv6 protocol support	on by default in PHP (the ports turn it off)
-5.6	I	core	012	PCRE	0	--with-pcre-regex=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE 8.45 is the last release: not needed (package pcre)
+5.6	I	core	005	PHPDBG	0	--enable-phpdbg	-	Interactive PHP debugger	bin/phpdbg; off by default in 5.6
+5.6-7.4	I	core	007	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
+*	I	core	009	DEBUG	0	--enable-debug	-	Build with debugging support	slow; for developers
+*	I	core	010	DTRACE	0	--enable-dtrace	-	Build with DTrace probes	the ports turn it on in 7.4 and later; not needed on a web server
+*	I	core	011	IPV6	1	-	--disable-ipv6	IPv6 protocol support	on by default in PHP (the ports turn it off)
+5.6	I	core	013	PCRE	0	--with-pcre-regex=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE 8.45 is the last release: not needed (package pcre)
 *	I	ext	001	BCMATH	0	--enable-bcmath	-	bc style precision math functions	-
 *	I	ext	002	BZ2	0	--with-bz2	-	bzip2 library support	bzip2 of the base system
 *	I	ext	003	CALENDAR	0	--enable-calendar	-	calendar conversion support	-
@@ -99,15 +104,15 @@ menu_data() {
 *	I	ext	031	MEMCACHE	0	--enable-memcache	-	memcache client, the old one (PECL)	-
 *	I	ext	032	MEMCACHED	0	--enable-memcached --with-libmemcached-dir=/usr/local	-	memcached client on libmemcached (PECL)	package libmemcached
 5.6	I	ext	033	MSSQL	0	--with-mssql=/usr/local	-	MS-SQL database support	package freetds
-5.6	I	ext	034	MYSQL	0	--with-mysql --with-mysql-sock=/tmp/mysql.sock	-	MySQL database support	on mysqlnd: no MySQL client needed
-5.6	I	ext	035	MYSQLI	0	--with-mysqli --with-mysql-sock=/tmp/mysql.sock	-	MySQLi database support	on mysqlnd: no MySQL client needed
+5.6	I	ext	034	MYSQL	0	--with-mysql	-	MySQL database support	on mysqlnd: no MySQL client needed
+5.6	I	ext	035	MYSQLI	0	--with-mysqli	-	MySQLi database support	on mysqlnd: no MySQL client needed
 *	I	ext	036	ODBC	0	--with-unixODBC=/usr/local	-	ODBC support	package unixODBC
 5.6	I	ext	037	OPENSSL	0	--with-openssl=/usr	-	SSL/TLS support via OpenSSL	OpenSSL of the base system
 *	I	ext	039	PCNTL	0	--enable-pcntl	-	pcntl support (CLI only)	CLI only: daemons and queue workers
 *	I	ext	040	PDO	0	--enable-pdo	-	PHP Data Objects Interface (PDO)	-
 *	I	ext	041	PDO_DBLIB	0	--with-pdo-dblib=/usr/local	-	PDO DBLIB-DB driver	package freetds
 *	I	ext	042	PDO_FIREBIRD	0	--with-pdo-firebird=/usr/local	-	PDO Firebird driver	Firebird client package (firebirdNN-client)
-5.6	I	ext	043	PDO_MYSQL	0	--with-pdo-mysql --with-mysql-sock=/tmp/mysql.sock	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
+5.6	I	ext	043	PDO_MYSQL	0	--with-pdo-mysql	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
 *	I	ext	044	PDO_ODBC	0	--with-pdo-odbc=unixODBC,/usr/local	-	PDO ODBC driver	package unixODBC
 5.6	I	ext	045	PDO_PGSQL	0	--with-pdo-pgsql=/usr/local	-	PDO PostgreSQL driver	PostgreSQL client package (postgresqlNN-client)
 5.6	I	ext	046	PDO_SQLITE	0	--with-pdo-sqlite	-	PDO sqlite driver	SQLite built in
@@ -541,6 +546,10 @@ menu_data() {
 *	O	--enable-zlib
 *	O	--enable-zlib-dir
 *	O	--enable-zts
+*	O	--infodir
+*	O	--localstatedir
+*	O	--mandir
+*	O	--prefix
 5.6	O	--with-ODBCRouter
 *	O	--with-adabas
 *	O	--with-apxs2
@@ -852,10 +861,13 @@ menu_data() {
 *	O	--without-zip
 *	O	--without-zlib
 *	O	--without-zlib-dir
+*	V	PREFIX	/usr/local/php%S	-	Install directory	--prefix=%V --mandir=%V/man	bin, sbin, lib, include, etc (php.ini with --with-layout=GNU) and man go there
+5.6	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysql/mysqli/pdo_mysql.default_socket; 5.6 takes it only with the mysql extension; empty: none (mysqlnd uses /tmp/mysql.sock)
 7.4+	S	007	gdformats	check	GD	GD.EXTERNAL=0	GD: formats of the libgd of PHP
 7.4+	S	018	swoole	check	SWOOLE	-	Swoole options
 7.4+	S	015	openswoole	check	OPENSWOOLE	-	OpenSwoole options
-7.4+	I	core	012	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
+7.4+	I	core	005	PHPDBG	0	--enable-phpdbg	--disable-phpdbg	Interactive PHP debugger	bin/phpdbg; PHP builds it by default, also with --disable-all (configure reads the SAPIs first)
+7.4+	I	core	013	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
 7.4	I	ext	000	ARGON2	0	--with-password-argon2=/usr/local	-	Argon2 in password_hash()	package libargon2
 7.4+	I	ext	009	EXCIMER	0	--enable-excimer	-	Excimer sampling profiler (PECL)	-
 7.4+	I	ext	011	FFI	0	--with-ffi	-	Foreign Function Interface support	package libffi
@@ -864,10 +876,10 @@ menu_data() {
 7.4+	I	ext	028	LIBXML	0	--with-libxml	-	libxml2 support (needed by the XML extensions)	package libxml2
 7.4+	I	ext	029	MBSTRING	0	--enable-mbstring	-	multibyte string support	mb_ereg_* need the package oniguruma: next screen
 7.4+	I	ext	030	MCRYPT	0	--with-mcrypt=/usr/local	-	Encryption support	PECL mcrypt bundled in the fork; package libmcrypt
-7.4+	I	ext	035	MYSQLI	0	--with-mysqli=mysqlnd --with-mysql-sock=/tmp/mysql.sock	-	MySQLi database support	on mysqlnd: no MySQL client needed
+7.4+	I	ext	035	MYSQLI	0	--with-mysqli=mysqlnd	-	MySQLi database support	on mysqlnd: no MySQL client needed
 7.4+	I	ext	037	OPENSSL	0	--with-openssl	-	OpenSSL support	OpenSSL of the base system
 7.4+	I	ext	038	OPENSWOOLE	0	--enable-openswoole	-	OpenSwoole: coroutines, asynchronous servers (PECL)	heavy: only for applications on OpenSwoole; not with swoole
-7.4+	I	ext	043	PDO_MYSQL	0	--with-pdo-mysql=mysqlnd --with-mysql-sock=/tmp/mysql.sock	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
+7.4+	I	ext	043	PDO_MYSQL	0	--with-pdo-mysql=mysqlnd	-	PDO MySQL driver	on mysqlnd: no MySQL client needed
 7.4+	I	ext	045	PDO_PGSQL	0	--with-pdo-pgsql	-	PDO PostgreSQL driver	PostgreSQL client package (postgresqlNN-client)
 7.4+	I	ext	046	PDO_SQLITE	0	--with-pdo-sqlite	-	PDO sqlite driver	package sqlite3
 7.4+	I	ext	047	PGSQL	0	--with-pgsql	-	PostgreSQL database support	PostgreSQL client package (postgresqlNN-client)
@@ -1073,8 +1085,9 @@ menu_data() {
 7.4+	O	--without-webp
 7.4+	O	--without-xpm
 7.4+	O	--without-zstd
-8.1+	I	core	006	ZTS	0	--enable-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
-8.1+	I	core	011	JIT	1	-	--disable-opcache-jit	OPcache JIT	compiled in by default; turned on in php.ini (opcache.jit, opcache.jit_buffer_size)
+7.4+	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQLI PDO_MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysqli.default_socket and pdo_mysql.default_socket; empty: none (mysqlnd uses /tmp/mysql.sock)
+8.1+	I	core	007	ZTS	0	--enable-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
+8.1+	I	core	012	JIT	1	-	--disable-opcache-jit	OPcache JIT	compiled in by default; turned on in php.ini (opcache.jit, opcache.jit_buffer_size)
 8.1-8.3	I	ext	000	ARGON2	0	--with-password-argon2	-	Argon2 in password_hash()	package libargon2
 8.1+	I	gdformats	003	GD.F_AVIF	0	--with-avif	-	AVIF image format support	package libavif
 8.1+	I	swoole	003	SWOOLE.PGSQL	0	--enable-swoole-pgsql	-	Coroutine PostgreSQL client	PostgreSQL client package
@@ -1216,7 +1229,7 @@ EOF
 # --- end of data ---
 
 # --- arguments ----------------------------------------------------------------------
-branch="" batch="" reset="" list="" changes=""
+branch="" batch="" reset="" list="" changes="" values=""
 for a in "$@"; do
     case "$a" in
         -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
@@ -1225,10 +1238,12 @@ for a in "$@"; do
         --list) list=1 ;;
         [0-9].[0-9]) branch="$a" ;;
         [+-][A-Z]*) changes="$changes $a" ;;
+        [A-Z]*=*) values="$values$a
+" ;;
         *) die "unknown argument: $a (sh php-menu.sh --help)" ;;
     esac
 done
-[ -z "$changes" ] || [ -n "$batch" ] || die "+ID and -ID are for --batch"
+[ -z "$changes$values" ] || [ -n "$batch" ] || die "+ID, -ID and ID=value are for --batch"
 
 if [ -z "$branch" ] && [ -f main/php_version.h ]; then
     branch="$(awk '$2 == "PHP_MAJOR_VERSION" { a = $3 } $2 == "PHP_MINOR_VERSION" { b = $3 }
@@ -1266,6 +1281,7 @@ trap 'exit 1' INT TERM HUP
 # screens: order id kind parent show-if title
 # items:   screen-order item-order screen id default on off description help
 # rels:    R|X item other why;  dyn: item rule;  defon: item;  owned: option
+# vals_def: value default when description arguments help
 menu_data | awk -F '\t' -v b="$branch" -v d="$tmp" '
     function v(x,   p) { split(x, p, "."); return p[1] * 100 + p[2] }
     function inspan(s,   p) {
@@ -1282,13 +1298,14 @@ menu_data | awk -F '\t' -v b="$branch" -v d="$tmp" '
     $2 == "D" { print $3 "\t" $4 > (d "/dyn") }
     $2 == "E" { print $3 > (d "/defon") }
     $2 == "O" { print $3 > (d "/owned") }
+    $2 == "V" { print $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 > (d "/vals_def") }
     END {
         for (i = 1; i <= n; i++) {
             split(il[i], f, "\t")
             print so[f[3]] "\t" f[4] "\t" f[3] "\t" f[5] "\t" f[6] "\t" f[7] "\t" f[8] "\t" f[9] "\t" f[10] > (d "/items.u")
         }
     }'
-for f in rels dyn defon owned; do [ -f "$tmp/$f" ] || : > "$tmp/$f"; done
+for f in rels dyn defon owned vals_def; do [ -f "$tmp/$f" ] || : > "$tmp/$f"; done
 sort -t "$TAB" -k1,1 "$tmp/screens.u" > "$tmp/screens"
 sort -t "$TAB" -k1,1 -k2,2 "$tmp/items.u" > "$tmp/items"
 [ -s "$tmp/items" ] || die "no menu data for PHP $branch"
@@ -1379,6 +1396,10 @@ engine() {
             if (c ~ /=0$/) { x = c; sub(/=0$/, "", x); if (x in st) ok = 0 }
             if (c ~ /=1$/) { x = c; sub(/=1$/, "", x); if (!(x in st)) ok = 0 }
             print ok ? 1 : 0
+        } else if (mode ~ /^active /) {   # is one of these items active
+            s = mode; sub(/^active /, "", s); k = split(s, w, " "); ok = 0
+            for (j = 1; j <= k; j++) if (act(w[j])) ok = 1
+            print ok
         } else if (mode == "list") {
             for (i = 1; i <= n; i++) printf "%-10s %-20s %-3s %s\n", scr[ids[i]], ids[i], (act(ids[i]) ? "on" : "off"), desc[ids[i]]
         } else if (mode == "packages") { # what the help of the active items names as "package foo"
@@ -1418,6 +1439,49 @@ fix_radios() { ON="$(engine radios)"; }
 closure() { engine closure > "$tmp/cl"; ON="$(sed -n "s/^ON$TAB//p" "$tmp/cl")"; msgs="$(sed -n "s/^MSG$TAB//p" "$tmp/cl")"; }
 conflicts() { bad="$(engine conflicts)"; }
 chosen_options() { engine options; }
+
+# --- the values typed in (PREFIX, MYSQL_SOCK): "$tmp/vals", value TAB text -----------
+: > "$tmp/vals"
+val_get() { awk -F '\t' -v id="$1" '$1 == id { v = $2 } END { printf "%s", v }' "$tmp/vals"; }
+val_set() {
+    awk -F '\t' -v id="$1" '$1 != id' "$tmp/vals" > "$tmp/vals.n"
+    printf '%s\t%s\n' "$1" "$2" >> "$tmp/vals.n"
+    mv "$tmp/vals.n" "$tmp/vals"
+}
+val_known() { awk -F '\t' -v id="$1" '$1 == id { f = 1 } END { exit !f }' "$tmp/vals_def"; }
+val_field() { awk -F '\t' -v id="$1" -v n="$2" '$1 == id { print $n; exit }' "$tmp/vals_def"; }
+# a path as configure takes it: absolute, of letters, digits and . _ / + - (no
+# spaces), without the slash at the end; empty only for a value that may be
+# empty (the ones shown with an item); prints it, or fails
+val_clean() {
+    v="$2"
+    while [ "${#v}" -gt 1 ] && [ "${v%/}" != "$v" ]; do v="${v%/}"; done
+    case "$v" in
+        '') [ "$(val_field "$1" 3)" != "-" ] || return 1 ;;
+        /*) case "$v" in *[!A-Za-z0-9._/+-]*) return 1 ;; esac ;;
+        *) return 1 ;;
+    esac
+    printf '%s' "$v"
+}
+# is the value used now: shown always, or one of its items is on
+val_used() {
+    w="$(val_field "$1" 3)"
+    [ "$w" = "-" ] || [ "$(engine "active $w")" = 1 ]
+}
+# the configure options of the values: "top" (the ones shown always: PREFIX) or
+# "rest" (the others, when one of their items is on), none for an empty value
+val_options() {
+    while IFS="$TAB" read -r vid _ when _ vargs _; do
+        if [ "$1" = top ]; then [ "$when" = "-" ] || continue; else [ "$when" != "-" ] || continue; fi
+        val_used "$vid" || continue
+        v="$(val_get "$vid")"
+        [ -n "$v" ] || continue
+        for w in $vargs; do printf '%s\n' "$w" | sed "s|%V|$v|g"; done
+    done < "$tmp/vals_def"
+}
+while IFS="$TAB" read -r vid vdef _; do
+    val_set "$vid" "$(printf '%s' "$vdef" | sed "s/%S/$short/g")"
+done < "$tmp/vals_def"
 
 # OpenSSL of the base system (the one the build uses): major*100+minor, 0 unknown
 ossl_ver() {
@@ -1510,11 +1574,25 @@ from_installed() {
         }' "$tmp/items"
 }
 
+# the values the installed build has (--prefix=, --with-mysql-sock=): the first
+# option of a value, when it is the value alone
+if [ -z "$reset" ] && [ -f "$installed" ]; then
+    while IFS="$TAB" read -r vid _ _ _ vargs _; do
+        w="${vargs%% *}"
+        [ "${w#*=}" = "%V" ] || continue
+        v="$(sed -n "s|^${w%%=*}=||p" "$tmp/inst_opts" | tail -n 1)"
+        [ -n "$v" ] && v="$(val_clean "$vid" "$v")" && val_set "$vid" "$v"
+    done < "$tmp/vals_def"
+fi
+
 if [ -z "$reset" ] && [ -f "$db/php$short.options" ]; then
     while IFS= read -r l; do
         case "$l" in
             OPTIONS_FILE_SET+=*) set_on "${l#OPTIONS_FILE_SET+=}" ;;
             OPTIONS_FILE_UNSET+=*) set_off "${l#OPTIONS_FILE_UNSET+=}" ;;
+            VALUE_*=*)
+                vid="${l#VALUE_}"; vid="${vid%%=*}"
+                val_known "$vid" && v="$(val_clean "$vid" "${l#*=}")" && val_set "$vid" "$v" ;;
         esac
     done < "$db/php$short.options"
     start="the choices saved in $db/php$short.options"
@@ -1589,23 +1667,38 @@ compose() {
     : > "$tmp/opts"
     if [ -f "$installed" ]; then
         cp "$tmp/inst_env" "$tmp/env"
-        awk -v owned="$tmp/owned" 'BEGIN { while ((getline o < owned) > 0) own[o] = 1 }
-            { n = $0; sub(/=.*/, "", n) } !(n in own)' "$tmp/inst_opts" > "$tmp/opts"
+        # its options the menu does not decide; the ones with a path inside its
+        # install directory move to the new one (php.ini paths)
+        old="$(sed -n 's/^--prefix=//p' "$tmp/inst_opts" | tail -n 1)"
+        awk -v owned="$tmp/owned" -v old="$old" -v new="$(val_get PREFIX)" '
+            BEGIN { while ((getline o < owned) > 0) own[o] = 1 }
+            { n = $0; sub(/=.*/, "", n) }
+            n in own { next }
+            old != "" && new != "" && old != new && index($0, "=") {
+                v = substr($0, index($0, "=") + 1)
+                if (v == old || substr(v, 1, length(old) + 1) == old "/") $0 = n "=" new substr(v, length(old) + 1)
+            }
+            { print }' "$tmp/inst_opts" > "$tmp/opts"
         base="the other options and the environment of $installed"
     else
         m="$(mc_march)"
         cf="-O3 -pipe${m:+ -march=$m} -fstack-protector-strong -fno-strict-aliasing"
         printf "CFLAGS='%s'\nCXXFLAGS='%s'\nLIBS='-lpthread'\n" "$cf" "$cf" > "$tmp/env"
         printf '%s\n' "--build=$(uname -p)-srcbld-$(uname -s | tr 'A-Z' 'a-z')$(uname -r | sed 's/[-(].*//')" \
-            "--prefix=/usr/local/php$short" "--with-layout=GNU" > "$tmp/opts"
+            "--with-layout=GNU" > "$tmp/opts"
         base="our base build (CFLAGS with the -march of $mk_conf)"
     fi
+    # the install directory (and the man pages in it) after --build
+    val_options top > "$tmp/vtop"
+    { grep -- '^--build=' "$tmp/opts"; cat "$tmp/vtop"; grep -v -- '^--build=' "$tmp/opts"; } > "$tmp/opts.b"
+    mv "$tmp/opts.b" "$tmp/opts"
     # our base, also when the installed build lacked it
     for o in --disable-all --enable-opcache; do grep -qx -- "$o" "$tmp/opts" || echo "$o" >> "$tmp/opts"; done
     case "$branch" in
         7.4|8.1|8.2) grep -q -- '^--with\(out\)\{0,1\}-valgrind' "$tmp/opts" || echo --without-valgrind >> "$tmp/opts" ;;
     esac
     chosen_options >> "$tmp/opts"
+    val_options rest >> "$tmp/opts"
     awk '!seen[$0]++' "$tmp/opts" > "$tmp/opts.u"
     {
         echo "#!/bin/sh"
@@ -1633,6 +1726,7 @@ save_choices() {
         while IFS="$TAB" read -r _ _ _ id _; do
             if is_on "$id"; then echo "OPTIONS_FILE_SET+=$id"; else echo "OPTIONS_FILE_UNSET+=$id"; fi
         done < "$tmp/items"
+        while IFS="$TAB" read -r vid _; do echo "VALUE_$vid=$(val_get "$vid")"; done < "$tmp/vals_def"
     } > "$db/php$short.options" 2>/dev/null || echo "php-menu: cannot write $db/php$short.options" >&2
 }
 
@@ -1653,10 +1747,24 @@ if [ -n "$list" ]; then
     closure
     echo "PHP $branch, start: $start"
     engine list
+    while IFS="$TAB" read -r vid _ when desc _; do
+        u=""
+        val_used "$vid" || u=" (not used: needs one of $when)"
+        printf '%-10s %-20s %s%s\n' value "$vid" "$(val_get "$vid")" "$u"
+    done < "$tmp/vals_def"
     exit 0
 fi
 
 if [ -n "$batch" ]; then
+    while IFS= read -r c; do
+        [ -n "$c" ] || continue
+        vid="${c%%=*}"
+        val_known "$vid" || die "PHP $branch has no value $vid (sh php-menu.sh $branch --list)"
+        v="$(val_clean "$vid" "${c#*=}")" || die "$vid: not a path for configure: ${c#*=}"
+        val_set "$vid" "$v"
+    done <<EOF
+$values
+EOF
     for c in $changes; do
         id="${c#?}"
         scr="$(awk -F '\t' -v id="$id" '$4 == id { print $3; exit }' "$tmp/items")"
@@ -1691,16 +1799,34 @@ sub_screens() {
         show_screen "$sid" < /dev/tty || return 1
     done < "$tmp/subs"
 }
+# a value in an input box; Cancel keeps it as it was
+edit_value() {
+    vid="$1"
+    v="$(val_get "$vid")"
+    while :; do
+        nv="$(dlg --title "$(val_field "$vid" 4)" --inputbox "$(val_field "$vid" 6)" 0 72 "$v")" || return 0
+        if c="$(val_clean "$vid" "$nv")"; then val_set "$vid" "$c"; return 0; fi
+        dlg --title "$(val_field "$vid" 4)" --msgbox "Not a path for configure: $nv
+
+An absolute path of letters, digits and . _ / + - (no spaces)." 0 0
+        v="$nv"
+    done
+}
+
 show_screen core && show_screen ext && sub_screens || { echo "php-menu: cancelled, nothing written" >&2; exit 1; }
 while :; do
-    choice="$(dlg --title "PHP $branch" --default-item WRITE --menu \
-        "Write the configure script, or go back to a screen" 0 0 0 \
-        WRITE "Write ${out##*/} and save the choices" \
+    set -- WRITE "Write ${out##*/} and save the choices" \
         CORE "Build options" \
         EXT "Extensions" \
-        OPTIONS "Options of the extensions" \
-        SHOW "Show the script it writes" \
-        QUIT "Quit without writing")" || choice=QUIT
+        OPTIONS "Options of the extensions"
+    while IFS="$TAB" read -r vid _ _ desc _; do
+        val_used "$vid" || continue
+        v="$(val_get "$vid")"
+        set -- "$@" "$vid" "$desc: ${v:-none}"
+    done < "$tmp/vals_def"
+    set -- "$@" SHOW "Show the script it writes" QUIT "Quit without writing"
+    choice="$(dlg --title "PHP $branch" --default-item WRITE --menu \
+        "Write the configure script, go back to a screen, or change a path" 0 0 0 "$@")" || choice=QUIT
     case "$choice" in
         WRITE)
             fix_radios
@@ -1717,5 +1843,6 @@ while :; do
         OPTIONS) sub_screens ;;
         SHOW) compose; dlg --title "$out" --textbox "$tmp/script" 0 0 ;;
         QUIT) command -v clear >/dev/null 2>&1 && clear; echo "php-menu: nothing written" >&2; exit 1 ;;
+        *) val_known "$choice" && edit_value "$choice" ;;
     esac
 done

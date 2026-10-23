@@ -564,12 +564,14 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
         add --prefix="$prefix" --disable-all --with-layout=GNU --with-zend-vm=CALL --enable-libxml \
             --with-libxml-dir=/usr/local --with-regex=php --enable-mysqlnd
     else
-        add --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --program-prefix= \
-            --prefix="$prefix" --mandir="$prefix/man" --infodir="$prefix/info/"
+        add --with-layout=GNU --disable-all --with-libxml --program-prefix= \
+            --prefix="$prefix" --mandir="$prefix/man"
     fi
     opt CLI off && add --disable-cli
     opt CGI off && add --disable-cgi
-    opt FPM on && add --enable-fpm --with-fpm-user=www --with-fpm-group=www
+    # --localstatedir: only php-fpm reads it (its relative pid and error_log);
+    # --infodir of the ports is left out: PHP installs no info pages
+    opt FPM on && add --enable-fpm --with-fpm-user=www --with-fpm-group=www --localstatedir=/var
     # One build makes one SAPI module (./configure: "You can build only one SAPI
     # module"). The ports build the embed library (EMBED of phpXY) and the Apache
     # module (mod_phpXY) separately; with mod_phpXY installed the Apache module stays.
@@ -588,7 +590,13 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
             add --enable-embed
         fi
     fi
-    opt PHPDBG on && add --enable-phpdbg
+    # phpdbg: off by default in 5.6; in 7.4 and later on by default, and
+    # --disable-all leaves it on (configure reads the SAPIs before it)
+    if opt PHPDBG on; then
+        add --enable-phpdbg
+    elif [ "$fam" != 5 ]; then
+        add --disable-phpdbg
+    fi
     opt IPV6 off && add --disable-ipv6
     if opt ZTS on; then
         if [ "$fam" = 8 ]; then add --enable-zts; else add --enable-maintainer-zts; fi
