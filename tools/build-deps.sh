@@ -14,7 +14,10 @@
 # For every library the ports framework fetches the distfiles of the port at the
 # commit of deps.conf, checks them against its distinfo, extracts them and
 # applies the port's patches (make patch); this script then configures and builds
-# the source tree that way with its own options: only static libraries, -fPIC,
+# the source tree that way with its own options. curl and the libraries it needs
+# ("bundle" in deps.conf) are the ones of --with-curl=bundled instead: the
+# release files of freebsd/curl.conf and freebsd/curl-deps.conf (tools/curl-sources.sh),
+# built by freebsd/curl/build-libcurl.sh. All: only static libraries, -fPIC,
 # into PHPDEPS (default /usr/local/phpdeps), in DEPS_WORK (default
 # /var/tmp/phpdeps-work). Results go to deps-results/
 # (summary.txt, one log per library), the tarball to dist/
@@ -86,7 +89,7 @@ export CXXFLAGS="$CFLAGS"
 export CPPFLAGS="-I$P/include"
 export LDFLAGS="-L$P/lib"
 # pkg-config with --static: there are only static libraries, so link tests and
-# tools need the libraries behind them too (libpsl: libidn2, libunistring).
+# tools need the libraries behind them too (libidn2: libiconv).
 mkdir -p "$work/bin"
 printf '%s\n' '#!/bin/sh' 'exec pkgconf --static "$@"' > "$work/bin/pkg-config-static"
 chmod +x "$work/bin/pkg-config-static"
@@ -113,7 +116,7 @@ ports_checkout() {
         git -C "$ports" remote add origin https://github.com/freebsd/freebsd-ports &&
         git -C "$ports" fetch -q --depth 1 --filter=blob:none origin "$ports_commit" &&
         git -C "$ports" sparse-checkout set --no-cone /Mk/ /Templates/ /Keywords/ \
-            $(awk '$1 == "lib" { printf "/%s/ ", $3 }' "$conf") /devel/gettext/ \
+            $(awk '$1 == "lib" && $3 != "bundle" { printf "/%s/ ", $3 }' "$conf") /devel/gettext/ \
             '/lang/perl5*/' '/lang/python3*/' &&
         git -C "$ports" checkout -q FETCH_HEAD
 }
@@ -158,28 +161,6 @@ b_libiconv() {
     fix_guess "$1"
     (cd "$1" && ./configure --prefix="$P" --libdir="$P/lib" --enable-static --disable-shared --with-pic \
         --disable-nls --enable-extra-encodings am_cv_func_iconv=no && gmake && gmake install)
-}
-b_libunistring() { at "$1" --with-libiconv-prefix="$P"; }
-b_libidn2() { at "$1" --disable-nls --disable-doc --with-libiconv-prefix="$P" --with-libunistring-prefix="$P" ac_cv_prog_RONN=true; }
-b_libpsl() {
-    # as the port (built-in list, IDN2). -Druntime=libidn2 makes meson look for libunistring
-    # with find_library(): with -Dprefer_static=true it only searches the compiler's own
-    # library dirs (not $P/lib) and fails, without it it tries -lunistring with the link
-    # args below, which finds $P/lib/libunistring.a (the bundle has only static libraries,
-    # and the static pkg-config gives the psl tool the libraries behind libidn2).
-    # -Dc_args replaces the CFLAGS of the environment, so they go in there too, and the
-    # plain build type adds no flags of its own (meson's default, debug, is -O0 -g).
-    (cd "$1" && meson setup _phpdeps --prefix="$P" --libdir=lib --buildtype=plain \
-        -Ddefault_library=static -Db_staticpic=true \
-        -Druntime=libidn2 -Dbuiltin=true -Ddocs=false \
-        -Dc_args="$CPPFLAGS $CFLAGS" -Dc_link_args="$LDFLAGS" &&
-        ninja -C _phpdeps && ninja -C _phpdeps install)
-}
-b_nghttp2() { at "$1" --enable-lib-only; }
-b_brotli() { cm "$1" -DBROTLI_DISABLE_TESTS=ON; }
-b_zstd() {
-    (cd "$1/lib" && gmake -j"$ncpu" libzstd.a libzstd.pc PREFIX="$P" LIBDIR="$P/lib" &&
-        gmake install-static install-pc install-includes PREFIX="$P" LIBDIR="$P/lib" PKGCONFIGDIR="$P/lib/pkgconfig")
 }
 b_lz4() {
     (cd "$1/lib" && gmake -j"$ncpu" liblz4.a liblz4.pc PREFIX="$P" LIBDIR="$P/lib" BUILD_SHARED=no &&
@@ -250,50 +231,6 @@ b_gettext() {
     at "$1" --disable-csharp --disable-java --disable-libasprintf --disable-threads --disable-openmp \
         --disable-acl --with-libiconv-prefix="$P" --without-emacs ac_cv_lib_rt_sched_yield=no
 }
-b_curl() {
-    # the options of freebsd/curl/build-libcurl.sh (--with-curl=bundled), with the bundle's
-    # OpenSSL and libraries
-    at "$1" --disable-dependency-tracking --with-openssl="$P" --enable-openssl-auto-load-config \
-        --with-ca-path=/etc/ssl/certs --without-ca-bundle \
-        --with-nghttp2="$P" --with-brotli="$P" --with-zstd="$P" --with-libidn2="$P" --with-libpsl \
-        --enable-http --enable-ftp --enable-imap --enable-pop3 --enable-smtp \
-        --enable-proxy --enable-cookies --enable-alt-svc --enable-hsts --enable-ntlm \
-        --enable-websockets --enable-ipv6 --enable-threaded-resolver \
-        --enable-aws --enable-dateparse --enable-dnsshuffle --enable-headers-api \
-        --enable-http-auth --enable-mime --enable-netrc --enable-progress-meter \
-        --enable-ssls-export --enable-typecheck \
-        --disable-httpsig --disable-unity --disable-werror \
-        --disable-dict --disable-gopher --disable-ipfs --disable-mqtt --disable-rtsp \
-        --disable-telnet --disable-tftp --disable-ldap --disable-ldaps \
-        --without-gssapi --without-libssh2 --without-libssh \
-        --disable-manual --disable-docs --without-zsh-functions-dir --without-fish-functions-dir \
-        ac_cv_func_SSLv2_client_method=no &&
-        curl_hide_nghttp2
-}
-
-# libcurl.a with libnghttp2.a linked into it and the nghttp2 symbols made local:
-# swoole and openswoole carry a copy of nghttp2 of their own (thirdparty/nghttp2),
-# which clashed with libnghttp2.a in a static link of PHP ("duplicate symbol:
-# nghttp2_strerror", huff_sym_table), and curl keeps the nghttp2 it was built with.
-# libcurl.pc no longer names libnghttp2.
-curl_hide_nghttp2() {
-    m="$work/libcurl-merged.o"
-    rm -f "$m"
-    ld -r -o "$m" --whole-archive "$P/lib/libcurl.a" "$P/lib/libnghttp2.a" --no-whole-archive || return 1
-    nm -g --defined-only "$m" | awk 'NF == 3 && $3 ~ /^(nghttp2_|sfparse_|huff_)/ { print $3 }' > "$work/nghttp2.syms"
-    [ -s "$work/nghttp2.syms" ] || { echo "curl_hide_nghttp2: no nghttp2 symbols in libcurl"; return 1; }
-    objcopy --localize-symbols="$work/nghttp2.syms" "$m" || return 1
-    if nm -g --defined-only "$m" | awk 'NF == 3 { print $3 }' | grep -q -E '^(nghttp2_|sfparse_|huff_)'; then
-        echo "curl_hide_nghttp2: nghttp2 symbols still global"; return 1
-    fi
-    rm -f "$P/lib/libcurl.a" && ar rcs "$P/lib/libcurl.a" "$m" || return 1
-    for pc in "$P/lib/pkgconfig/libcurl.pc" "$P/libdata/pkgconfig/libcurl.pc"; do
-        [ -f "$pc" ] || continue
-        sed -i '' -E -e '/^Libs.private:/ s/ ?-lnghttp2//' \
-            -e '/^Requires.private:/ { s/libnghttp2( *[<>=]+ *[^ ,]+)? *,? *//; s/, *$//; }' "$pc"
-    done
-    echo "curl_hide_nghttp2: $(wc -l < "$work/nghttp2.syms" | tr -d ' ') nghttp2 symbols local in libcurl.a"
-}
 
 # One library: fetch, check, extract and patch with the ports framework, then build.
 build_one() {
@@ -301,6 +238,7 @@ build_one() {
     port="$(port_of "$n")"
     log="$res/$n.log"
     start=$(date +%s)
+    if [ "$port" = bundle ]; then build_bundle "$n"; return; fi
     (
         echo "== $n: $port at $ports_commit"
         pmake "$port" clean >/dev/null 2>&1
@@ -322,6 +260,49 @@ build_one() {
         printf '%s %s %s\n' "$n" "$pkgname" "$port" >> "$res/built.txt"
     else
         printf '%-14s FAIL  %-22s %-24s %4ss (deps-results/%s.log)\n' "$n" "$ver" "$port" "$(( $(date +%s) - start ))" "$n" >> "$res/summary.txt"
+        tail -n 25 "$log" > "$res/$n.tail"
+    fi
+    say "$n: $(tail -n 1 "$res/summary.txt" | awk '{ print $2 }')"
+    return "$rc"
+}
+
+# One library of the bundled curl (port "bundle" in deps.conf): the sources of
+# tools/curl-sources.sh (once per run), built by freebsd/curl/build-libcurl.sh as
+# for --with-curl=bundled; curl takes its libraries into libcurl.a with their
+# symbols local (swoole carries a copy of nghttp2, libzip links zstd).
+bundle_ver() {
+    if [ "$1" = curl ]; then
+        sed -n 's/^#define LIBCURL_VERSION "\(.*\)"$/\1/p' "$work/curl-src/libcurl/include/curl/curlver.h"
+    else
+        awk -v n="$1" '$1 == n { print $2 }' "$work/curl-src/deps/VERSIONS"
+    fi
+}
+build_bundle() {
+    n="$1"
+    (
+        echo "== $n: the bundled curl (freebsd/curl.conf, freebsd/curl-deps.conf)"
+        if [ ! -f "$work/curl-src/deps/VERSIONS" ]; then
+            sh "$top/tools/curl-sources.sh" "$work/curl-src" || { echo "tools/curl-sources.sh failed"; exit 1; }
+        fi
+        : > "$work/stamp-$n"
+        b="$top/freebsd/curl/build-libcurl.sh"
+        case "$n" in
+            curl) OBJDIR="$work/obj-curl" sh "$b" --curl "$work/curl-src/libcurl" "$P" "$P" ;;
+            libidn2) LIBICONV_PREFIX="$P" OBJDIR="$work/obj-curl" sh "$b" --lib libidn2 "$work/curl-src/deps/libidn2" "$P" ;;
+            *) OBJDIR="$work/obj-curl" sh "$b" --lib "$n" "$work/curl-src/deps/$n" "$P" ;;
+        esac || exit 1
+        if [ -z "$(find "$P/lib" -maxdepth 1 -name '*.a' -newer "$work/stamp-$n" | head -n 1)" ]; then
+            echo "== no new static library of $n in $P/lib"; exit 1
+        fi
+    ) > "$log" 2>&1
+    rc=$?
+    ver="$(bundle_ver "$n")"
+    case "$n" in nghttp2) pkgname="libnghttp2-$ver" ;; *) pkgname="$n-$ver" ;; esac
+    if [ "$rc" = 0 ]; then
+        printf '%-14s OK    %-22s %-24s %4ss\n' "$n" "$ver" bundle "$(( $(date +%s) - start ))" >> "$res/summary.txt"
+        printf '%s %s %s\n' "$n" "$pkgname" bundle >> "$res/built.txt"
+    else
+        printf '%-14s FAIL  %-22s %-24s %4ss (deps-results/%s.log)\n' "$n" "$ver" bundle "$(( $(date +%s) - start ))" "$n" >> "$res/summary.txt"
         tail -n 25 "$log" > "$res/$n.tail"
     fi
     say "$n: $(tail -n 1 "$res/summary.txt" | awk '{ print $2 }')"
@@ -415,6 +396,14 @@ manifest() {
         echo
         while read -r n pkgname port; do
             printf '%-14s %-28s %s\n' "$n" "$pkgname" "$port"
+            if [ "$port" = bundle ]; then
+                if [ "$n" = curl ]; then
+                    awk '!/^#/ && NF >= 4 { u = $3; s = $4 } END { n = split(u, p, "/"); print "    " p[n] " sha256 " s }' "$top/freebsd/curl.conf"
+                else
+                    awk -v n="$n" '$1 == n { print "    " $4 " sha256 " $3 }' "$work/curl-src/deps/VERSIONS"
+                fi
+                continue
+            fi
             sed -n 's/^SHA256 (\(.*\)) = \(.*\)/    \1 sha256 \2/p' "$ports/$port/distinfo"
             np="$(ls "$ports/$port/files" 2>/dev/null | grep -c '^patch-')"
             [ "$np" -gt 0 ] && echo "    $np patches of the port"

@@ -52,10 +52,12 @@ jobs:
             echo "::warning::Secret SYNC_TOKEN is not set; pushes run with GITHUB_TOKEN and may be rejected when upstream history changes .github/workflows."
           fi
 
+      # zstd and lzip: release files of the libraries of the bundled curl
+      # (tools/curl-sources.sh); python3 is there already
       - name: Install generators
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q autoconf bison re2c
+          sudo apt-get install -y -q autoconf bison re2c zstd lzip
 
       - name: Sync branches and publish tarballs
         env:

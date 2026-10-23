@@ -96,8 +96,13 @@ if (function_exists('curl_version')) {
         $exp = preg_grep('/ T curl_(easy|multi|global|share|url|ws)_/', $nm);
         check('curl: libcurl symbols not exported', $nm ? !$exp : null, $nm ? ($exp ? count($exp) . ' exported, e.g. ' . trim(reset($exp)) : 'none exported') : 'no nm');
         $off = array_values(array_intersect($cv['protocols'], array('dict', 'gopher', 'gophers', 'ipfs', 'ipns',
-            'mqtt', 'mqtts', 'rtsp', 'telnet', 'tftp', 'ldap', 'ldaps', 'scp', 'sftp', 'smb', 'smbs')));
-        check('curl: rare protocols off', !$off, $off ? 'has ' . implode(' ', $off) : implode(' ', $cv['protocols']));
+            'mqtt', 'mqtts', 'rtsp', 'telnet', 'tftp', 'ldap', 'ldaps', 'scp', 'sftp', 'smb', 'smbs',
+            'imap', 'imaps', 'pop3', 'pop3s', 'smtp', 'smtps', 'ws', 'wss')));
+        check('curl: protocols PHP has no use for off', !$off, $off ? 'has ' . implode(' ', $off) : implode(' ', $cv['protocols']));
+        // its libraries are built in: none of them from pkg, c-ares resolves
+        $pk = preg_grep('/lib(nghttp2|cares|brotli\w*|zstd|idn2|unistring|psl)\.so/', $ldd);
+        check('curl: no library of pkg for it', $ldd ? !$pk : null, $ldd ? ($pk ? trim(implode(' ', $pk)) : 'ldd shows none') : 'no ldd');
+        check('curl: c-ares resolves', !empty($cv['ares']), empty($cv['ares']) ? 'no c-ares' : 'c-ares ' . $cv['ares']);
         // CURL_VERSION_* bits of curl.h (the PHP constants differ between versions)
         $bits = array('SSL' => 4, 'libz' => 8, 'AsynchDNS' => 128, 'IDN' => 1024, 'HTTP2' => 65536,
             'PSL' => 1048576, 'brotli' => 8388608, 'alt-svc' => 16777216, 'zstd' => 67108864, 'HSTS' => 268435456);

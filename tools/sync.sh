@@ -56,8 +56,11 @@ conf="$main_dir/freebsd/targets.conf"
 # PECL extensions bundled into ext/<name>, and fixes for their sources.
 pecl_conf="$main_dir/freebsd/pecl.conf"
 pecl_patches="$main_dir/freebsd/pecl"
-# curl for --with-curl=bundled (ext/curl/libcurl): release, patch, build script, hook.
+# curl for --with-curl=bundled (ext/curl/libcurl, the libraries it needs in
+# ext/curl/deps): releases, patch, build script, hook; tools/curl-sources.sh puts
+# the sources into the tree.
 curl_conf="$main_dir/freebsd/curl.conf"
+curl_deps_conf="$main_dir/freebsd/curl-deps.conf"
 curl_dir="$main_dir/freebsd/curl"
 # PCRE instead of the copy upstream bundles: release, import scripts, test fixes.
 pcre_conf="$main_dir/freebsd/pcre.conf"
@@ -114,7 +117,7 @@ patchset_of() {
         done
         curl_entry
         if has_curl; then
-            for f in "$curl_dir"/*; do if [ -f "$f" ]; then cat "$f"; fi; done
+            for f in "$curl_dir"/* "$curl_deps_conf" "$main_dir/tools/curl-sources.sh"; do if [ -f "$f" ]; then cat "$f"; fi; done
         fi
         pcre_entry
         if has_pcre; then
@@ -280,35 +283,22 @@ curl_notes() {   # $1: line prefix
         cpatch="$curl_dir/curl-$v.patch"
         extra=""
         if [ -f "$cpatch" ]; then extra="; patch \`${cpatch##*/}\` (freebsd-ports): $(sed -n 's/^Description: //p' "$cpatch" | head -1)"; fi
-        printf '%s- curl %s ([release tarball](%s), SHA-256 `%s`, the same as in freebsd-ports `ftp/curl`) in `ext/curl/libcurl`%s. `--with-curl=bundled` builds it into PHP, static, with the OpenSSL of the build (3.0 or later, so not FreeBSD 13.x base) and the packages `libnghttp2`, `brotli`, `zstd`, `libidn2`, `libpsl`; without DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP and GSSAPI. Plain `--with-curl` still takes the libcurl of the system.\n' \
-            "$1" "$v" "$u" "$(short "$s" 16)" "$extra"
+        libs="$(awk '!/^#/ && NF >= 7 && $1 != "psl-list" { printf "%s%s %s", (n++ ? ", " : ""), $1, $2 }' "$curl_deps_conf")"
+        psl="$(awk '!/^#/ && $1 == "psl-list" { print substr($2, 7, 2) "." substr($2, 5, 2) "." substr($2, 1, 4) }' "$curl_deps_conf")"
+        printf '%s- curl %s ([release tarball](%s), SHA-256 `%s`, the same as in freebsd-ports `ftp/curl`) in `ext/curl/libcurl`%s, and the libraries it needs in `ext/curl/deps`: %s, with the public suffix list of %s (the release files of freebsd-ports, [`freebsd/curl-deps.conf`](https://github.com/%s/blob/HEAD/freebsd/curl-deps.conf)). `--with-curl=bundled` builds all of it into PHP, static, with the OpenSSL of the build (3.0 or later, so not FreeBSD 13.x base): no package needed. c-ares resolves names (a lookup that runs into the timeout ends at once); left out: IMAP, POP3, SMTP, WebSocket, NTLM, DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP, GSSAPI. Plain `--with-curl` still takes the libcurl of the system.\n' \
+            "$1" "$v" "$u" "$(short "$s" 16)" "$extra" "$libs" "$psl" "$gh_repo"
     done
 }
-# Unpack the curl release into ext/curl/libcurl of the worktree and wire it into
-# ext/curl/config.m4 (the hook goes right after 'if test "$PHP_CURL" != "no"; then').
+# The curl release and the libraries it needs into ext/curl of the worktree
+# (tools/curl-sources.sh), wired into ext/curl/config.m4 (the hook goes right
+# after 'if test "$PHP_CURL" != "no"; then').
 curl_bundle() {
-    set -- $(curl_entry)
-    cv="$1" cu="$2" cs="$3"
-    tb="${TMPDIR:-/tmp}/sync-curl-$cv.tar.xz"
-    if [ ! -f "$tb" ] || [ "$(sha256_of < "$tb")" != "$cs" ]; then
-        if ! curl -fsSL --retry 3 -o "$tb" "$cu"; then
-            echo "sync: $target: cannot download curl $cv ($cu)" >&2
-            return 1
-        fi
-    fi
-    if [ "$(sha256_of < "$tb")" != "$cs" ]; then
-        echo "sync: $target: curl $cv: SHA-256 mismatch ($cu)" >&2
+    if [ -e ext/curl/libcurl ] || [ -e ext/curl/deps ] || [ ! -f ext/curl/config.m4 ]; then
+        echo "sync: $target: ext/curl/libcurl or ext/curl/deps exists or ext/curl/config.m4 is missing" >&2
         return 1
     fi
-    if [ -e ext/curl/libcurl ] || [ ! -f ext/curl/config.m4 ]; then
-        echo "sync: $target: ext/curl/libcurl exists or ext/curl/config.m4 is missing" >&2
-        return 1
-    fi
-    mkdir ext/curl/libcurl
-    tar -xJf "$tb" -C ext/curl/libcurl --strip-components 1
-    cpatch="$curl_dir/curl-$cv.patch"
-    if [ -f "$cpatch" ] && ! (cd ext/curl/libcurl && patch -p0 -N -s -f < "$cpatch"); then
-        echo "sync: $target: ${cpatch##*/} does not apply" >&2
+    if ! sh "$main_dir/tools/curl-sources.sh" "$target" ext/curl; then
+        echo "sync: $target: tools/curl-sources.sh failed" >&2
         return 1
     fi
     cp "$curl_dir/build-libcurl.sh" ext/curl/build-libcurl.sh
@@ -579,10 +569,17 @@ make_commits() {
                 echo "  Origin: $(sed -n 's/^Origin: //p' "$curl_dir/curl-$v.patch" | head -1)"
             fi
             echo
-            echo "ext/curl/build-libcurl.sh builds it static and position independent with"
-            echo "the OpenSSL of the PHP build; ext/curl/config.m4 runs it for"
-            echo "--with-curl=bundled and links the result into PHP without exporting its"
-            echo "symbols. Plain --with-curl still uses the libcurl of the system."
+            echo "ext/curl/deps: the libraries curl needs, the release files of freebsd-ports"
+            echo "(freebsd/curl-deps.conf, SHA-256 as in the distinfo of the port):"
+            awk '!/^#/ && NF >= 7 { printf "  %s %s (%s): %s\n", $1, $2, $3, $7 }' "$curl_deps_conf"
+            echo "libpsl/src/suffixes_dafsa.h is made from psl-list (its built-in list, no"
+            echo "file looked for at run time), libpsl/fuzz is left out (tools/curl-sources.sh)."
+            echo
+            echo "ext/curl/build-libcurl.sh builds them and curl static and position"
+            echo "independent, with only cc and make, curl with the OpenSSL of the PHP build;"
+            echo "libcurl.a takes the libraries in with their symbols local. ext/curl/config.m4"
+            echo "runs it for --with-curl=bundled and links the result into PHP without"
+            echo "exporting its symbols. Plain --with-curl still uses the libcurl of the system."
             if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
         done | git commit -q -F -
     fi

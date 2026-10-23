@@ -212,8 +212,10 @@ ossl_opts() {
 # environment lines): --with-curl becomes --with-curl=bundled when this source tree
 # bundles curl (ext/curl/libcurl) and the build's OpenSSL is 3.0 or later, which
 # curl 8.18.0 and later need; with OpenSSL 1.1.1 (FreeBSD 13.x base) the libcurl of
-# the curl package (ftp/curl, /usr/local) stays; the base system has no curl. Sets curl_note, and curl_pkgs for missing packages of the bundled curl.
-curl_note="" curl_pkgs=""
+# the curl package (ftp/curl, /usr/local) stays; the base system has no curl. The
+# bundled curl brings the libraries it needs (ext/curl/deps), no package. Sets
+# curl_note.
+curl_note=""
 curl_opts() {
     # with /usr/local/phpdeps installed, its libcurl (deps_opts)
     [ -f "${PHPDEPS:-/usr/local/phpdeps}/VERSIONS" ] && [ -x "${PHPDEPS:-/usr/local/phpdeps}/bin/pkg-config" ] && return 0
@@ -230,12 +232,7 @@ curl_opts() {
     fi
     case "$co" in --with-curl=shared*) nco="--with-curl=shared,bundled" ;; *) nco="--with-curl=bundled" ;; esac
     awk -v o="$co" -v n="$nco" '$0 == o { $0 = n } { print }' "$1" > "$1.new" && mv "$1.new" "$1"
-    curl_note="$co replaced with $nco: curl $cv of this tree (ext/curl/libcurl) is built into PHP, with $ot ($inc); for the curl package (ftp/curl, /usr/local) instead: sh config.installed.sh $co"
-    if command -v pkg >/dev/null 2>&1; then
-        for p in libnghttp2 brotli zstd libidn2 libpsl; do
-            pkg info -e "$p" 2>/dev/null || curl_pkgs="$curl_pkgs $p"
-        done
-    fi
+    curl_note="$co replaced with $nco: curl $cv of this tree (ext/curl/libcurl) and its libraries (ext/curl/deps) are built into PHP, with $ot ($inc), no package needed; for the curl package (ftp/curl, /usr/local) instead: sh config.installed.sh $co"
 }
 
 # The PCRE option of the script ($1: options, one per line, changed in place):
@@ -710,25 +707,13 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     set -- "$want"
     [ -n "$modphp" ] && set -- "$@" "$modphp"
     while IFS= read -r p; do set -- "$@" "$p"; done < "$tmp/ext_pkgs"
-    {
-        "$pkg" query '%dn' "$@" 2>/dev/null | grep -v -e '^php' -e '^mod_php'
-        # the bundled curl is linked in, the libraries it links against come from packages
-        if grep -q -e '^--with-curl=.*bundled' "$tmp/opts"; then
-            for p in libnghttp2 brotli zstd libidn2 libpsl; do
-                "$pkg" info -e "$p" 2>/dev/null && echo "$p"
-            done
-        fi
-    } | sort -u > "$tmp/libs"
+    # (the bundled curl links nothing of pkg: its libraries are built in too)
+    "$pkg" query '%dn' "$@" 2>/dev/null | grep -v -e '^php' -e '^mod_php' | sort -u > "$tmp/libs"
     if [ -s "$tmp/libs" ]; then
         echo "  - Before deleting the PHP packages, keep the libraries the new build links against, so that"
         echo "    pkg autoremove does not remove them:"
         echo
         echo "pkg set -y -A 0 $(tr '\n' ' ' < "$tmp/libs" | sed 's/ *$//')"
-    fi
-    if [ -n "$curl_pkgs" ]; then
-        echo "  - The bundled curl needs packages that are not installed:"
-        echo
-        echo "pkg install -y$curl_pkgs"
     fi
     echo
     echo "written: $out"
@@ -1005,11 +990,6 @@ fi
 if [ -n "$curl_note" ]; then
     echo
     echo "curl: $curl_note"
-    if [ -n "$curl_pkgs" ]; then
-        echo "      packages it needs that are not installed:"
-        echo
-        echo "pkg install -y$curl_pkgs"
-    fi
 fi
 if [ -n "$nice" ] && [ -s "$tmp/only_installed" ]; then
     echo
