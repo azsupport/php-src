@@ -441,8 +441,53 @@ mysqli или pdo_mysql (5.6: с расширением mysql) — сокет My
 сохраняется так же, как его сохраняют порты, — в `/var/db/php-menu/phpXY.options` — и
 становится началом следующего запуска (`--reset` начинает заново). В конце меню
 называет пакеты, которые нужны выбору. `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84`
-пишет скрипт без диалогов, `sh php-menu.sh --list` показывает пункты, пути и их
-состояние.
+пишет скрипт без диалогов, `sh php-menu.sh --list` показывает пункты, пути, их
+состояние и шаблоны.
+
+**Шаблоны.** Сначала меню спрашивает, с чего начать: с того, что оно нашло (сохранённый
+выбор, установленная сборка или значения по умолчанию), или с шаблона — набора выборов
+под одно приложение; в главном меню это есть ещё раз («Templates»). Шаблон включает свои
+пункты и выключает остальные SAPI и расширения, которые в нём названы, прочее остаётся
+по умолчанию, а то, что нужно его пунктам, включается тоже; на экранах после этого
+можно поменять что угодно. Без диалогов: `sh php-menu.sh --batch --template=roundcube`.
+
+- `roundcube` (7.4 и новее): php-fpm и CLI (скрипты из `bin/`, cron) для
+  [Roundcube](https://roundcube.net/) 1.6 (PHP 7.3+) и 1.7 (PHP 8.1+). Расширения,
+  которых требует его инсталлятор (ctype, dom, filter, intl, json, mbstring с функциями
+  регэкспов, openssl, session, PDO, xml), те, что на
+  [странице wiki](https://github.com/roundcube/roundcubemail/wiki/Install-Requirements)
+  и у его библиотек (fileinfo, iconv, sockets), и его необязательные, кроме LDAP: curl
+  (встроенный, для Guzzle), exif (ориентация фото JPEG), gd (JPEG, WebP и FreeType для
+  1.7), imagick, xmlwriter, zip. Только MySQL и только через PDO (pdo_mysql): без mysqli,
+  PostgreSQL, SQLite и LDAP. Сверено с Roundcube 1.6.20 и 1.7.5.
+
+Меню с шаблоном `roundcube` (bsddialog в консоли FreeBSD 80x25, шрифт Terminus): с чего
+начать, опции сборки, расширения, опции curl, GD, mbstring и OpenSSL, главное меню и
+скрипт, который оно пишет:
+
+<p><img src="docs/images/menu-roundcube.gif" alt="php-menu.sh с шаблоном roundcube" width="800"></p>
+
+Расширения с шаблоном `roundcube` и у голой сборки (по умолчанию: только CLI и OPcache):
+
+<p><img src="docs/images/menu-roundcube-ext.png" alt="Расширения с шаблоном roundcube" width="800"></p>
+<p><img src="docs/images/menu-bare-ext.png" alt="Расширения голой сборки" width="800"></p>
+
+<details>
+<summary>Ещё экраны: с чего начать, опции сборки, главное меню, скрипты</summary>
+
+<p><img src="docs/images/menu-start-roundcube.png" alt="С чего начать: по умолчанию или шаблон" width="800"></p>
+<p><img src="docs/images/menu-roundcube-core.png" alt="Опции сборки с шаблоном roundcube" width="800"></p>
+<p><img src="docs/images/menu-roundcube-ext2.png" alt="Ещё расширения с шаблоном roundcube" width="800"></p>
+<p><img src="docs/images/menu-main.png" alt="Главное меню" width="800"></p>
+<p><img src="docs/images/menu-roundcube-script.png" alt="Скрипт шаблона roundcube" width="800"></p>
+<p><img src="docs/images/menu-bare-core.png" alt="Опции голой сборки" width="800"></p>
+<p><img src="docs/images/menu-bare-script.png" alt="Скрипт голой сборки" width="800"></p>
+<p><img src="docs/images/menu-bare.gif" alt="php-menu.sh по умолчанию" width="800"></p>
+
+</details>
+
+Картинки делает [`tools/menu-screenshots.py`](tools/menu-screenshots.py) (pyte и
+Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цветов консоли FreeBSD.
 
 ### Встроенный OPcache и запрет загрузки расширений
 
@@ -589,9 +634,13 @@ memcached, задайте в `php.ini` `memcached.serializer = php`. Значе�
 
 Ежедневный workflow [`upstream-check.yml`](.github/workflows/upstream-check.yml) ищет
 новые релизы этих расширений (теги репозиториев и PECL, сверяя с версиями PHP, которые
-поддерживает каждый релиз) и коммиты портов FreeBSD, которые меняют патчи или сборку
-их портов и `lang/php8x`. Каждая находка открывает одно issue с меткой `upstream`; само
-ничего не применяется. За чем он следит — в [`freebsd/upstream.conf`](freebsd/upstream.conf).
+поддерживает каждый релиз), curl, библиотек curl и PCRE2; коммиты портов FreeBSD,
+которые меняют патчи или сборку их портов и `lang/php8x`; файлы релизов в distinfo
+портов curl и его библиотек, которых нет в бандле; и конец security-поддержки веток,
+которые собираются из тегов php-src (8.2 — 31.12.2026), начиная за 60 дней до него, с
+отметкой, есть ли у бэкпортов Remi Collet ветка, на которую можно перейти. Каждая
+находка открывает одно issue с меткой `upstream`; само ничего не применяется. За чем он
+следит — в [`freebsd/upstream.conf`](freebsd/upstream.conf).
 
 ### OpenSSL
 
@@ -632,23 +681,46 @@ legacy-провайдером), чтобы данные, зашифрованн�
 
 ### Встроенный curl
 
-Каждая ветка несёт curl 8.23.0 в `ext/curl/libcurl`: тарбол релиза (его SHA-256 — тот
-же, что в `ftp/curl` freebsd-ports) с патчем configure этого порта.
-`--with-curl=bundled` собирает его во время `configure` (минуту-две, лог в
-`ext/curl/libcurl-build.log`) и линкует в PHP статически, с тем OpenSSL, который берёт
-сам PHP, с опциями порта FreeBSD, кроме DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP,
-LDAP, SCP/SFTP (libssh2) и GSSAPI. Тогда PHP не зависит от пакета curl, а его curl так
-же свеж, как тарбол. Нужны пакеты `libnghttp2`, `brotli`, `zstd`, `libidn2` и `libpsl`,
-которые пакет curl и так тянет. Его символы не экспортируются из `php` и `libphp.so`,
-так что модуль, который грузит libcurl системы, с ним не смешивается. Простой
-`--with-curl` по-прежнему берёт системный libcurl.
+Каждая ветка несёт curl 8.23.0 в `ext/curl/libcurl` (тарбол релиза, его SHA-256 — тот
+же, что в `ftp/curl` freebsd-ports, с патчем configure этого порта) и нужные ему
+библиотеки в `ext/curl/deps`: c-ares 1.34.9, nghttp2 1.70.0, brotli 1.2.0, zstd 1.5.7,
+libidn2 2.3.8 и libpsl 0.23.3 со списком публичных суффиксов от 21.09.2026 — файлы
+релизов их портов FreeBSD ([`freebsd/curl-deps.conf`](freebsd/curl-deps.conf), в дерево
+их кладёт [`tools/curl-sources.sh`](tools/curl-sources.sh)). `--with-curl=bundled`
+собирает всё это во время `configure` (две-три минуты, лог в
+`ext/curl/libcurl-build.log`) одними cc и make и линкует в PHP статически, с тем
+OpenSSL, который берёт сам PHP. Пакеты не нужны: PHP не зависит ни от пакета curl, ни
+от его библиотек, а его curl так же свеж, как тарбол. libunistring среди них нет
+(libidn2 собирает ту её часть, которая ему нужна), IDN-библиотеки для libpsl тоже
+(curl отдаёт ей имена хостов уже в punycode, и встроенного списка хватает). Символы curl
+не экспортируются из `php` и `libphp.so`, символы его библиотек локальны в
+`libcurl.a`, так что модуль, который грузит libcurl системы или несёт свою копию
+nghttp2 (swoole), с ними не смешивается. Простой `--with-curl` по-прежнему берёт
+системный libcurl.
+
+Опции — как в порту FreeBSD, с такими отличиями:
+
+| Отличие | Почему |
+|---|---|
+| имена резолвит c-ares (опция порта `CARES`, а не `THREADED_RESOLVER`) | Не ради скорости: время уходит на ответ DNS-сервера, а A и AAAA curl 8.23 и так спрашивает параллельно. `getaddrinfo()` прервать нельзя, поэтому с threaded-резолвером хэндл ждёт на `curl_close()` (в 8.x — когда `$ch` уничтожается, самое позднее в конце запроса), пока тот не сдастся: с `resolv.conf` FreeBSD по умолчанию — не меньше 15 секунд на имя, если DNS-сервер не отвечает, а воркеры Apache и FPM тем временем копятся. c-ares бросает запрос сразу, и `CURLOPT_TIMEOUT` соблюдается (проверено: DNS-сервер, который не отвечает, `CURLOPT_TIMEOUT_MS` 1500 — `curl_exec()` вернулся через 1,5 с, хэндл освободился сразу); заодно работают `CURLOPT_DNS_SERVERS` и соседние опции. c-ares сам читает `/etc/resolv.conf`, `/etc/hosts` и строку `hosts:` из `/etc/nsswitch.conf`; модули NSS не используются. |
+| нет IMAP, POP3, SMTP | PHPMailer, Symfony Mailer, Roundcube и IMAP-библиотеки ходят к почтовым серверам своими сокетами. |
+| нет WebSocket (`ws://`, `wss://`) | В PHP нет `curl_ws_send()` и `curl_ws_recv()`; в master php-src их тоже нет, только `CURLOPT_WS_OPTIONS`. |
+| нет NTLM | Слабый, в curl с 8.20 только по явному включению, curl собирается его удалить; нужен лишь старым серверам и прокси Microsoft. |
+| нет headers API, экспорта TLS-сессий, `curl_easy_option_*`, текстового индикатора прогресса | PHP ничего из этого не вызывает; `CURLOPT_PROGRESSFUNCTION` и `CURLOPT_XFERINFOFUNCTION` работают. |
+| нет DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP (libssh2), GSSAPI | Редкие протоколы. |
+
+Оставлено: HTTP(S), FTP(S), FILE (им могут пользоваться старые скрипты), HTTP/2, прокси,
+cookies, multipart (`CURLFile`), Unix-сокеты, IDN, PSL, brotli, zstd, alt-svc, HSTS,
+DoH, AWS SigV4, `.netrc`; последние несколько работают, только если код их включит.
 
 curl 8.18.0 и новее нужен OpenSSL 3.0 или новее. Во FreeBSD 13.x в базовой системе
 OpenSSL 1.1.1, поэтому там `config-check.sh` оставляет `--with-curl` (пакет curl) и
-объясняет почему; на FreeBSD 14 и 15 он пишет `--with-curl=bundled` и перечисляет
-недостающие пакеты. Исправление безопасности curl попадает в PHP с пересборкой:
-ежедневная проверка апстрима открывает issue на каждый новый релиз curl и на изменения
-порта.
+объясняет почему; на FreeBSD 14 и 15 он пишет `--with-curl=bundled`. Исправление
+безопасности curl или одной из его библиотек попадает в PHP с пересборкой: ежедневная
+проверка апстрима открывает issue на каждый новый релиз (теги их репозиториев), на
+изменения их портов FreeBSD и когда порт взял файл релиза, которого нет в бандле (его
+distinfo). `/usr/local/phpdeps` ([`tools/build-deps.sh`](tools/build-deps.sh)) берёт
+curl и эти библиотеки из тех же файлов и собирает так же.
 
 ### Встроенная PCRE
 
