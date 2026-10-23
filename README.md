@@ -771,7 +771,7 @@ the `freebsd/8.x` branches could be rejected without `SYNC_TOKEN`.
 ## Credits and licenses
 
 - This fork (branches, choice of FreeBSD ports patches, release tarballs and
-  tooling): aZ, [azsupport.com](https://azsupport.com/): lease, setup and
+  tooling): [aZsupport.com](https://azsupport.com): lease, setup and
   administration of FreeBSD and Linux dedicated web servers since 2004, with
   monthly managed support (24/7 monitoring, security patching, backups) for
   projects where downtime costs money.
