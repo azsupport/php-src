@@ -1,5 +1,7 @@
 # PHP for FreeBSD: security-maintained source branches
 
+**Русская версия: [README.ru.md](README.ru.md)**
+
 **What it is.** Ready-to-build PHP sources for FreeBSD (amd64) servers that build
 PHP by hand instead of using ports or packages: PHP 5.6, 7.4, 8.1, 8.2, 8.3 and 8.4,
 one `freebsd/<version>` branch each. Every branch follows an upstream source of
@@ -118,7 +120,8 @@ Every branch is upstream plus these commits, in this order:
    files with a description and origin line are in [`freebsd/patches/`](freebsd/patches).
    The same commit removes the upstream `.github/` directory, so that php-src's own
    CI does not run in this fork (release tarballs never contain it anyway).
-2. **Apply build compatibility patches** (5.6 and 7.4): changes that make an old
+2. **Apply build compatibility patches**: in every branch the file name of the
+   Apache module (`libphpXY.so`), in 5.6 and 7.4 also the changes that make an old
    branch build and work on current FreeBSD, see
    [Build compatibility patches](#build-compatibility-patches).
 3. **Backport security fixes** (only while there is one, now 5.6): see
@@ -131,7 +134,10 @@ Every branch is upstream plus these commits, in this order:
    `--with-curl=bundled`, see [Bundled curl](#bundled-curl).
 6. **Bundle PCRE**: the newest PCRE2 (5.6: PCRE 8.45) instead of the one upstream
    bundles, see [Bundled PCRE](#bundled-pcre).
-7. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
+7. **Add the build options of this fork**: the built-in OPcache and no extension
+   loading, off unless given to configure, see
+   [Built-in OPcache and no extension loading](#built-in-opcache-and-no-extension-loading).
+8. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
    appended to the banner by C string-literal concatenation, so `php -v` shows the
    build date and upstream commit, for example
    `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`. `PHP_VERSION`
@@ -139,7 +145,7 @@ Every branch is upstream plus these commits, in this order:
    `PHP x.y.z` parsers are not disturbed. On 8.2+ the banner is shared by every SAPI
    (`php -v`, `php-fpm -v`); on 5.6/7.4 it is the CLI banner. `phpinfo()` shows the
    plain version, not the build id.
-8. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
+9. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
    README with the exact upstream commit (`Upstream-Commit:` trailer) and the lists
    of applied and not applied ports patches; the release notes carry the same lists.
 
