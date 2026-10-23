@@ -99,9 +99,21 @@ if (function_exists('curl_version')) {
             'mqtt', 'mqtts', 'rtsp', 'telnet', 'tftp', 'ldap', 'ldaps', 'scp', 'sftp', 'smb', 'smbs',
             'imap', 'imaps', 'pop3', 'pop3s', 'smtp', 'smtps', 'ws', 'wss')));
         check('curl: protocols PHP has no use for off', !$off, $off ? 'has ' . implode(' ', $off) : implode(' ', $cv['protocols']));
-        // its libraries are built in: none of them from pkg, c-ares resolves
-        $pk = preg_grep('/lib(nghttp2|cares|brotli\w*|zstd|idn2|unistring|psl)\.so/', $ldd);
+        // its libraries are built in: none of them from pkg, c-ares resolves. brotli and
+        // zstd of pkg can be in the process all the same (freetype and swoole link
+        // brotli, libzip and ImageMagick zstd): curl has its own, CURL_BROTLI (the
+        // brotli of the bundle) is checked against the version curl reports (7.4+)
+        $pk = preg_grep('/lib(nghttp2|cares|idn2|unistring|psl)\.so/', $ldd);
         check('curl: no library of pkg for it', $ldd ? !$pk : null, $ldd ? ($pk ? trim(implode(' ', $pk)) : 'ldd shows none') : 'no ldd');
+        $other = preg_grep('/lib(brotli\w*|zstd)\.so/', $ldd);
+        if ($other) {
+            info('curl: brotli/zstd of pkg in the process (other libraries)', preg_replace('/ =>.*/', '', trim(implode(' ', $other))));
+        }
+        $br = (string)getenv('CURL_BROTLI');
+        if ($br !== '' && isset($cv['brotli_version'])) {
+            $has = preg_replace('#^brotli/#', '', (string)$cv['brotli_version']);
+            check("curl: brotli $br (its decoder)", $has === $br, 'brotli ' . $has);
+        }
         check('curl: c-ares resolves', !empty($cv['ares']), empty($cv['ares']) ? 'no c-ares' : 'c-ares ' . $cv['ares']);
         // CURL_VERSION_* bits of curl.h (the PHP constants differ between versions)
         $bits = array('SSL' => 4, 'libz' => 8, 'AsynchDNS' => 128, 'IDN' => 1024, 'HTTP2' => 65536,
