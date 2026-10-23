@@ -504,8 +504,16 @@ def bundled_dists():
     return out
 
 
+def port_version(git, port):
+    """DISTVERSION or PORTVERSION of the Makefile of a port (main), None when it is not plain."""
+    text = run(["git", "show", "main:%s/Makefile" % port], cwd=git, check=False) or ""
+    m = re.search(r"^(?:DISTVERSION|PORTVERSION)[ \t]*[?:]?=[ \t]*(\S+)", text, re.M)
+    return m.group(1) if m else None
+
+
 def check_distinfo(git):
-    """A release file in the distinfo of the port that the bundle has not."""
+    """A release file in the distinfo of the port that the bundle has not (not when
+    the bundle is ahead of the port: brotli 1.2.1 before archivers/brotli took it)."""
     findings, checked = [], set()
     for name, version, port, distfile, sha, where in bundled_dists():
         text = run(["git", "show", "main:%s/distinfo" % port], cwd=git, check=False)
@@ -514,6 +522,10 @@ def check_distinfo(git):
         checked.add("dist:%s:" % port)
         dists = re.findall(r"^SHA256 \((.+)\) = ([0-9a-f]{64})$", text, re.M)
         if (distfile, sha) in dists:
+            continue
+        pv, bv = vkey(port_version(git, port)), vkey(version)
+        if pv and bv and pv < bv:
+            log("%s: the bundle (%s) is ahead of %s (%s)" % (name, version, port, port_version(git, port)))
             continue
         main_file = next((f for f, _s in dists if "testdata" not in f), dists[0][0] if dists else "?")
         lines = ["freebsd-ports `%s` has (distinfo of `main`):" % port, ""]
