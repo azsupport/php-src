@@ -376,8 +376,9 @@ It starts from what the installed build has (the `config.installed.sh` of
 `config-check.sh`), keeps its environment and its other options (prefix, layout,
 php.ini paths, `--build`) and writes `config.menu.sh`, a script of the same form,
 with the SAPI, the build options and the extensions chosen in the menu. Without
-`config.installed.sh` it starts from our standard set and writes our base build
-(`/usr/local/phpXY`, `--disable-all`, OPcache) with the compiler flags of every build.
+`config.installed.sh` it starts from our base build only (`/usr/local/phpXY`,
+`--disable-all`, the CLI and OPcache; the SAPI and the extensions are chosen) with the
+compiler flags of every build.
 The bundled curl is the default where the base system has OpenSSL 3 (FreeBSD 14 and
 later), the Argon2 of OpenSSL where it has 3.2 (FreeBSD 15). The choices are saved the
 way the ports save theirs, in `/var/db/php-menu/phpXY.options`, and are the start of
