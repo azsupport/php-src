@@ -321,8 +321,12 @@ for target in "$@"; do
     legacy=0
     grep -qx -- --with-openssl-legacy-provider "$out/configure-options.txt" && legacy=1
     curl_v="$(cat ext/curl/libcurl-build/VERSION 2>/dev/null)"
-    [ "${PHPDEPS_BUNDLE:-0}" = 1 ] && curl_v="$("$pkgconfig" --modversion libcurl 2>/dev/null)"
-    env CURL_BUNDLED="$curl_v" OPENSSL_LEGACY="$legacy" \
+    brotli_v="$(awk '$1 == "brotli" { print $2 }' ext/curl/libcurl-build/DEPS 2>/dev/null)"
+    if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
+        curl_v="$("$pkgconfig" --modversion libcurl 2>/dev/null)"
+        brotli_v="$("$pkgconfig" --modversion libbrotlidec 2>/dev/null | sed 's/\.!=.*//')"
+    fi
+    env CURL_BUNDLED="$curl_v" CURL_BROTLI="$brotli_v" OPENSSL_LEGACY="$legacy" \
         "$php" -n $opcache "$top/tools/build-test-smoke.php" "$src" > "$out/smoke.txt" 2>&1
     echo "smoke:    $(grep -c '^ok ' "$out/smoke.txt") ok, $(grep -c '^FAIL ' "$out/smoke.txt") failed (smoke.txt)" >> "$sum"
 
