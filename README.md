@@ -630,7 +630,7 @@ distinfo ([`freebsd/curl.conf`](freebsd/curl.conf),
 | curl | 8.23.0 | `ftp/curl` | with the configure patch of that port |
 | c-ares | 1.34.9 | `dns/c-ares` | resolving names (below) |
 | nghttp2 | 1.70.0 | `www/libnghttp2` | HTTP/2 |
-| brotli | 1.2.0 | `archivers/brotli` | `br` responses (`CURLOPT_ENCODING`) |
+| brotli | 1.2.1 | `archivers/brotli` (1.2.0) | `br` responses (`CURLOPT_ENCODING`); 1.2.1 fixes CVE-2026-111497, an out-of-bounds write in the decoder, and comes from its source release on PyPI until the port takes it |
 | zstd | 1.5.7 | `archivers/zstd` | `zstd` responses (`CURLOPT_ENCODING`) |
 | libidn2 | 2.3.8 | `dns/libidn2` | international domain names (IDN) |
 | libpsl | 0.23.3 | `dns/libpsl` | the public suffix list: no cookies for a whole public suffix, such as `co.uk` |
@@ -753,7 +753,7 @@ is applied on its own. What it follows is listed in
 |---|---|
 | Newer releases | the bundled PECL extensions (repository tags and PECL, checked against the PHP versions each release supports), curl, the libraries of curl, PCRE2 |
 | FreeBSD ports commits that change the patches or the build | their ports and `lang/php8x` |
-| Release files in the distinfo of a port that the bundle has not | the ports of curl and its libraries |
+| Release files in the distinfo of a port that the bundle has not | the ports of curl and its libraries (not while the bundle is ahead of the port) |
 | The end of security support, from 60 days before it on | the branches built from php-src tags (8.2: 31.12.2026), with whether Remi Collet's backports have a branch to switch to |
 
 ### Build compatibility patches
