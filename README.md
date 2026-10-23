@@ -29,18 +29,24 @@ and `freebsd/8.4` carry the official fixed releases 8.2.35, 8.3.36 and 8.4.27.
 PHP security team provided for 7.4, 8.0 and 8.1. It is smaller than the complete fix
 of 8.2+ (for example, it disables session upload progress in the code), so keep the
 configuration mitigations from the announcement on these versions. `freebsd/5.6`
-carries our port of that same commit to the PHP 5 engine,
-[`backport-php2shell.patch`](freebsd/patches/5.6/backport-php2shell.patch), not
-reviewed upstream: fatal errors of the allocator end the worker with `_exit()`
-instead of a `longjmp()`, the state an error before the next request can reach is
-reset, multipart parsing keeps only the headers it uses, and session upload
-progress is off in the code. On memory exhaustion the worker exits at once, as with
-the official fix: shutdown functions do not run and buffered output is lost; the
-error goes to stderr (the php-fpm or Apache error log). Keep the configuration
-mitigations there too. The port was cross-checked with the two other 5.6 ports
-known to us, of Ondřej Surý (php5.6 5.6.40-104, patch 0261) and of
-[vperetti](https://github.com/vperetti/php-cve-2026-109618-109619-backports), and
-took over what they had and it had not (the patch header lists it).
+carries a port of that same commit to the PHP 5 engine, not reviewed upstream: fatal
+errors of the allocator end the worker with `_exit()` instead of a `longjmp()`, the
+state an error before the next request can reach is reset, multipart parsing keeps
+only the headers it uses, and session upload progress is off in the code. On memory
+exhaustion the worker exits at once, as with the official fix: shutdown functions
+do not run and buffered output is lost; the error goes to stderr (the php-fpm or
+Apache error log). Keep the configuration mitigations there too. The port is in two
+parts: [`backport-php2shell-1.patch`](freebsd/patches/5.6/backport-php2shell-1.patch)
+is the code proposed to Remi Collet's branch in
+[pull request #32](https://github.com/remicollet/php-src-security/pull/32), the same
+code as our own port, as it is, so that the sync skips it once his branch has it;
+[`backport-php2shell-2-extra.patch`](freebsd/patches/5.6/backport-php2shell-2-extra.patch)
+adds what the official fix and the other 5.6 ports known to us (Ondřej Surý's
+php5.6 5.6.40-104, patch 0261, and
+[vperetti](https://github.com/vperetti/php-cve-2026-109618-109619-backports)'s) have
+and that pull request has not: the smallest arrays for `$_GET`, `$_POST`, `$_COOKIE`,
+the earlier reset of the exception after the objects are freed, and the reset of the
+header callback.
 
 Remi Collet's 5.6 branch has had no update since 02.07.2026, while his 7.4 branch
 got the fixes of the PHP releases of July to October 2026. `freebsd/5.6` carries
