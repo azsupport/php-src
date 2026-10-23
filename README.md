@@ -373,18 +373,26 @@ sh config.menu.sh
 ```
 
 It starts from what the installed build has (the `config.installed.sh` of
-`config-check.sh`), keeps its environment and its other options (prefix, layout,
-php.ini paths, `--build`) and writes `config.menu.sh`, a script of the same form,
-with the SAPI, the build options and the extensions chosen in the menu. Without
+`config-check.sh`), keeps its environment and its other options (layout, php.ini
+paths, `--build`) and writes `config.menu.sh`, a script of the same form, with the
+SAPI, the build options and the extensions chosen in the menu. Without
 `config.installed.sh` it starts from our base build only (`/usr/local/phpXY`,
 `--disable-all`, the CLI and OPcache; the SAPI and the extensions are chosen) with the
-compiler flags of every build.
+compiler flags of every build. Two paths are typed in on the last screen: the install
+directory (`/usr/local/phpXY` by default, or the one of the installed build; it gives
+`--prefix` and `--mandir=<dir>/man`, and the other paths of the installed build inside
+its old directory move along) and, with mysqli or pdo_mysql (5.6: the mysql
+extension), the MySQL socket (`/tmp/mysql.sock`; one `--with-mysql-sock` is the
+default of `mysqli.default_socket` and `pdo_mysql.default_socket`). `--infodir` is
+left out (PHP installs no info pages), `--localstatedir=/var` comes with FPM only
+(php-fpm alone reads it). phpdbg is off unless chosen: in 7.4 and later the menu
+writes `--disable-phpdbg`, since `--disable-all` leaves the SAPIs alone.
 The bundled curl is the default where the base system has OpenSSL 3 (FreeBSD 14 and
 later), the Argon2 of OpenSSL where it has 3.2 (FreeBSD 15). The choices are saved the
 way the ports save theirs, in `/var/db/php-menu/phpXY.options`, and are the start of
 the next run (`--reset` starts over). At the end it names the packages the choices
-need. `sh php-menu.sh --batch +GD -CGI` writes the script without dialogs,
-`sh php-menu.sh --list` shows the items and their state.
+need. `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84` writes the script
+without dialogs, `sh php-menu.sh --list` shows the items, the paths and their state.
 
 ### Build test on FreeBSD
 
