@@ -448,7 +448,56 @@ later), the Argon2 of OpenSSL where it has 3.2 (FreeBSD 15). The choices are sav
 way the ports save theirs, in `/var/db/php-menu/phpXY.options`, and are the start of
 the next run (`--reset` starts over). At the end it names the packages the choices
 need. `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84` writes the script
-without dialogs, `sh php-menu.sh --list` shows the items, the paths and their state.
+without dialogs, `sh php-menu.sh --list` shows the items, the paths, their state and
+the templates.
+
+**Templates.** The menu first asks where to start: what it found (the saved choices,
+the installed build or the defaults) or a template, a set of choices for one
+application; the main menu offers it again ("Templates"). A template turns its items
+on and the other SAPIs and extensions it names off, the rest keeps its defaults, and
+what its items need is turned on as well; every screen can still change it
+afterwards. Without dialogs: `sh php-menu.sh --batch --template=roundcube`.
+
+- `roundcube` (7.4 and later): php-fpm and the CLI (the scripts in `bin/`, cron) for
+  [Roundcube](https://roundcube.net/) 1.6 (PHP 7.3+) and 1.7 (PHP 8.1+). The
+  extensions its installer requires (ctype, dom, filter, intl, json, mbstring with its
+  regex functions, openssl, session, PDO, xml), those of its
+  [wiki page](https://github.com/roundcube/roundcubemail/wiki/Install-Requirements)
+  and of its libraries (fileinfo, iconv, sockets), and its optional ones but LDAP:
+  curl (bundled, for Guzzle), exif (the orientation of JPEG photos), gd (JPEG, WebP
+  and FreeType for 1.7), imagick, xmlwriter, zip. MySQL only, through PDO
+  (pdo_mysql): no mysqli, PostgreSQL, SQLite or LDAP. Checked against Roundcube 1.6.20
+  and 1.7.5.
+
+The menu with the `roundcube` template (bsddialog in the 80x25 console of FreeBSD,
+Terminus font): where to start, the build options, the extensions, the options of
+curl, GD, mbstring and OpenSSL, the main menu and the script it writes:
+
+<p><img src="docs/images/menu-roundcube.gif" alt="php-menu.sh with the roundcube template" width="800"></p>
+
+The extensions with the `roundcube` template, and of the bare build (the defaults:
+the CLI and OPcache only):
+
+<p><img src="docs/images/menu-roundcube-ext.png" alt="Extensions with the roundcube template" width="800"></p>
+<p><img src="docs/images/menu-bare-ext.png" alt="Extensions of the bare build" width="800"></p>
+
+<details>
+<summary>More screens: where to start, the build options, the main menu, the scripts</summary>
+
+<p><img src="docs/images/menu-start-roundcube.png" alt="Where to start: the defaults or a template" width="800"></p>
+<p><img src="docs/images/menu-roundcube-core.png" alt="Build options with the roundcube template" width="800"></p>
+<p><img src="docs/images/menu-roundcube-ext2.png" alt="More extensions with the roundcube template" width="800"></p>
+<p><img src="docs/images/menu-main.png" alt="The main menu" width="800"></p>
+<p><img src="docs/images/menu-roundcube-script.png" alt="The script of the roundcube template" width="800"></p>
+<p><img src="docs/images/menu-bare-core.png" alt="Build options of the bare build" width="800"></p>
+<p><img src="docs/images/menu-bare-script.png" alt="The script of the bare build" width="800"></p>
+<p><img src="docs/images/menu-bare.gif" alt="php-menu.sh with the defaults" width="800"></p>
+
+</details>
+
+The pictures are made by [`tools/menu-screenshots.py`](tools/menu-screenshots.py)
+(pyte and Pillow): bsddialog in an 80x25 terminal, the Terminus font and the 16 colors
+of the FreeBSD console.
 
 ### Built-in OPcache and no extension loading
 
@@ -601,10 +650,14 @@ packages.
 
 A daily workflow, [`upstream-check.yml`](.github/workflows/upstream-check.yml), looks
 for newer releases of these extensions (repository tags and PECL, checked against the
-PHP versions each release supports) and for FreeBSD ports commits that change the
-patches or the build of their ports and of `lang/php8x`. Each finding opens one issue
-labelled `upstream`; nothing is applied on its own. What it follows is listed in
-[`freebsd/upstream.conf`](freebsd/upstream.conf).
+PHP versions each release supports), of curl, of the libraries of curl and of PCRE2;
+for FreeBSD ports commits that change the patches or the build of their ports and of
+`lang/php8x`; for release files in the distinfo of the ports of curl and its
+libraries that the bundle has not; and for the end of security support of the
+branches built from php-src tags (8.2: 31.12.2026), from 60 days before it on, with
+whether Remi Collet's backports have a branch to switch to. Each finding opens one
+issue labelled `upstream`; nothing is applied on its own. What it follows is listed
+in [`freebsd/upstream.conf`](freebsd/upstream.conf).
 
 ### OpenSSL
 
@@ -646,23 +699,47 @@ readable, and always for 5.6 and 7.4, whose `openssl_seal()` uses RC4 by default
 
 ### Bundled curl
 
-Every branch carries curl 8.23.0 in `ext/curl/libcurl`: the release tarball (its
-SHA-256 is the one in freebsd-ports `ftp/curl`) with the configure patch of that
-port. `--with-curl=bundled` builds it during `configure` (a minute or two, log in
-`ext/curl/libcurl-build.log`) and links it into PHP, static, against the OpenSSL
-that PHP itself takes, with the options of the FreeBSD port except DICT, Gopher,
-IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP (libssh2) and GSSAPI. PHP then does
-not depend on the curl package, and its curl is as new as the tarball. It needs the
-packages `libnghttp2`, `brotli`, `zstd`, `libidn2` and `libpsl`, which the curl
-package pulls in anyway. Its symbols are not exported from `php` and `libphp.so`,
-so a module that loads the libcurl of the system does not mix with it. Plain
-`--with-curl` still takes the system libcurl.
+Every branch carries curl 8.23.0 in `ext/curl/libcurl` (the release tarball, its
+SHA-256 the one of freebsd-ports `ftp/curl`, with the configure patch of that port)
+and the libraries it needs in `ext/curl/deps`: c-ares 1.34.9, nghttp2 1.70.0, brotli
+1.2.0, zstd 1.5.7, libidn2 2.3.8 and libpsl 0.23.3 with the public suffix list of
+21.09.2026, the release files of their FreeBSD ports
+([`freebsd/curl-deps.conf`](freebsd/curl-deps.conf), put into the tree by
+[`tools/curl-sources.sh`](tools/curl-sources.sh)). `--with-curl=bundled` builds all of
+it during `configure` (two or three minutes, log in `ext/curl/libcurl-build.log`) with
+only cc and make, and links it into PHP, static, against the OpenSSL that PHP itself
+takes. No package is needed: PHP depends neither on the curl package nor on its
+libraries, and its curl is as new as the tarball. libunistring is not among them
+(libidn2 builds the part of it that it needs), nor an IDN library for libpsl (curl
+gives it the host names in punycode, so its built-in list is enough). The symbols of
+curl are not exported from `php` and `libphp.so`, those of its libraries are local
+in `libcurl.a`, so a module that loads the libcurl of the system, or carries a copy
+of nghttp2 (swoole), does not mix with them. Plain `--with-curl` still takes the
+system libcurl.
+
+The options are those of the FreeBSD port, with these differences:
+
+| Difference | Why |
+|---|---|
+| c-ares resolves names (the port's `CARES` option, not `THREADED_RESOLVER`) | Not for speed: the time goes into the answer of the DNS server, and curl 8.23 asks for A and AAAA in parallel either way. A `getaddrinfo()` cannot be interrupted, so with the threaded resolver the handle waits at `curl_close()` (8.x: when `$ch` is destroyed, at the latest at the end of the request) until it gives up: with the defaults of FreeBSD's `resolv.conf` at least 15 seconds per name for a DNS server that does not answer, while the workers of Apache and FPM pile up. c-ares drops the lookup at once, so `CURLOPT_TIMEOUT` holds (checked: a DNS server that never answers, `CURLOPT_TIMEOUT_MS` 1500: `curl_exec()` returns after 1.5 s, the handle goes at once); `CURLOPT_DNS_SERVERS` and its neighbours work too. c-ares reads `/etc/resolv.conf`, `/etc/hosts` and the `hosts:` line of `/etc/nsswitch.conf` itself; NSS modules are not used. |
+| no IMAP, POP3, SMTP | PHPMailer, Symfony Mailer, Roundcube and the IMAP libraries talk to mail servers over their own sockets. |
+| no WebSocket (`ws://`, `wss://`) | PHP has no `curl_ws_send()` or `curl_ws_recv()`; php-src master has neither, only `CURLOPT_WS_OPTIONS`. |
+| no NTLM | Weak, opt-in in curl since 8.20 and to be removed by curl; only old Microsoft servers and proxies want it. |
+| no headers API, TLS session export, `curl_easy_option_*`, text progress meter | PHP calls none of them; `CURLOPT_PROGRESSFUNCTION` and `CURLOPT_XFERINFOFUNCTION` keep working. |
+| no DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP (libssh2), GSSAPI | Rarely used protocols. |
+
+Kept: HTTP(S), FTP(S), FILE (old scripts may use it), HTTP/2, proxies, cookies,
+multipart (`CURLFile`), Unix sockets, IDN, PSL, brotli, zstd, alt-svc, HSTS, DoH, AWS
+SigV4, `.netrc`; the last few only work when the code turns them on.
 
 curl 8.18.0 and later need OpenSSL 3.0 or later. FreeBSD 13.x has OpenSSL 1.1.1 in
 its base system, so there `config-check.sh` keeps `--with-curl` (the curl package)
-and says why; on FreeBSD 14 and 15 it writes `--with-curl=bundled` and lists the
-packages that are missing. A curl security fix reaches PHP with a rebuild: the daily
-upstream check opens an issue for each new curl release and for changes of the port.
+and says why; on FreeBSD 14 and 15 it writes `--with-curl=bundled`. A security fix of
+curl or of one of its libraries reaches PHP with a rebuild: the daily upstream check
+opens an issue for each new release (the tags of their repositories), for changes of
+their FreeBSD ports, and when a port takes a release file the bundle has not (its
+distinfo). `/usr/local/phpdeps` ([`tools/build-deps.sh`](tools/build-deps.sh)) takes
+curl and these libraries from the same files, built the same way.
 
 ### Bundled PCRE
 
