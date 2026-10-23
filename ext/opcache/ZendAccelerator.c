@@ -99,7 +99,13 @@ typedef int gid_t;
 		} \
 	} while (0)
 
+#ifdef COMPILE_DL_OPCACHE
 ZEND_EXTENSION();
+#else
+/* OPcache built into PHP (--enable-opcache-static, azsupport/php-src): the module
+ * registers this zend_extension in its MINIT, as in PHP 8.5 */
+static zend_extension opcache_extension_entry;
+#endif
 
 #ifndef ZTS
 zend_accel_globals accel_globals;
@@ -2862,6 +2868,13 @@ static void accel_move_code_to_huge_pages(void)
 # endif /* defined(MAP_HUGETLB) || defined(MADV_HUGEPAGE) */
 #endif /* HAVE_HUGE_CODE_PAGES */
 
+#ifndef COMPILE_DL_OPCACHE
+void start_accel_extension(void)
+{
+	zend_register_extension(&opcache_extension_entry, NULL);
+}
+#endif
+
 static int accel_startup(zend_extension *extension)
 {
 #ifdef ZTS
@@ -2878,11 +2891,16 @@ static int accel_startup(zend_extension *extension)
 
 	accel_gen_system_id();
 
+#ifdef COMPILE_DL_OPCACHE
 	if (start_accel_module() == FAILURE) {
 		accel_startup_ok = 0;
 		zend_error(E_WARNING, ACCELERATOR_PRODUCT_NAME ": module registration failed!");
 		return FAILURE;
 	}
+#else
+	/* built in: the module is there, its INI entries come now, after the globals */
+	zend_accel_register_ini_entries();
+#endif
 
 #ifdef ZEND_WIN32
 	if (UNEXPECTED(accel_gen_uname_id() == FAILURE)) {
@@ -4891,7 +4909,11 @@ static int accel_finish_startup(void)
 	return SUCCESS;
 }
 
+#ifdef COMPILE_DL_OPCACHE
 ZEND_EXT_API zend_extension zend_extension_entry = {
+#else
+static zend_extension opcache_extension_entry = {
+#endif
 	ACCELERATOR_PRODUCT_NAME,               /* name */
 	PHP_VERSION,							/* version */
 	"Zend Technologies",					/* author */
