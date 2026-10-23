@@ -1,10 +1,13 @@
 name: Upstream check
 
-# Once a day: newer releases of the bundled PECL extensions, and FreeBSD ports
-# commits that change the patches or the build of these extensions and of PHP.
+# Once a day: newer releases of the bundled PECL extensions, curl, the libraries
+# of curl and PCRE2; FreeBSD ports commits that change the patches or the build
+# of these and of PHP, and release files in their distinfo that the bundle has
+# not; the end of security support of the PHP branches taken from php-src tags.
 # Each finding opens or updates one issue (label "upstream"); nothing is applied.
 # Closing an issue means "not wanted", the check does not reopen it.
-# What is followed: freebsd/pecl.conf, freebsd/targets.conf, freebsd/upstream.conf.
+# What is followed: freebsd/pecl.conf, freebsd/curl.conf, freebsd/curl-deps.conf,
+# freebsd/pcre.conf, freebsd/targets.conf, freebsd/upstream.conf, php.net.
 # By hand: Actions, "Upstream check", "Run workflow".
 
 on:
