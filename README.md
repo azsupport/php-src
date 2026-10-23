@@ -295,25 +295,43 @@ the embed library (`pkg shlib -R libphp7.so`).
 `config-check.sh` takes the options of the installed PHP (`php -n -i`, Configure
 Command), never a `config.nice` blindly: a `config.nice` may come from a configure
 run that was never installed. It compares them with the `config.nice` of the old
-build and carries over that file's environment lines (`CFLAGS=...`, which the
-installed build does not record). It finds that file itself:
-`/root/php-<installed version>/config.nice`, or the newest
-`/root/php-<installed version>-fbsd-*/config.nice` from an earlier build of this
-fork; another one can be given as the second argument
-(`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`). Without any
-`config.nice` it takes the environment from `/etc/make.conf`, as the ports do:
-`CFLAGS` with `-march=$CPUTYPE`, and `LIBS=-lpthread` (the `LINKTHR` option of
-`lang/phpXY`). PHP 5.6 records options with spaces in a broken quoting
-(`'CFLAGS=-O3 '-pipe' ...''`); the script reads them as the shell would, as one
-option. `php-config --configure-options` (taken when the binary does not run)
-prints the options without any quotes, so `CFLAGS=-O3 -pipe ...` comes out as
-separate words; the script puts the words after a `NAME=value` back into its value.
+build, which it finds itself: `/root/php-<installed version>/config.nice`, or the
+newest `/root/php-<installed version>-fbsd-*/config.nice` from an earlier build of
+this fork; another one can be given as the second argument
+(`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`). PHP 5.6
+records options with spaces in a broken quoting (`'CFLAGS=-O3 '-pipe' ...''`); the
+script reads them as the shell would, as one option. `php-config
+--configure-options` (taken when the binary does not run) prints the options
+without any quotes, so `CFLAGS=-O3 -pipe ...` comes out as separate words; the
+script puts the words after a `NAME=value` back into its value.
+
+The environment is the same for every PHP build, whatever the old build had:
+
+```
+CFLAGS='-O3 -pipe -march=<CPUTYPE of /etc/make.conf> -fstack-protector-strong -fno-strict-aliasing'
+CXXFLAGS='-O3 -pipe -march=<CPUTYPE of /etc/make.conf> -fstack-protector-strong -fno-strict-aliasing'
+LIBS='-lpthread'
+```
+
+and no `LDFLAGS` (clang needs no `-fstack-protector` to link; `/usr/local/phpdeps`
+adds its own). `CXXFLAGS` gets `-std=c++17` only for intl on PHP 7.4 and later when
+`c++` defaults to an older standard: clang 16 and later (FreeBSD 13.3 and later)
+default to C++17, and PHP 8.1 and later pick it for ICU 74 and later themselves. The
+`CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `LIBS`, `CPPFLAGS`, `CC`, `CXX` and `CPP` lines of
+the old `config.nice` and every `NAME=value` option of the installed build (the
+environment of its configure run, which autoconf records: PHP 5.6 keeps `CFLAGS`
+and the like there, the ports leave `CC=cc`, `CPP=cpp`, `PKG_CONFIG`,
+`LDFLAGS=-fstack-protector`) are dropped and listed in the report; the other
+environment lines of `config.nice` (`PKG_CONFIG_PATH`, `OPENSSL_CFLAGS`, ...) are
+carried over. `--build` names our
+build and the system it is built on, in the form of the ports'
+`amd64-portbld-freebsd15.1`: `amd64-srcbld-freebsd15.1`; `build_alias` goes.
 
 `-march` always comes from `/etc/make.conf` of the server the script runs on
-(`CPUTYPE`, or a `-march=` in its `CFLAGS`): a `-march` of a `config.nice` copied
-from a server with another CPU is replaced, and the report says so. When the CPU
-lacks what the `-march` needs (`x86-64-v4` needs AVX-512, `x86-64-v3` AVX2), the
-script warns: PHP built with it would stop with `Illegal instruction` there.
+(`CPUTYPE`, or a `-march=` in its `CFLAGS`; none without either): a `-march` of a
+`config.nice` copied from a server with another CPU is not carried over. When the
+CPU lacks what the `-march` needs (`x86-64-v4` needs AVX-512, `x86-64-v3` AVX2),
+the script warns: PHP built with it would stop with `Illegal instruction` there.
 
 Building straight from a branch also works, but then autoconf, bison and re2c
 are required (`./buildconf --force` first).

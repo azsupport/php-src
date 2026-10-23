@@ -16,7 +16,7 @@
 #   options of phpXY, one option per extension package (for the bundled PECL ones
 #   with the features "php --ri" of the package PHP shows: lz4/zstd of redis, SASL
 #   and JSON of memcached, ...), the layout of our hand builds (/usr/local/phpXY)
-#   and CFLAGS from /etc/make.conf (CFLAGS, CPUTYPE).
+#   and the compiler flags of every build (below; -march from /etc/make.conf).
 #   With mod_phpXY installed the build makes the Apache module; the EMBED option
 #   of phpXY (the embed library, a second SAPI module, which one build cannot make
 #   as well) is left out, the report says whether a package uses that library.
@@ -35,20 +35,30 @@
 # taken instead, as they are. The shared PECL modules of a php that does not run
 # are those of the extension= lines of its php.ini, looked for at
 # --with-config-file-path and --with-config-file-scan-dir, <prefix>/etc/php*.ini,
-# /usr/local/etc/phpXY.ini and the Apache PHPIniDir that names it. Environment lines of
-# config.nice (CFLAGS=... and the like) are shown and carried over, but not
-# compared: the installed build does not record them. PHP 5.6 records options with
-# spaces in a broken quoting ('CFLAGS=-O3 '-pipe' '-march=...''); both sources are
-# split the way the shell would, so such an option stays one option. php-config
-# prints the options with all quotes removed: there the words after a NAME=value
-# (up to the next --option or NAME=value) go back into its value.
-# Without a config.nice the environment comes from /etc/make.conf, as for the
-# ports: its CFLAGS, -march=$CPUTYPE, LIBS=-lpthread (LINKTHR of lang/phpXY).
-# In both modes the -march is the one of /etc/make.conf of this server (CPUTYPE,
-# or a -march= in its CFLAGS), so a config.nice from a server with another CPU
-# does not bring its -march along; a -march that needs CPU features this CPU has
-# not (cc -march=native) gives a warning, PHP built with it would stop with
-# "Illegal instruction".
+# /usr/local/etc/phpXY.ini and the Apache PHPIniDir that names it.
+# PHP 5.6 records options with spaces in a broken quoting ('CFLAGS=-O3 '-pipe'
+# '-march=...''); both sources are split the way the shell would, so such an
+# option stays one option. php-config prints the options with all quotes removed:
+# there the words after a NAME=value (up to the next --option or NAME=value) go
+# back into its value.
+# The environment is the same for every PHP build (the rule of our servers):
+#   CFLAGS='-O3 -pipe -march=<of /etc/make.conf> -fstack-protector-strong -fno-strict-aliasing'
+#   CXXFLAGS=<the same; -std=c++17 first only for intl when c++ defaults to an older standard>
+#   LIBS='-lpthread'
+# and no LDFLAGS (/usr/local/phpdeps adds its own), whatever the old build had: the
+# CFLAGS, CXXFLAGS, LDFLAGS, LIBS, CPPFLAGS, CC, CXX, CPP of config.nice and every
+# NAME=value option of the installed build (the environment of its configure run,
+# which autoconf records: PHP 5.6 keeps CFLAGS and the like there, the ports leave
+# CC=cc, CPP=cpp, LDFLAGS=-fstack-protector, PKG_CONFIG) are dropped, and the
+# report lists them. The -march is the one of /etc/make.conf of this server
+# (CPUTYPE, or a -march= in its CFLAGS; none without either), so a config.nice
+# from a server with another CPU does not bring its -march along; a -march that
+# needs CPU features this CPU has not (cc -march=native) gives a warning, PHP
+# built with it would stop with "Illegal instruction". The other environment
+# lines of config.nice (PKG_CONFIG_PATH, OPENSSL_CFLAGS, ...) are shown and
+# carried over, but not compared.
+# --build is ours, of this server: amd64-srcbld-freebsd15.1 (built from source),
+# in the form of the ports' amd64-portbld-freebsd15.1; build_alias goes.
 # Where the source tree bundles curl (ext/curl/libcurl) and the build's OpenSSL is
 # 3.0 or later, --with-curl becomes --with-curl=bundled (curl built into PHP); with
 # OpenSSL 1.1.1 (FreeBSD 13.x base) the libcurl of pkg stays, the report says why.
@@ -82,15 +92,6 @@ mc_get() {
     ' "$mk_conf"
 }
 
-# CFLAGS as the ports build with them on this server: CFLAGS of make.conf (or
-# -O2 -pipe), -march=$CPUTYPE, and the ports' -fstack-protector-strong and
-# -fno-strict-aliasing.
-mc_cflags() {
-    c="$(mc_get CFLAGS)"
-    t="$(mc_get CPUTYPE)"
-    printf '%s' "${c:--O2 -pipe}${t:+ -march=$t} -fstack-protector-strong -fno-strict-aliasing"
-}
-
 # The -march of this server: CPUTYPE of make.conf, else a -march= in its CFLAGS.
 mc_march() {
     t="$(mc_get CPUTYPE)"
@@ -98,11 +99,35 @@ mc_march() {
     printf '%s' "$t"
 }
 
-# The -march= values in CFLAGS/CXXFLAGS lines of the given files.
-march_in() {
-    cat "$@" 2>/dev/null | grep -E "^'?C(XX)?FLAGS=" | tr -s " '\"" '\n\n\n' |
-        sed -n 's/^-march=//p' | sort -u | tr '\n' ' ' | sed 's/ *$//'
+# The compiler flags of every PHP build (the rule of our servers, header): the
+# same CFLAGS everywhere, with the -march of make.conf (none without one).
+rule_cflags() { printf '%s' "-O3 -pipe${1:+ -march=$1} -fstack-protector-strong -fno-strict-aliasing"; }
+mc_cflags() { rule_cflags "$(mc_march)"; }
+
+# CXXFLAGS: the CFLAGS ($1), with -std=c++17 only where it is needed: for intl ($2
+# set; PHP 7.4 and later) when the C++ compiler defaults to a standard older than
+# C++17. ICU 75 and later need C++17; clang 16 and later (FreeBSD 13.3 and later)
+# default to it, and PHP 8.1 and later pick it for ICU 74 and later themselves.
+rule_cxxflags() {
+    s=""
+    if [ -n "${2:-}" ]; then
+        d="$("${CXX:-c++}" -x c++ -dM -E - < /dev/null 2>/dev/null |
+            sed -n 's/^#define __cplusplus \([0-9]*\)L*$/\1/p' | head -n 1)"
+        [ -n "$d" ] && [ "$d" -lt 201703 ] 2>/dev/null && s="-std=c++17 "
+    fi
+    printf '%s' "$s$1"
 }
+
+# --build of our hand builds, in the form of the ports' amd64-portbld-freebsd15.1:
+# <arch>-srcbld-<os><release> of this server.
+our_build() {
+    printf '%s-srcbld-%s%s' "$(uname -p)" "$(uname -s | tr 'A-Z' 'a-z')" "$(uname -r | sed 's/[-(].*//')"
+}
+
+# Environment lines of a config.nice that the rule decides: the compiler flags,
+# the libraries and the tools (the NAME=value options of the installed build all
+# go, below).
+rule_vars='CFLAGS|CXXFLAGS|LDFLAGS|LIBS|CPPFLAGS|CC|CXX|CPP|EXTRA_LDFLAGS_PROGRAM|build_alias'
 
 # The CPU features that -march=$1 turns on and this CPU has not (by the compiler's
 # -march=native): PHP built with them stops with "Illegal instruction" here.
@@ -384,7 +409,7 @@ fi
 
 # --pkg: the ./configure options for a hand build that replaces the PHP installed
 # as FreeBSD packages (lang/phpXY, its phpXY-* extension packages, mod_phpXY), in
-# the layout of our hand builds, with CFLAGS from /etc/make.conf.
+# the layout of our hand builds, with the compiler flags of every build.
 if [ "${1:-}" = "--pkg" ]; then
     [ $# -le 2 ] || { sed -n 's/^# \{0,1\}//; 7,10p' "$0" >&2; exit 2; }
     pkg="${PKG:-pkg}"
@@ -494,6 +519,7 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     }
 
     # The core package: layout of our hand builds, then its port options.
+    add "--build=$(our_build)"
     [ -n "$modphp" ] && add --with-apxs2=/usr/local/sbin/apxs
     if [ "$fam" = 5 ]; then
         add --prefix="$prefix" --disable-all --with-layout=GNU --with-zend-vm=CALL --enable-libxml \
@@ -529,8 +555,7 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
         if [ "$fam" = 8 ]; then add --enable-zts; else add --enable-maintainer-zts; fi
     fi
     opt MYSQLND on && add --enable-mysqlnd
-    libs=""
-    opt LINKTHR on && libs="-lpthread"
+    libs="-lpthread"
     opt DEBUG on && note "DEBUG is on in the package: not carried over (add --enable-debug for a debug build)."
     opt DTRACE on && note "DTRACE is on in the package: not carried over (add --enable-dtrace to keep the DTrace probes)."
     opt MAILHEAD on && note "MAILHEAD (the mail() header patch of the php56 port) is not in this fork."
@@ -572,12 +597,13 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
         grep -qx -- "--enable-memcached" "$tmp/opts" && add --enable-memcached-igbinary
     fi
 
-    # CFLAGS: those of /etc/make.conf plus -march=$CPUTYPE, as for the ports.
+    # CFLAGS: the rule of every build, -march of /etc/make.conf.
     mc_cflags="$(mc_get CFLAGS)"
     cputype="$(mc_get CPUTYPE)"
     cflags="$(mc_cflags)"
-    cxxflags="$cflags"
-    [ -n "$intl" ] && [ "$fam" != 5 ] && cxxflags="-std=c++17 $cflags"
+    pintl=""
+    [ -n "$intl" ] && [ "$fam" != 5 ] && pintl=1
+    cxxflags="$(rule_cxxflags "$cflags" "$pintl")"
 
     curl_opts "$tmp/opts" /dev/null
     [ -n "$curl_note" ] && note "curl: $curl_note"
@@ -592,7 +618,7 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     {
         echo "#!/bin/sh"
         echo "# Written by config-check.sh --pkg on $(date '+%d.%m.%Y %H:%M'): a hand build that replaces"
-        echo "# the packages $want $pkgver${modphp:+, $modphp} and $n_ext extension packages; CFLAGS from $mk_conf."
+        echo "# the packages $want $pkgver${modphp:+, $modphp} and $n_ext extension packages; flags: $cflags (-march of $mk_conf)."
         echo "# Run from inside the new PHP source tree: sh $out"
         echo
         printf "CFLAGS='%s' \\\\\n" "$cflags"
@@ -825,32 +851,55 @@ if [ -n "$broken" ]; then
     how="$nice (the installed build cannot be read)"
 fi
 
-# Without a config.nice the environment comes from /etc/make.conf, as for the
-# ports: its CFLAGS with -march=$CPUTYPE, and -lpthread (LINKTHR of lang/phpXY).
-if [ -z "$nice" ]; then
-    cf="$(mc_cflags)"
-    cxf="$cf"
-    case "$ver" in
-        5.*) ;;
-        *) grep -q -e '^--enable-intl' "$tmp/installed" && cxf="-std=c++17 $cf" ;;
-    esac
-    printf "CFLAGS='%s'\nCXXFLAGS='%s'\nLIBS='-lpthread'\n" "$cf" "$cxf" > "$tmp/env"
-fi
-
-# -march: /etc/make.conf of this server decides (CPUTYPE, or a -march= in its
-# CFLAGS), so that a config.nice from a server with another CPU does not bring
-# its -march along. The CFLAGS options that PHP 5.6 records go the same way.
-march_note=""
+# The environment by the rule (header): CFLAGS, CXXFLAGS and LIBS the same for
+# every PHP build, no LDFLAGS (clang needs no -fstack-protector to link, libc has
+# the SSP runtime). Dropped and listed: the variables of the rule in the
+# environment lines of config.nice, and every NAME=value option of the installed
+# build, the environment of its configure run that autoconf records (PHP 5.6
+# keeps CFLAGS and the like there; the ports leave CC=cc, CPP=cpp, PKG_CONFIG and
+# a PKG_CONFIG_LIBDIR into their work directory). The other environment lines of
+# config.nice (PKG_CONFIG_PATH, OPENSSL_CFLAGS, ...) stay. --build becomes ours
+# (our_build), also where the installed build had none; build_alias goes, --build
+# sets it.
 mm="$(mc_march)"
-old_march="$(march_in "$tmp/env" "$tmp/installed_order")"
-if [ -n "$mm" ] && [ -n "$old_march" ] && [ "$old_march" != "$mm" ]; then
-    for f in "$tmp/env" "$tmp/installed_order"; do
-        sed -E "/^'?C(XX)?FLAGS=/ s/-march=[^ '\"]+/-march=$mm/g" "$f" > "$f.new" && mv "$f.new" "$f"
-    done
-    march_note="-march=$old_march of ${nice:-?} replaced with -march=$mm (CPUTYPE of $mk_conf)"
+intl=""
+case "$ver" in
+    5.*) ;;
+    *) grep -q -e '^--enable-intl' "$tmp/installed" && intl=1 ;;
+esac
+cf="$(rule_cflags "$mm")"
+cxf="$(rule_cxxflags "$cf" "$intl")"
+printf "CFLAGS='%s'\nCXXFLAGS='%s'\nLIBS='-lpthread'\n" "$cf" "$cxf" > "$tmp/rule_env"
+sed "s/'//g" "$tmp/rule_env" > "$tmp/rule_plain"
+{
+    grep -E "^($rule_vars)=" "$tmp/env" | sed "s/^\([A-Za-z_]*\)='\(.*\)'\$/\1=\2/"
+    grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$tmp/installed_order" | grep -v '^build_alias='
+} | awk '!seen[$0]++' | grep -v -x -F -f "$tmp/rule_plain" > "$tmp/dropped"
+{
+    cat "$tmp/rule_env"
+    grep -v -E "^($rule_vars)=" "$tmp/env"
+} > "$tmp/env.new"
+mv "$tmp/env.new" "$tmp/env"
+ob="$(our_build)"
+old_build="$(sed -n 's/^--build=//p' "$tmp/installed_order" | head -n 1)"
+{
+    printf '%s\n' "--build=$ob"
+    grep -v -E -e '^[A-Za-z_][A-Za-z0-9_]*=' -e '^--build=' "$tmp/installed_order"
+} > "$tmp/installed_order.new"
+mv "$tmp/installed_order.new" "$tmp/installed_order"
+# not compared either
+for f in "$tmp/installed" "$tmp/nice"; do
+    grep -v -E -e '^[A-Za-z_][A-Za-z0-9_]*=' -e '^--build=' "$f" > "$f.new"
+    mv "$f.new" "$f"
+done
+if [ -n "$mm" ]; then
+    flags_note="CFLAGS, CXXFLAGS and LIBS as on every PHP build, -march of $mk_conf"
+else
+    flags_note="CFLAGS, CXXFLAGS and LIBS as on every PHP build, no -march: $mk_conf has no CPUTYPE and no -march= in CFLAGS"
 fi
-cur_march="$(march_in "$tmp/env" "$tmp/installed_order" | awk '{ print $NF }')"
-lacks="$(cpu_lacks "$cur_march")"
+build_note="--build=$ob (built from source on this server)${old_build:+, instead of $old_build}"
+cur_march="$mm"
+lacks="$(cpu_lacks "$mm")"
 ossl_opts "$tmp/installed_order" "$tmp/env"
 curl_opts "$tmp/installed_order" "$tmp/env"
 legacy_opts "$tmp/installed_order" "$tmp/env" "$php"
@@ -874,17 +923,16 @@ LC_ALL=C comm -23 "$tmp/installed" "$tmp/nice" > "$tmp/only_installed"
 LC_ALL=C comm -13 "$tmp/installed" "$tmp/nice" > "$tmp/only_nice"
 if [ -s "$tmp/env" ]; then
     echo
-    if [ -n "$nice" ]; then
-        echo "environment in config.nice (not recorded by the installed build, not compared):"
-    else
-        echo "environment from $mk_conf (no config.nice):"
-    fi
+    echo "environment (CFLAGS, CXXFLAGS and LIBS the same for every PHP build${nice:+; the other lines from $nice, not compared}):"
     sed 's/^/  /' "$tmp/env"
 fi
-if [ -n "$march_note" ]; then
-    echo
-    echo "march: $march_note"
+echo
+echo "flags: $flags_note"
+if [ -s "$tmp/dropped" ]; then
+    echo "       not carried over from the old build:"
+    sed 's/^/         /' "$tmp/dropped"
 fi
+echo "build: $build_note"
 if [ -n "$lacks" ]; then
     echo
     echo "WARNING: -march=$cur_march needs $lacks, which this CPU does not have:"
@@ -930,12 +978,9 @@ out="$out_dir/$out_name"
     echo "#!/bin/sh"
     echo "# Written by config-check.sh on $(date '+%d.%m.%Y %H:%M'): the configure options of"
     echo "# $php (${version:-?}), from $how."
-    if [ -n "$nice" ] && [ -s "$tmp/env" ]; then
-        echo "# The environment lines come from $nice (the installed build does not record them)."
-    elif [ -s "$tmp/env" ]; then
-        echo "# The environment lines come from $mk_conf (no config.nice)."
-    fi
-    [ -n "$march_note" ] && echo "# $march_note."
+    echo "# flags: $flags_note${nice:+; the other environment lines come from $nice}."
+    [ -s "$tmp/dropped" ] && echo "# not carried over from the old build: $(awk '{ printf "%s%s", (NR > 1 ? "; " : ""), $0 }' "$tmp/dropped")."
+    echo "# build: $build_note."
     [ -n "$curl_note" ] && echo "# curl: $curl_note."
     [ -n "$ossl_note" ] && echo "# openssl: $ossl_note."
     [ -n "$legacy_note" ] && echo "# openssl: $legacy_note."
@@ -1100,9 +1145,9 @@ if [ -n "$broken" ]; then
     echo "RESULT: the installed build cannot be read, nothing compared; written from $nice."
     rc=1
 elif [ -z "$nice" ]; then
-    echo "RESULT: nothing to compare with; written from the installed build, with CFLAGS and"
-    echo "        LIBS from $mk_conf. To carry over the environment of the old build instead,"
-    echo "        give its config.nice as the second argument."
+    echo "RESULT: nothing to compare with; written from the installed build, with the"
+    echo "        environment of every build (flags). To compare with the old build, give its"
+    echo "        config.nice as the second argument."
     rc=1
 elif [ ! -s "$tmp/only_installed" ] && [ ! -s "$tmp/only_nice" ]; then
     echo "RESULT: same options; config.nice matches the installed build."
