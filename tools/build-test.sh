@@ -30,10 +30,9 @@ deps() {
     # GraphicsMagick needs libwmf, which conflicts with the libwmf-nox11 of
     # ImageMagick7-nox11, and pkg -y then drops GraphicsMagick from the request);
     # memcached and redis: servers for the smoke checks of the PECL extensions;
-    # libnghttp2, brotli, zstd, libidn2, libpsl: the bundled curl (--with-curl=bundled),
-    # so no curl package
-    pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis brotli"
-    pkgs="$pkgs libnghttp2 zstd libidn2 libpsl"
+    # no curl and none of the libraries of curl: the bundled curl brings them
+    # (--with-curl=bundled, ext/curl/deps)
+    pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis"
     if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
         # PHP against /usr/local/phpdeps: none of the libraries it has, so that
         # configure cannot take one of pkg by mistake; MAGICK=none leaves out the
