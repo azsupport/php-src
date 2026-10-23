@@ -39,7 +39,9 @@
 # config.nice (CFLAGS=... and the like) are shown and carried over, but not
 # compared: the installed build does not record them. PHP 5.6 records options with
 # spaces in a broken quoting ('CFLAGS=-O3 '-pipe' '-march=...''); both sources are
-# split the way the shell would, so such an option stays one option.
+# split the way the shell would, so such an option stays one option. php-config
+# prints the options with all quotes removed: there the words after a NAME=value
+# (up to the next --option or NAME=value) go back into its value.
 # Without a config.nice the environment comes from /etc/make.conf, as for the
 # ports: its CFLAGS, -march=$CPUTYPE, LIBS=-lpthread (LINKTHR of lang/phpXY).
 # In both modes the -march is the one of /etc/make.conf of this server (CPUTYPE,
@@ -682,19 +684,38 @@ fi
 tmp="$(mktemp -d)" || exit 2
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
+# Words that belong to the value of a NAME=value before them go back into it: the
+# words after it up to the next --option or NAME=value (compiler flags start with a
+# single dash, -pipe, or are --param).
+rejoin() {
+    awk '
+        function flush() { if (have) print cur; have = 0 }
+        NF == 0 { next }
+        /^[A-Za-z_][A-Za-z0-9_]*=/ { flush(); cur = $0; have = 1; asg = 1; next }
+        asg && ($0 !~ /^--/ || $0 ~ /^--param(=|$)/) { cur = cur " " $0; next }
+        { flush(); cur = $0; have = 1; asg = 0 }
+        END { flush() }
+    '
+}
+
 # One option per line, split like the shell splits words (quotes removed, adjacent
-# quoted parts joined; xargs only parses, it runs nothing but printf). Falls back
-# to taking every '...' group if xargs rejects the quoting. The ./configure path
-# itself is dropped.
+# quoted parts joined; xargs only parses, it runs nothing but printf). The
+# ./configure path itself is dropped.
+# php-config --configure-options prints the options with every quote removed
+# (sed "s#'##g" in php-config), so a value with spaces comes out as several words,
+# and PHP 5.6 records CFLAGS, LDFLAGS and the like among its options: CFLAGS=-O3
+# -pipe -march=... Unquoted options, and options whose quoting xargs rejects, are
+# split at blanks and rejoined (above).
 to_lines() {
-    if ! printf '%s\n' "$1" | xargs -n 1 printf '%s\n' > "$tmp/split" 2>/dev/null; then
-        echo "config-check: warning: unbalanced quotes in the options from ${2:-?}" \
-             "(a PHP 5.6 value that ends in a space?); options with spaces may come out split" >&2
-        case "$1" in
-            *\'*) printf '%s\n' "$1" | grep -o "'[^']*'" | sed "s/^'//; s/'\$//" ;;
-            *) printf '%s\n' "$1" | tr -s '[:blank:]' '\n' ;;
-        esac > "$tmp/split"
-    fi
+    case "$1" in
+        *\'* | *\"*)
+            if ! printf '%s\n' "$1" | xargs -n 1 printf '%s\n' > "$tmp/split" 2>/dev/null; then
+                echo "config-check: warning: unbalanced quotes in the options from ${2:-?}" \
+                     "(a PHP 5.6 value that ends in a space?); quotes dropped, values with spaces rejoined" >&2
+                printf '%s\n' "$1" | tr -d "'\"" | tr -s '[:blank:]' '\n' | rejoin > "$tmp/split"
+            fi ;;
+        *) printf '%s\n' "$1" | tr -s '[:blank:]' '\n' | rejoin > "$tmp/split" ;;
+    esac
     grep -v -e '^$' -e '^[^-].*configure$' "$tmp/split"
 }
 
