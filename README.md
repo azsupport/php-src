@@ -378,7 +378,8 @@ paths, `--build`) and writes `config.menu.sh`, a script of the same form, with t
 SAPI, the build options and the extensions chosen in the menu. Without
 `config.installed.sh` it starts from our base build only (`/usr/local/phpXY`,
 `--disable-all`, the CLI and OPcache; the SAPI and the extensions are chosen) with the
-compiler flags of every build. Two paths are typed in on the last screen: the install
+compiler flags of every build. OPcache built into PHP and no extension loading (the
+options of this fork, below) are on by default. Two paths are typed in on the last screen: the install
 directory (`/usr/local/phpXY` by default, or the one of the installed build; it gives
 `--prefix` and `--mandir=<dir>/man`, and the other paths of the installed build inside
 its old directory move along) and, with mysqli or pdo_mysql (5.6: the mysql
@@ -393,6 +394,34 @@ way the ports save theirs, in `/var/db/php-menu/phpXY.options`, and are the star
 the next run (`--reset` starts over). At the end it names the packages the choices
 need. `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84` writes the script
 without dialogs, `sh php-menu.sh --list` shows the items, the paths and their state.
+
+### Built-in OPcache and no extension loading
+
+Two configure options of this fork, in every branch (the patches
+`freebsd/patches/<version>/feature-*.patch`). Both are off unless given;
+`php-menu.sh` turns both on by default, also when it starts from the
+`config.installed.sh` of a build made before them.
+
+- `--enable-opcache-static`: OPcache is built into PHP (the CLI, php-fpm, php-cgi
+  and the Apache module alike), as PHP 8.5 always does: there is no `opcache.so`
+  and no `zend_extension` line is needed. A leftover `zend_extension=opcache.so`
+  is skipped quietly, also when an old `opcache.so` is still in `extension_dir`;
+  `opcache.enable` and the other `opcache.*` settings work as before. In 8.x it
+  does not go with ZTS and the JIT (before PHP 8.5 the JIT reaches thread-local
+  data in a way that works only from `opcache.so`): configure stops, add
+  `--disable-opcache-jit` or build `opcache.so`.
+- `--disable-extension-loading`: PHP loads no extensions at run time.
+  `extension=` and `zend_extension=` lines, `dl()` and `php -z` are refused with a
+  startup warning that names the file, a line for an extension that is built in
+  (`extension=mysqli`) is skipped quietly, and `php -i` shows
+  `Dynamic Library Support => disabled (--disable-extension-loading)`. configure
+  stops when an extension would be built as `.so` (for OPcache add
+  `--enable-opcache-static`).
+
+Without the menu, add them to the build: `sh config.installed.sh
+--enable-opcache-static --disable-extension-loading`. Once such a build is
+installed, the `extension=` and `zend_extension=opcache.so` lines of php.ini are no
+longer needed.
 
 ### Build test on FreeBSD
 
@@ -662,6 +691,15 @@ gets reviewed.
 | 7.4 | [`compat-c99.patch`](freebsd/patches/7.4/compat-c99.patch) | configure tests that clang 16+ and gcc 14+ reject (`write(2)` to stdout, functions in separate libraries) |
 | 7.4 | [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch) | OpenSSL 3: legacy provider, `OPENSSL_SSLV23_PADDING`, CSR public key |
 
+### Build options
+
+The options of this fork (above: the built-in OPcache and no extension loading)
+are patches in `freebsd/patches/<version>/feature-*.patch` (git format, `-p1`, with
+`Description:`, `Option:` and `Origin:` lines on top). They change nothing unless
+their configure option is given; they are applied last, in name order, as the
+commit "Add the build options of this fork", and listed in the branch README and
+the release notes. One that stops applying fails the build.
+
 ### Interim backports
 
 If an end-of-life branch needs a security fix before Remi Collet publishes one,
@@ -674,8 +712,8 @@ skipped automatically, so the branch falls back to upstream's own fix.
 ### Token
 
 The workflow pushes with the repository secret `SYNC_TOKEN` when it exists: a
-fine-grained personal access token limited to this repository with **Contents**
-and **Workflows** read/write. The default `GITHUB_TOKEN` is used otherwise, but it
+fine-grained personal access token for this repository (it may serve other
+repositories of the owner too) with **Contents** and **Workflows** read/write. The default `GITHUB_TOKEN` is used otherwise, but it
 may not push upstream history that touches `.github/workflows`, so some updates of
 the `freebsd/8.x` branches could be rejected without `SYNC_TOKEN`.
 
