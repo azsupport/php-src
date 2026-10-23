@@ -107,7 +107,7 @@ if test "$PHP_APXS2" != "no"; then
       php_sapi_apache2handler_type=bundle
       INSTALL_IT="$INSTALL_IT $SAPI_SHARED"
     ],
-    [INSTALL_IT="$INSTALL_IT $SAPI_LIBTOOL"])
+    [INSTALL_IT="\$(mkinstalldirs) '$APXS_LIBEXECDIR' && \$(INSTALL) -m 0755 $SAPI_SHARED '$APXS_LIBEXECDIR/libphp$PHP_MAJOR_VERSION$PHP_MINOR_VERSION.so' && echo 'Installed the Apache module as $APXS_LIBEXECDIR/libphp$PHP_MAJOR_VERSION$PHP_MINOR_VERSION.so (azsupport/php-src: libphpXY.so for every version); httpd.conf is not changed: LoadModule php_module $APXS_LIBEXECDIR/libphp$PHP_MAJOR_VERSION$PHP_MINOR_VERSION.so'"])
 
   PHP_SELECT_SAPI([apache2handler],
     [$php_sapi_apache2handler_type],
