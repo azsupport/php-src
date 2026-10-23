@@ -1,0 +1,216 @@
+Description: OPcache built into PHP instead of opcache.so, as PHP 8.5 always does: the module registers the zend_extension in its MINIT, and the startup of the zend_extension registers the INI entries after its globals, in the order opcache.so has. No zend_extension line is needed; zend_extension=opcache.so is skipped quietly, also when an old opcache.so is still in extension_dir. Without the option opcache.so is built as before.
+Option: --enable-opcache-static
+Origin: azsupport; the approach of php/php-src 7b4c14dc (PHP 8.5, "Make OPcache non-optional"), kept behind COMPILE_DL_OPCACHE so that the opcache.so build is unchanged
+
+diff --git a/ext/opcache/ZendAccelerator.c b/ext/opcache/ZendAccelerator.c
+index 729478ade..46dffd6e1 100644
+--- a/ext/opcache/ZendAccelerator.c
++++ b/ext/opcache/ZendAccelerator.c
+@@ -99,7 +99,13 @@ typedef int gid_t;
+ 		} \
+ 	} while (0)
+ 
++#ifdef COMPILE_DL_OPCACHE
+ ZEND_EXTENSION();
++#else
++/* OPcache built into PHP (--enable-opcache-static, azsupport/php-src): the module
++ * registers this zend_extension in its MINIT, as in PHP 8.5 */
++static zend_extension opcache_extension_entry;
++#endif
+ 
+ #ifndef ZTS
+ zend_accel_globals accel_globals;
+@@ -2862,6 +2868,13 @@ static void accel_move_code_to_huge_pages(void)
+ # endif /* defined(MAP_HUGETLB) || defined(MADV_HUGEPAGE) */
+ #endif /* HAVE_HUGE_CODE_PAGES */
+ 
++#ifndef COMPILE_DL_OPCACHE
++void start_accel_extension(void)
++{
++	zend_register_extension(&opcache_extension_entry, NULL);
++}
++#endif
++
+ static int accel_startup(zend_extension *extension)
+ {
+ #ifdef ZTS
+@@ -2878,11 +2891,16 @@ static int accel_startup(zend_extension *extension)
+ 
+ 	accel_gen_system_id();
+ 
++#ifdef COMPILE_DL_OPCACHE
+ 	if (start_accel_module() == FAILURE) {
+ 		accel_startup_ok = 0;
+ 		zend_error(E_WARNING, ACCELERATOR_PRODUCT_NAME ": module registration failed!");
+ 		return FAILURE;
+ 	}
++#else
++	/* built in: the module is there, its INI entries come now, after the globals */
++	zend_accel_register_ini_entries();
++#endif
+ 
+ #ifdef ZEND_WIN32
+ 	if (UNEXPECTED(accel_gen_uname_id() == FAILURE)) {
+@@ -4891,7 +4909,11 @@ static int accel_finish_startup(void)
+ 	return SUCCESS;
+ }
+ 
++#ifdef COMPILE_DL_OPCACHE
+ ZEND_EXT_API zend_extension zend_extension_entry = {
++#else
++static zend_extension opcache_extension_entry = {
++#endif
+ 	ACCELERATOR_PRODUCT_NAME,               /* name */
+ 	PHP_VERSION,							/* version */
+ 	"Zend Technologies",					/* author */
+diff --git a/ext/opcache/ZendAccelerator.h b/ext/opcache/ZendAccelerator.h
+index c2f95d7c4..6f2c11024 100644
+--- a/ext/opcache/ZendAccelerator.h
++++ b/ext/opcache/ZendAccelerator.h
+@@ -301,6 +301,7 @@ extern zend_accel_globals accel_globals;
+ 
+ extern char *zps_api_failure_reason;
+ 
++void start_accel_extension(void);
+ void accel_shutdown(void);
+ int  accel_activate(INIT_FUNC_ARGS);
+ int  accel_post_deactivate(void);
+diff --git a/ext/opcache/config.m4 b/ext/opcache/config.m4
+index 6c40cafc1..2c658b0aa 100644
+--- a/ext/opcache/config.m4
++++ b/ext/opcache/config.m4
+@@ -11,10 +11,24 @@ PHP_ARG_ENABLE([huge-code-pages],
+   [yes],
+   [no])
+ 
++PHP_ARG_ENABLE([opcache-static],
++  [whether to build OPcache into PHP],
++  [AS_HELP_STRING([--enable-opcache-static],
++    [Build OPcache into PHP instead of opcache.so (azsupport/php-src): no
++    zend_extension line is needed, zend_extension=opcache.so is skipped])],
++  [no],
++  [no])
++
+ if test "$PHP_OPCACHE" != "no"; then
+ 
+   dnl Always build as shared extension
+-  ext_shared=yes
++  dnl Built into PHP with --enable-opcache-static (azsupport/php-src), as PHP 8.5
++  dnl always does.
++  AS_VAR_IF([PHP_OPCACHE_STATIC], [yes], [
++    ext_shared=no
++    AC_DEFINE([HAVE_OPCACHE_STATIC], [1],
++      [Define to 1 if OPcache is built into PHP (--enable-opcache-static).])
++  ], [ext_shared=yes])
+ 
+   if test "$PHP_HUGE_CODE_PAGES" = "yes"; then
+     AC_DEFINE(HAVE_HUGE_CODE_PAGES, 1, [Define to enable copying PHP CODE pages into HUGE PAGES (experimental)])
+@@ -255,7 +269,7 @@ int main() {
+ 	Optimizer/escape_analysis.c \
+ 	Optimizer/compact_vars.c \
+ 	Optimizer/zend_dump.c,
+-	shared,,-DZEND_ENABLE_STATIC_TSRMLS_CACHE=1,,yes)
++	$ext_shared,,-DZEND_ENABLE_STATIC_TSRMLS_CACHE=1,,yes)
+ 
+   PHP_ADD_BUILD_DIR([$ext_builddir/Optimizer], 1)
+   PHP_ADD_EXTENSION_DEP(opcache, pcre)
+diff --git a/ext/opcache/zend_accelerator_module.c b/ext/opcache/zend_accelerator_module.c
+index 88f3dd70b..58e041e0b 100644
+--- a/ext/opcache/zend_accelerator_module.c
++++ b/ext/opcache/zend_accelerator_module.c
+@@ -395,11 +395,27 @@ static ZEND_MINIT_FUNCTION(zend_accelerator)
+ {
+ 	(void)type; /* keep the compiler happy */
+ 
++#ifdef COMPILE_DL_OPCACHE
+ 	REGISTER_INI_ENTRIES();
++#else
++	/* built into PHP: the startup of the zend_extension registers the INI entries */
++	(void)module_number;
++	start_accel_extension();
++#endif
+ 
+ 	return SUCCESS;
+ }
+ 
++#ifndef COMPILE_DL_OPCACHE
++void zend_accel_register_ini_entries(void)
++{
++	zend_module_entry *module = zend_hash_str_find_ptr(&module_registry,
++			"zend opcache", sizeof("zend opcache") - 1);
++
++	zend_register_ini_entries(ini_entries, module->module_number);
++}
++#endif
++
+ void zend_accel_override_file_functions(void)
+ {
+ 	zend_function *old_function;
+@@ -506,7 +522,11 @@ void zend_accel_info(ZEND_MODULE_INFO_FUNC_ARGS)
+ 	DISPLAY_INI_ENTRIES();
+ }
+ 
++#ifdef COMPILE_DL_OPCACHE
+ static zend_module_entry accel_module_entry = {
++#else
++zend_module_entry opcache_module_entry = {
++#endif
+ 	STANDARD_MODULE_HEADER,
+ 	ACCELERATOR_PRODUCT_NAME,
+ 	accel_functions,
+@@ -521,10 +541,12 @@ static zend_module_entry accel_module_entry = {
+ 	STANDARD_MODULE_PROPERTIES_EX
+ };
+ 
++#ifdef COMPILE_DL_OPCACHE
+ int start_accel_module(void)
+ {
+ 	return zend_startup_module(&accel_module_entry);
+ }
++#endif
+ 
+ /* {{{ proto array accelerator_get_scripts()
+    Get the scripts which are accelerated by ZendAccelerator */
+diff --git a/ext/opcache/zend_accelerator_module.h b/ext/opcache/zend_accelerator_module.h
+index f7a186708..2c2ece5b4 100644
+--- a/ext/opcache/zend_accelerator_module.h
++++ b/ext/opcache/zend_accelerator_module.h
+@@ -22,7 +22,14 @@
+ #ifndef ZEND_ACCELERATOR_MODULE_H
+ #define ZEND_ACCELERATOR_MODULE_H
+ 
++#ifdef COMPILE_DL_OPCACHE
+ int start_accel_module(void);
++#else
++/* OPcache built into PHP (--enable-opcache-static, azsupport/php-src) */
++extern zend_module_entry opcache_module_entry;
++#define phpext_opcache_ptr &opcache_module_entry
++void zend_accel_register_ini_entries(void);
++#endif
+ 
+ void zend_accel_override_file_functions(void);
+ 
+diff --git a/main/php_ini.c b/main/php_ini.c
+index 8d5b58115..7a3b62786 100644
+--- a/main/php_ini.c
++++ b/main/php_ini.c
+@@ -338,6 +338,19 @@ static void php_load_zend_extension_cb(void *arg)
+ 	(void) length;
+ #endif
+ 
++#ifdef HAVE_OPCACHE_STATIC
++	/* OPcache is built into this PHP (--enable-opcache-static): skip
++	 * zend_extension=opcache.so, also when an old opcache.so is still there */
++	{
++		const char *base = strrchr(filename, '/');
++
++		base = base ? base + 1 : filename;
++		if (strcmp(base, "opcache") == 0 || strcmp(base, "opcache.so") == 0) {
++			return;
++		}
++	}
++#endif
++
+ 	if (IS_ABSOLUTE_PATH(filename, length)) {
+ #ifdef PHP_WIN32
+ 	char *err;

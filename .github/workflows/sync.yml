@@ -34,8 +34,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
-      # SYNC_TOKEN: fine-grained token for this repository only, with "Contents" and
-      # "Workflows" read/write. GITHUB_TOKEN may not push upstream history that touches
+      # SYNC_TOKEN: fine-grained token for this repository (it may serve other
+      # repositories of the owner too), with "Contents" and "Workflows" read/write. GITHUB_TOKEN may not push upstream history that touches
       # .github/workflows, so without SYNC_TOKEN some updates can be rejected.
       # No fixed ref: scheduled runs use the default branch, whatever its name.
       - name: Check out the default branch
