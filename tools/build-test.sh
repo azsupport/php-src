@@ -110,6 +110,8 @@ ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 # ports framework (--build, build_alias, CPP=cpp, CPPFLAGS=), and with the bundled
 # curl (--with-curl=bundled), as config-check.sh writes them on FreeBSD 14 and 15, and
 # --with-openssl-legacy-provider (the option of PHP 8.4, here on every version).
+# The environment is that of every PHP build here (tools/config-check.sh): CFLAGS
+# and CXXFLAGS -O3 -pipe -march -fstack-protector-strong -fno-strict-aliasing, LIBS=-lpthread.
 # 7.4 and newer bundle swoole and OpenSwoole, only one can be built into a PHP:
 # SWOOLE=openswoole takes OpenSwoole. Likewise imagick or gmagick: MAGICK=gmagick.
 preset() {
@@ -119,9 +121,9 @@ preset() {
     [ "${MAGICK:-imagick}" = gmagick ] && mg=gmagick
     case "$1" in
         5.6)
-            CFLAGS="-O3 -pipe -march=$march -fstack-protector -fno-strict-aliasing"
+            CFLAGS="-O3 -pipe -march=$march -fstack-protector-strong -fno-strict-aliasing"
             CXXFLAGS="$CFLAGS"
-            LDFLAGS="-fstack-protector"
+            LDFLAGS=""
             LIBS="-lpthread"
             set -- --prefix=/usr/local/php5640 --with-apxs2=/usr/local/sbin/apxs --disable-all \
                 --with-layout=GNU --with-zend-vm=CALL --enable-libxml --with-libxml-dir=/usr/local \
@@ -142,7 +144,7 @@ preset() {
             CFLAGS="-O3 -pipe -march=$march -fstack-protector-strong -fno-strict-aliasing"
             CXXFLAGS="$CFLAGS"
             LDFLAGS=""
-            LIBS=""
+            LIBS="-lpthread"
             set -- --with-layout=GNU --localstatedir=/var --disable-all --enable-ipv6 --with-libxml \
                 --program-prefix= --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www \
                 --prefix=/usr/local/php74 --mandir=/usr/local/php74/man --infodir=/usr/local/php74/info/ \
@@ -160,10 +162,10 @@ preset() {
             ;;
         8.*)
             v="$(echo "$1" | tr -d .)"
-            CFLAGS="-O3 -pipe -march=$march -fstack-protector -fno-strict-aliasing"
-            CXXFLAGS="-std=c++17 $CFLAGS"
+            CFLAGS="-O3 -pipe -march=$march -fstack-protector-strong -fno-strict-aliasing"
+            CXXFLAGS="$CFLAGS"
             LDFLAGS=""
-            LIBS=""
+            LIBS="-lpthread"
             set -- --with-apxs2=/usr/local/sbin/apxs --with-layout=GNU --localstatedir=/var --disable-all \
                 --with-libxml --program-prefix= --enable-fpm --with-fpm-user=www --with-fpm-group=www \
                 --prefix=/usr/local/php$v --mandir=/usr/local/php$v/man --infodir=/usr/local/php$v/info/ \
