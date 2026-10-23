@@ -365,7 +365,14 @@ LIBS='-lpthread'
 |---|---|
 | Опции сборки | опции `lang/phpXY` и `mod_phpXY`: SAPI, ZTS, отладка, IPv6, JIT OPcache, системная PCRE |
 | Расширения | расширения `phpXY-extensions` плюс встроенные расширения PECL |
-| Опции отдельных расширений | какой libcurl, legacy-провайдер OpenSSL, какая libgd и её форматы, обработчики DBA, сессии, сериализаторы и сжатие redis и memcached, Argon2 из libargon2 или из OpenSSL 3.2 в 8.4, … |
+| Опции отдельных расширений | какой libcurl, legacy-провайдер OpenSSL, какая libgd и её форматы, драйверы PDO, обработчики DBA, сессии, сериализаторы и сжатие redis и memcached, Argon2 из libargon2 или из OpenSSL 3.2 в 8.4, … |
+
+Расширение со своим экраном (curl, GD, PDO, redis, …) отмечено в списке стрелкой
+`--->`. Его экран идёт после списка, если расширение включено, а кнопка **Options**
+списка открывает экран пункта под курсором сразу и потом возвращает список с курсором
+на этом пункте (Cancel там всё отменяет); экран, показанный так, сразу после списка
+второй раз не показывается. Выпадающих списков в диалогах нет, поэтому выбор одного
+пункта открывается так.
 
 Что от чего зависит, проверяется прямо при выборе — по скриптам configure и исходникам
 C каждой ветки:
@@ -394,7 +401,7 @@ sh config.menu.sh
 | Не пишется | `--infodir` (PHP не ставит info-страниц); `--localstatedir=/var` — только вместе с FPM (его читает один php-fpm) |
 | Выбор | сохраняется так же, как его сохраняют порты, — в `/var/db/php-menu/phpXY.options` — и становится началом следующего запуска (`--reset` начинает заново) |
 | В конце | пакеты, которые нужны выбору |
-| Без диалогов | `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84` пишет скрипт |
+| Без диалогов | `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84` пишет скрипт; пункт со своего экрана включает и своё расширение (`+PDO_MYSQL` — PDO) |
 | `--list` | `sh php-menu.sh --list` показывает пункты, пути, их состояние и шаблоны |
 
 **Шаблоны.** Сначала меню спрашивает, с чего начать: с того, что оно нашло (сохранённый
@@ -419,10 +426,15 @@ sh config.menu.sh
 | Нет в нём | mysqli, PostgreSQL, SQLite, LDAP; pspell и enchant — их использует только проверка орфографии (`spellcheck_engine`), а она с Roundcube 1.5.0 по умолчанию выключена (`enable_spellcheck`) |
 
 Меню с шаблоном `roundcube` (bsddialog в консоли FreeBSD 80x25, шрифт Terminus): с чего
-начать, опции сборки, расширения, опции curl, GD, mbstring и OpenSSL, главное меню и
-скрипт, который оно пишет:
+начать, опции сборки, расширения, драйверы PDO через кнопку Options, опции curl, GD,
+mbstring и OpenSSL, главное меню и скрипт, который оно пишет:
 
 <p><img src="docs/images/menu-roundcube.gif" alt="php-menu.sh с шаблоном roundcube" width="800"></p>
+
+Кнопка Options на PDO и экран, который она открывает:
+
+<p><img src="docs/images/menu-roundcube-options.png" alt="Кнопка Options на PDO" width="800"></p>
+<p><img src="docs/images/menu-roundcube-pdo.png" alt="Драйверы PDO" width="800"></p>
 
 Расширения с шаблоном `roundcube` и у голой сборки (по умолчанию: только CLI и OPcache):
 
