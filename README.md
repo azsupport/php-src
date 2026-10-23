@@ -305,7 +305,9 @@ fork; another one can be given as the second argument
 `CFLAGS` with `-march=$CPUTYPE`, and `LIBS=-lpthread` (the `LINKTHR` option of
 `lang/phpXY`). PHP 5.6 records options with spaces in a broken quoting
 (`'CFLAGS=-O3 '-pipe' ...''`); the script reads them as the shell would, as one
-option.
+option. `php-config --configure-options` (taken when the binary does not run)
+prints the options without any quotes, so `CFLAGS=-O3 -pipe ...` comes out as
+separate words; the script puts the words after a `NAME=value` back into its value.
 
 `-march` always comes from `/etc/make.conf` of the server the script runs on
 (`CPUTYPE`, or a `-march=` in its `CFLAGS`): a `-march` of a `config.nice` copied
