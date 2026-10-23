@@ -1,14 +1,47 @@
 # PHP for FreeBSD: security-maintained source branches
 
-Ready-to-build PHP sources for FreeBSD (amd64) servers that build PHP by hand
-instead of using ports or packages. Each `freebsd/<version>` branch follows an
-upstream source of security fixes and adds a small, curated set of FreeBSD ports
-patches. Every update is also published as a release tarball with `configure`
-and the bison/re2c parsers pre-generated, so a server needs only a C compiler and
-`make`, exactly like with the tarballs from php.net.
+**What it is.** Ready-to-build PHP sources for FreeBSD (amd64) servers that build
+PHP by hand instead of using ports or packages: PHP 5.6, 7.4, 8.1, 8.2, 8.3 and 8.4,
+one `freebsd/<version>` branch each. Every branch follows an upstream source of
+security fixes (the official php-src releases for 8.2 to 8.4, Remi Collet's
+backports for the end-of-life 5.6, 7.4 and 8.1) and adds a small, curated set of
+FreeBSD ports patches and fixes for current FreeBSD. Every update is also published
+as a release tarball with `configure` and the bison/re2c parsers pre-generated, so a
+server needs only a C compiler and `make`, exactly like with the tarballs from
+php.net.
+
+**Why.** Security fixes for every PHP version a server still runs, the same day and
+without waiting for the ports; one PHP with everything built in (the extensions, the
+bundled PECL extensions, curl and PCRE, and OPcache too, with no extensions loaded
+at run time if wanted); several versions side by side, each in its own
+`/usr/local/phpXY` and with its own Apache module file (`libphp84.so`, ...,
+`libphp56.so`). Scripts help with the rest: [`config-check.sh`](tools/config-check.sh)
+writes the configure options of the PHP a server has, [`php-menu.sh`](tools/php-menu.sh)
+chooses what goes in with dialogs, as `make config` of the ports.
 
 Not affiliated with the PHP Group, Remi Collet or the FreeBSD Project.
 Provided as is, without warranty.
+
+## Contents
+
+- [Branches](#branches)
+  - [FreeBSD ports patches: applied and not applied](#freebsd-ports-patches-applied-and-not-applied)
+- [Building on FreeBSD from a release tarball](#building-on-freebsd-from-a-release-tarball)
+  (the Apache module file, `LoadModule`)
+  - [PHP 8.4](#php-84), [8.3](#php-83), [8.2](#php-82), [8.1](#php-81), [7.4](#php-74), [5.6](#php-56)
+  - [Choosing what goes in: php-menu.sh](#choosing-what-goes-in-php-menush)
+  - [Built-in OPcache and no extension loading](#built-in-opcache-and-no-extension-loading)
+  - [Build test on FreeBSD](#build-test-on-freebsd)
+  - [Bundled PECL extensions](#bundled-pecl-extensions)
+  - [OpenSSL](#openssl)
+  - [Bundled curl](#bundled-curl)
+  - [Bundled PCRE](#bundled-pcre)
+- [How updates happen](#how-updates-happen)
+  - [Build compatibility patches](#build-compatibility-patches)
+  - [Build options](#build-options)
+  - [Interim backports](#interim-backports)
+  - [Token](#token)
+- [Credits and licenses](#credits-and-licenses)
 
 ## Branches
 
@@ -126,7 +159,8 @@ Only patches that matter for a monolithic build on FreeBSD are applied:
   `SO_LISTENQLEN`; FreeBSD's `struct tcp_info` lacks the Linux fields.
 - `sapi/apache2handler/config.m4`: `make install` installs the Apache module
   without editing `httpd.conf` (no `apxs -a`), which matters on servers with
-  several PHP builds.
+  several PHP builds (and our `compat-apache-module-name.patch` names the file
+  after the version, below).
 - `build/Makefile.global` (`Makefile.global` in 5.6): `make install` does not
   fail when no `php.ini` is present.
 - `sapi/fpm/www.conf.in` (7.4+): documents that IPv4-mapped addresses are
@@ -175,6 +209,21 @@ does not treat `#` as a comment. If a PHP lives elsewhere (for example
 `/usr/local/php5640`), change the prefix in the `config-check.sh` line and in the
 last line. Restart Apache or php-fpm afterwards, so that no worker keeps running
 the old binary.
+
+The Apache module goes into `/usr/local/libexec/apache24/` as `libphpXY.so`
+(`libphp84.so`, `libphp83.so`, … `libphp74.so`, `libphp56.so`), not as
+`libphp.so`, `libphp7.so` or `libphp5.so`, so that the builds of several versions do
+not overwrite each other. `make install` does not edit `httpd.conf`: after the first
+such install, point the `LoadModule` line at the new file, or Apache keeps loading
+the old one:
+
+| Version | `LoadModule` line |
+|---|---|
+| 8.1 to 8.4 | `LoadModule php_module libexec/apache24/libphp84.so` (`libphp83.so`, `libphp82.so`, `libphp81.so`) |
+| 7.4 | `LoadModule php7_module libexec/apache24/libphp74.so` |
+| 5.6 | `LoadModule php5_module libexec/apache24/libphp56.so` |
+
+One Apache loads one PHP module.
 
 ### PHP 8.4
 
@@ -673,7 +722,8 @@ branches without pushing.
 
 ### Build compatibility patches
 
-Patches that only make a branch build and work on current FreeBSD go into
+Patches that only make a branch build and work on current FreeBSD (and next to
+the builds of the other versions) go into
 `freebsd/patches/<version>/compat-*.patch` (git format, `-p1`, with `Description:`
 and `Origin:` lines on top). They are always applied, as the commit "Apply build
 compatibility patches" right after the ports patches, and listed in the branch
@@ -682,6 +732,7 @@ gets reviewed.
 
 | Version | Patch | What it fixes |
 |---|---|---|
+| all | `compat-apache-module-name.patch` ([8.4](freebsd/patches/8.4/compat-apache-module-name.patch)) | `make install` puts the Apache module into the modules directory of Apache as `libphpXY.so` (`libphp56.so`, `libphp74.so`, `libphp81.so` … `libphp84.so`) instead of `libphp5.so`, `libphp7.so` or `libphp.so`, so that the builds of several versions do not overwrite each other; `httpd.conf` is not changed, the install names the `LoadModule` line it needs |
 | 5.6 | [`compat-bison3.patch`](freebsd/patches/5.6/compat-bison3.patch) | parsers generated by bison 3.6+ (the tarballs use 3.8) report only "syntax error" and shift the `T_*` token numbers; now detailed errors and the token numbers of the php.net 5.6.40 tarball |
 | 5.6 | [`compat-c99.patch`](freebsd/patches/5.6/compat-c99.patch) | clang 16+ (FreeBSD 14/15: clang 19) and gcc 14+ reject pre-C99 code: configure tests failed silently (no `getaddrinfo`, so no IPv6 name resolution; wrong `readdir_r` and `fopencookie` types, which broke the build; no `pread`/`pwrite`, ...), and four sources did not compile |
 | 5.6 | [`compat-freetype-pkgconfig.patch`](freebsd/patches/5.6/compat-freetype-pkgconfig.patch) | FreeType without `freetype-config`: found through `pkg-config`, and the bundled GD is built with FreeType, so `imagettftext()` draws |

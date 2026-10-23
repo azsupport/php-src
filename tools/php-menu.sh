@@ -66,7 +66,7 @@ menu_data() {
 *	S	013	memcached	check	MEMCACHED	-	php-memcached options
 *	S	012	memcache	check	MEMCACHE	-	php-memcache options
 *	I	core	000	CLI	1	-	--disable-cli	Build CLI version	bin/php: scripts, cron, composer; config-check.sh runs it
-*	I	core	001	APACHE	0	--with-apxs2=/usr/local/sbin/apxs	-	Apache 2 module mod_php (www/mod_phpXY)	libphp in the Apache modules directory; a non-ZTS module needs the prefork MPM
+*	I	core	001	APACHE	0	--with-apxs2=/usr/local/sbin/apxs	-	Apache 2 module mod_php (www/mod_phpXY)	libexec/apache24/libphpXY.so (libphp84.so: named after the version, LoadModule must name it); a non-ZTS module needs the prefork MPM
 *	I	core	002	FPM	0	--enable-fpm --with-fpm-user=www --with-fpm-group=www --localstatedir=/var	-	Build FPM version	sbin/php-fpm; pid and error_log relative to /var
 *	I	core	003	CGI	0	--enable-cgi	--disable-cgi	Build CGI version	bin/php-cgi: FastCGI without FPM, suPHP, mod_fcgid
 *	I	core	004	EMBED	0	--enable-embed	-	Build embedded library	libphp for programs that embed PHP; only if one links with it
