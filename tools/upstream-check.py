@@ -3,8 +3,10 @@
 
 Releases. For every extension in freebsd/pecl.conf: the release tags of its
 repository and its PECL releases; for curl (freebsd/curl.conf) the tags of
-github.com/curl/curl; for PCRE2 (freebsd/pcre.conf) the tags of
-github.com/PCRE2Project/pcre2 (PCRE 8.45 of 5.6 is the last PCRE1 release). A
+github.com/curl/curl; for the libraries of the bundled curl
+(freebsd/curl-deps.conf) the tags of their repositories; for PCRE2
+(freebsd/pcre.conf) the tags of github.com/PCRE2Project/pcre2 (PCRE 8.45 of 5.6
+is the last PCRE1 release). A
 stable release newer than the bundled one
 is reported for the targets whose PHP version it supports (package.xml of the
 tag, else the PECL dependencies). A "pin" line in freebsd/upstream.conf keeps
@@ -14,9 +16,17 @@ is one (gmagick, memcache 3.0.8).
 FreeBSD ports. For every "port" line in freebsd/upstream.conf and for
 lang/<port> of freebsd/targets.conf (at its portrev): the freebsd-ports commits
 after the reviewed revision that change files/ (the patches) or the Makefile
-beyond its version lines, or that move the port away.
+beyond its version lines, or that move the port away. For curl and the libraries
+of freebsd/curl-deps.conf also the distinfo of their port: a release file there
+that differs from the bundled one (the port took a new release, the public
+suffix list a new date).
 
-Every finding is one issue with the labels "upstream" and "release" or "ports",
+PHP branches. For the targets that follow the php-src release tags: the end of
+security support of the branch (php.net/releases/branches.php), from 60 days
+before it on, with whether Remi Collet's php-src-security has a
+PHP-X.Y-security-backports branch to switch to.
+
+Every finding is one issue with the labels "upstream" and "release", "ports" or "eol",
 marked in its body, so the next runs update that issue instead of opening
 another one. An open issue whose finding is gone (pecl.conf has the version,
 the reviewed revision moved on) is closed; a closed one stays closed, so
@@ -33,6 +43,7 @@ Usage: python3 tools/upstream-check.py [--dry-run] [--repo OWNER/NAME]
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -44,6 +55,9 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORTS_URL = "https://github.com/freebsd/freebsd-ports"
 PECL_REST = "https://pecl.php.net/rest/r"
+PHP_BRANCHES = "https://www.php.net/releases/branches.php"
+REMI_SECURITY = "https://github.com/remicollet/php-src-security"
+EOL_NOTICE_DAYS = 60
 MARK = "<!-- upstream-check: %s -->"
 STAGE = {"alpha": 0, "a": 0, "beta": 1, "b": 1, "rc": 2}
 # Makefile lines of a port that only follow a new release (or a new PHP flavor).
@@ -101,15 +115,24 @@ def vkey(v):
 
 def tag_version(tag):
     """Version of a release tag: 6.3.0, v3.4.0, release-2.0.1, RELEASE_3_0_6, memcache-3.0.8,
-    curl-8_23_0, pcre2-10.49."""
-    if tag.startswith("curl-"):
-        tag = tag[len("curl-"):].replace("_", ".")
-    if tag.startswith("pcre2-"):
-        tag = tag[len("pcre2-"):]
+    curl-8_23_0, pcre2-10.49, cares-1_34_4, libidn2-2.3.8, libpsl-0.21.5."""
+    for prefix in ("curl-", "cares-"):
+        if tag.startswith(prefix):
+            tag = tag[len(prefix):].replace("_", ".")
+    for prefix in ("pcre2-", "libidn2-", "libpsl-", "nghttp2-", "libunistring-"):
+        if tag.startswith(prefix):
+            tag = tag[len(prefix):]
     if tag.startswith("RELEASE_"):
         tag = tag[len("RELEASE_"):].replace("_", ".")
     v = re.sub(r"^(v|release-|memcache-)", "", tag)
     return v if vkey(v) else None
+
+
+def curl_deps():
+    """Rows of freebsd/curl-deps.conf: name version port repository distfile sha256 url."""
+    if not os.path.exists(os.path.join(ROOT, "freebsd", "curl-deps.conf")):
+        return []
+    return [r for r in conf("curl-deps.conf") if len(r) >= 7]
 
 
 def php_fits(target, rng):
@@ -168,7 +191,7 @@ class Upstream:
         except RuntimeError as e:
             warn("%s: no tags from %s: %s" % (name, url, e))
         try:
-            if name in ("curl", "pcre2"):
+            if name in ("curl", "pcre2") or name in {r[0] for r in curl_deps()}:
                 raise RuntimeError("not a PECL package")
             xml = http("%s/%s/allreleases.xml" % (PECL_REST, name.lower()))
             for v, s in re.findall(r"<r>\s*<v>([^<]+)</v>\s*<s>([^<]+)</s>", xml):
@@ -279,6 +302,11 @@ def check_releases(workdir, pins):
         for target, version, _url, _sha in conf("pcre.conf"):
             if not version.startswith("8."):
                 rows.setdefault("pcre2", []).append((target, version, "https://github.com/PCRE2Project/pcre2"))
+    libs = {}
+    for name, version, port, repo, _df, _sha, _url in curl_deps():
+        if repo != "-":
+            rows.setdefault(name, []).append(("all", version, repo))
+            libs[name] = port
     findings, checked = [], set()
     for name, entries in rows.items():
         up = Upstream(name, entries[0][2], workdir)
@@ -287,12 +315,52 @@ def check_releases(workdir, pins):
         checked.add("release:%s:" % name)
         news = {}
         for target, cur, _url in entries:
-            v = newest_fitting(up, target, cur, pins.get(name))
+            if name in libs:
+                v = newest_lib(up, cur)
+            else:
+                v = newest_fitting(up, target, cur, pins.get(name))
             if v:
                 news.setdefault(v, []).append((target, cur))
         for v, hits in sorted(news.items(), key=lambda x: vkey(x[0])):
-            findings.append(release_finding(up, v, hits, pins.get(name)))
+            if name in libs:
+                findings.append(lib_finding(up, v, hits[0][1], libs[name]))
+            else:
+                findings.append(release_finding(up, v, hits, pins.get(name)))
     return findings, checked
+
+
+def newest_lib(up, cur):
+    """The newest final release after cur (the libraries of the bundled curl)."""
+    cands = [v for v in up.tags if vkey(v) and vkey(cur) and vkey(v) > vkey(cur) and vkey(v)[4] == 3]
+    return max(cands, key=vkey) if cands else None
+
+
+def lib_finding(up, v, cur, port):
+    tag = up.tags.get(v)
+    links = []
+    if tag and "github.com/" in up.url:
+        base = up.url[:-4] if up.url.endswith(".git") else up.url
+        links.append("[tag `%s`](%s/releases/tag/%s)" % (tag, base, tag))
+        if cur in up.tags:
+            links.append("[changes since %s](%s/compare/%s...%s)" % (cur, base, up.tags[cur], tag))
+    lines = [
+        "**%s %s** is out: %s." % (up.name, v, ", ".join(links) or up.url),
+        "",
+        "Bundled now: %s, in `freebsd/curl-deps.conf`: a library of the bundled curl "
+        "(`--with-curl=bundled` of every branch, and `/usr/local/phpdeps`)." % cur,
+        "",
+        "To take it: in `freebsd/curl-deps.conf` set version `%s`, the release file and its SHA-256, the same "
+        "as freebsd-ports `%s/distinfo` once the port has it (this check reports when the port moves), "
+        "carry over `freebsd/curl/%s-<old version>.patch` if there is one, check that "
+        "`freebsd/curl/build-libcurl.sh` still builds it (its file lists, configure options), then run the "
+        "build test. Not wanted: close this issue." % (v, port, up.name),
+    ]
+    return {
+        "key": "release:%s:%s" % (up.name, v),
+        "kind": "release",
+        "title": "%s %s is out (bundled with curl: %s)" % (up.name, v, cur),
+        "body": "\n".join(lines),
+    }
 
 
 def release_finding(up, v, hits, pin):
@@ -419,6 +487,96 @@ def check_ports(workdir, days):
                     moved = line.split("|")
         if commits or not exists:
             findings.append(port_finding(git, port, rev, kept, commits, moved, base))
+    more, chk = check_distinfo(git)
+    return findings + more, checked | chk
+
+
+def bundled_dists():
+    """(name, version, port, distfile, sha256, where) of curl and the libraries it needs."""
+    out = []
+    if os.path.exists(os.path.join(ROOT, "freebsd", "curl.conf")):
+        rows = conf("curl.conf")
+        if rows:
+            _target, version, url, sha = rows[-1][:4]
+            out.append(("curl", version, "ftp/curl", url.rsplit("/", 1)[1], sha, "freebsd/curl.conf"))
+    for name, version, port, _repo, distfile, sha, _url in curl_deps():
+        out.append((name, version, port, distfile, sha, "freebsd/curl-deps.conf"))
+    return out
+
+
+def check_distinfo(git):
+    """A release file in the distinfo of the port that the bundle has not."""
+    findings, checked = [], set()
+    for name, version, port, distfile, sha, where in bundled_dists():
+        text = run(["git", "show", "main:%s/distinfo" % port], cwd=git, check=False)
+        if not text:
+            continue  # gone: check_ports reports a followed port that moved away
+        checked.add("dist:%s:" % port)
+        dists = re.findall(r"^SHA256 \((.+)\) = ([0-9a-f]{64})$", text, re.M)
+        if (distfile, sha) in dists:
+            continue
+        main_file = next((f for f, _s in dists if "testdata" not in f), dists[0][0] if dists else "?")
+        lines = ["freebsd-ports `%s` has (distinfo of `main`):" % port, ""]
+        lines += ["- `%s` SHA-256 `%s`" % (f, s) for f, s in dists]
+        lines += ["", "Bundled: %s %s, `%s` SHA-256 `%s` (`%s`)." % (name, version, distfile, sha, where), "",
+                  "To take it: in `%s` set the version, the release file and its SHA-256 as in the port, bring "
+                  "a patch of `freebsd/curl/` up to date if there is one, then run the build test; the next check "
+                  "closes this issue. Not wanted: close it." % where]
+        findings.append({
+            "key": "dist:%s:%s" % (port, hashlib.sha256(text.encode()).hexdigest()[:12]),
+            "kind": "ports",
+            "title": "FreeBSD ports: %s has %s (bundled: %s)" % (port, main_file.rsplit("/", 1)[-1], distfile.rsplit("/", 1)[-1]),
+            "body": "\n".join(lines),
+        })
+    return findings, checked
+
+
+def check_php_eol():
+    """The end of security support of the branches we take from the php-src tags."""
+    findings, checked = [], set()
+    try:
+        branches = json.loads(http(PHP_BRANCHES))
+        ends = {b["branch"]: b.get("security_support_end") for b in branches}
+    except Exception as e:
+        warn("php.net branches: %s" % e)
+        return findings, checked
+    try:
+        out = run(["git", "ls-remote", "--heads", REMI_SECURITY])
+        remi = sorted(l.split("refs/heads/", 1)[1] for l in out.splitlines() if "refs/heads/" in l)
+    except RuntimeError as e:
+        warn("remicollet/php-src-security: %s" % e)
+        remi = None
+    today = datetime.date.today()
+    for target, _url, ref, _port, _portrev in conf("targets.conf"):
+        checked.add("php-eol:%s" % target)
+        if not ref.startswith("latest-tag:") or not ends.get(target):
+            continue  # from Remi's backports already, or php.net does not know it
+        end = datetime.date.fromisoformat(ends[target][:10])
+        left = (end - today).days
+        if left > EOL_NOTICE_DAYS:
+            continue
+        branch = [b for b in (remi or []) if b.startswith("PHP-%s-security-backports" % target)]
+        when = end.strftime("%d.%m.%Y")
+        lines = [
+            "PHP %s: security support %s %s ([php.net](https://www.php.net/supported-versions.php)). "
+            "After it php-src has no more %s releases, and `freebsd/targets.conf` takes %s from the php-src tags "
+            "(`%s`)." % (target, "ends on" if left >= 0 else "ended on", when, target, target, ref),
+            "",
+        ]
+        if branch:
+            lines.append("Remi Collet's backports have [`%s`](%s/tree/%s); 5.6, 7.4 and 8.1 come from his branches "
+                         "already." % (branch[0], REMI_SECURITY, branch[0]))
+        elif remi is None:
+            lines.append("The branches of %s could not be read this time." % REMI_SECURITY)
+        else:
+            lines.append("Remi Collet's backports (%s) have no PHP-%s-security-backports branch yet; this issue "
+                         "says so when one comes." % (REMI_SECURITY, target))
+        lines += ["", "To switch: in `freebsd/targets.conf` the line `%s %s.git refs/heads/PHP-%s-security-backports "
+                  "...` with the same port and portrev; the next check closes this issue." % (target, REMI_SECURITY, target)]
+        title = "PHP %s: security support %s %s" % (target, "ends" if left >= 0 else "ended", when)
+        if branch:
+            title += ", Remi has %s" % branch[0]
+        findings.append({"key": "php-eol:%s" % target, "kind": "eol", "title": title, "body": "\n".join(lines)})
     return findings, checked
 
 
@@ -482,7 +640,8 @@ class Issues:
                 self.known[m.group(1)] = issue
         for name, color, desc in (("upstream", "0e8a16", "Found by tools/upstream-check.py"),
                                   ("release", "1d76db", "A newer release of a bundled extension"),
-                                  ("ports", "d93f0b", "FreeBSD ports changes to review")):
+                                  ("ports", "d93f0b", "FreeBSD ports changes to review"),
+                                  ("eol", "b60205", "End of upstream support of a PHP branch we build")):
             ok(["gh", "api", "repos/%s/labels" % repo, "-f", "name=" + name,
                 "-f", "color=" + color, "-f", "description=" + desc])
 
@@ -541,6 +700,9 @@ def main():
     more, checked_ports = check_ports(workdir, args.days)
     findings += more
     checked |= checked_ports
+    more, checked_eol = check_php_eol()
+    findings += more
+    checked |= checked_eol
 
     summary = ["- %s" % f["title"] for f in findings] or ["- nothing new"]
     print("\n".join(summary))
