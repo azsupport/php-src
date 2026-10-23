@@ -1,8 +1,10 @@
   dnl azsupport: --with-curl=bundled builds ext/curl/libcurl (the curl release,
-  dnl static and position independent, with the OpenSSL of this PHP build) with
-  dnl ext/curl/build-libcurl.sh and links it into PHP instead of a system libcurl.
-  dnl Its curl_* symbols are not exported, so a libcurl.so that another module
-  dnl loads into the same process stays separate.
+  dnl static and position independent, with the OpenSSL of this PHP build) and
+  dnl the libraries it needs (ext/curl/deps: c-ares, nghttp2, brotli, zstd,
+  dnl libidn2, libpsl) with ext/curl/build-libcurl.sh and links it into PHP
+  dnl instead of a system libcurl: no package needed. Its curl_* symbols are not
+  dnl exported (those of its libraries are local in libcurl.a), so a libcurl.so
+  dnl that another module loads into the same process stays separate.
   if test "$PHP_CURL" = "bundled"; then
     php_curl_bundled="$abs_builddir/ext/curl/libcurl-build"
     mkdir -p "$abs_builddir/ext/curl"
