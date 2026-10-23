@@ -297,7 +297,9 @@ build_bundle() {
     ) > "$log" 2>&1
     rc=$?
     ver="$(bundle_ver "$n")"
-    case "$n" in nghttp2) pkgname="libnghttp2-$ver" ;; *) pkgname="$n-$ver" ;; esac
+    # the names of the ports for pkg audit: libnghttp2, and the epoch of archivers/brotli
+    # (PORTEPOCH 1: VuXML has "brotli < 1.2.1,1", and 1.2.1 without it would be older)
+    case "$n" in nghttp2) pkgname="libnghttp2-$ver" ;; brotli) pkgname="brotli-$ver,1" ;; *) pkgname="$n-$ver" ;; esac
     if [ "$rc" = 0 ]; then
         printf '%-14s OK    %-22s %-24s %4ss\n' "$n" "$ver" bundle "$(( $(date +%s) - start ))" >> "$res/summary.txt"
         printf '%s %s %s\n' "$n" "$pkgname" bundle >> "$res/built.txt"
