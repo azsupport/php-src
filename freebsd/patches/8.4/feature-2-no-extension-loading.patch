@@ -1,0 +1,133 @@
+Description: PHP loads no extensions at run time: extension= and zend_extension= lines, dl() and php -z are refused with a warning that names the file, a line for an extension that is built in (extension=mysqli) is skipped quietly, phpinfo() shows "Dynamic Library Support: disabled", and configure stops when an extension would be built as .so (OPcache: --enable-opcache-static). Without the option nothing changes.
+Option: --disable-extension-loading
+Origin: azsupport
+
+diff --git a/Zend/zend_extensions.c b/Zend/zend_extensions.c
+index fecea4fa0..c897da1db 100644
+--- a/Zend/zend_extensions.c
++++ b/Zend/zend_extensions.c
+@@ -28,6 +28,11 @@ static int last_resource_number;
+ 
+ zend_result zend_load_extension(const char *path)
+ {
++#ifdef PHP_NO_EXTENSION_LOADING
++	/* --disable-extension-loading (azsupport/php-src), also for php -z */
++	fprintf(stderr, "Cannot load %s: this PHP loads no extensions at run time (--disable-extension-loading)\n", path);
++	return FAILURE;
++#endif
+ #if ZEND_EXTENSIONS_SUPPORT
+ 	DL_HANDLE handle;
+ 
+diff --git a/configure.ac b/configure.ac
+index 8f1ace525..4536afd6b 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -862,6 +862,19 @@ AS_VAR_IF([PHP_RTLD_NOW], [yes],
+     [Define to 1 if 'dlopen()' uses the 'RTLD_NOW' mode flag instead of
+     'RTLD_LAZY'.])])
+ 
++PHP_ARG_ENABLE([extension-loading],
++  [whether PHP loads extensions at run time],
++  [AS_HELP_STRING([--disable-extension-loading],
++    [Load no extensions at run time (azsupport/php-src): extension=,
++    zend_extension= and dl() are refused, every extension is built in])],
++  [yes],
++  [no])
++
++AS_VAR_IF([PHP_EXTENSION_LOADING], [no],
++  [AC_DEFINE([PHP_NO_EXTENSION_LOADING], [1],
++    [Define to 1 if PHP loads no extensions at run time
++    (--disable-extension-loading).])])
++
+ PHP_ARG_WITH([layout],
+   [layout of installed files],
+   [AS_HELP_STRING([--with-layout=TYPE],
+@@ -1062,6 +1075,12 @@ esyscmd(./build/config-stubs ext)
+ dnl Extensions post-config.
+ dnl ----------------------------------------------------------------------------
+ 
++dnl --disable-extension-loading: nothing may be built as .so.
++AS_IF([test "$PHP_EXTENSION_LOADING" = "no" && test -n "$PHP_MODULES$PHP_ZEND_EX"], [
++  php_shared_exts=$(echo "$PHP_MODULES $PHP_ZEND_EX" | $SED -e 's,\$(phplibdir)/,,g' -e 's,\.la,,g')
++  AC_MSG_ERROR([--disable-extension-loading: PHP could not load the extensions built as .so:$php_shared_exts (build them in; OPcache: --enable-opcache-static)])
++])
++
+ dnl Align segments on huge page boundary
+ AS_CASE([$host_alias], [[i[3456]86-*-linux-* | x86_64-*-linux-*]],
+   [AC_CACHE_CHECK([linker support for -zcommon-page-size=2097152],
+diff --git a/ext/standard/dl.c b/ext/standard/dl.c
+index 5125c6cc9..2dd2d80f0 100644
+--- a/ext/standard/dl.c
++++ b/ext/standard/dl.c
+@@ -106,6 +106,27 @@ PHPAPI void *php_load_shlib(const char *path, char **errp)
+ }
+ /* }}} */
+ 
++#ifdef PHP_NO_EXTENSION_LOADING
++/* Is the extension a line names (mysqli, mysqli.so, /path/mysqli.so) built in? */
++static bool php_builtin_extension(const char *filename)
++{
++	const char *base = strrchr(filename, '/');
++	char name[128];
++	size_t len;
++
++	base = base ? base + 1 : filename;
++	len = strlen(base);
++	if (len > 3 && strcmp(base + len - 3, ".so") == 0) {
++		len -= 3;
++	}
++	if (len == 0 || len >= sizeof(name)) {
++		return false;
++	}
++	zend_str_tolower_copy(name, base, len);
++	return zend_hash_str_exists(&module_registry, name, len);
++}
++#endif
++
+ /* {{{ php_load_extension */
+ PHPAPI int php_load_extension(const char *filename, int type, int start_now)
+ {
+@@ -129,6 +150,16 @@ PHPAPI int php_load_extension(const char *filename, int type, int start_now)
+ 		error_type = E_CORE_WARNING;
+ 	}
+ 
++#ifdef PHP_NO_EXTENSION_LOADING
++	/* --disable-extension-loading (azsupport/php-src): every extension is built
++	 * in; a line for one that is (extension=mysqli) is skipped */
++	if (php_builtin_extension(filename)) {
++		return SUCCESS;
++	}
++	php_error_docref(NULL, error_type, "Cannot load %s: this PHP loads no extensions at run time (--disable-extension-loading), the extension must be built in", filename);
++	return FAILURE;
++#endif
++
+ 	/* Check if passed filename contains directory separators */
+ 	if (strchr(filename, '/') != NULL || strchr(filename, DEFAULT_SLASH) != NULL) {
+ 		/* Passing modules with full path is not supported for dynamically loaded extensions */
+@@ -291,7 +322,9 @@ PHPAPI void php_dl(const char *file, int type, zval *return_value, int start_now
+ 
+ PHP_MINFO_FUNCTION(dl)
+ {
+-#if defined(HAVE_LIBDL)
++#if defined(PHP_NO_EXTENSION_LOADING)
++#define PHP_DL_SUPPORT_STATUS "disabled (--disable-extension-loading)"
++#elif defined(HAVE_LIBDL)
+ #define PHP_DL_SUPPORT_STATUS "enabled"
+ #else
+ #define PHP_DL_SUPPORT_STATUS "unavailable"
+diff --git a/main/php_ini.c b/main/php_ini.c
+index 872d575bc..b5789b243 100644
+--- a/main/php_ini.c
++++ b/main/php_ini.c
+@@ -343,6 +343,11 @@ static void php_load_zend_extension_cb(void *arg)
+ 	}
+ #endif
+ 
++#ifdef PHP_NO_EXTENSION_LOADING
++	php_error(E_CORE_WARNING, "Cannot load Zend extension %s: this PHP loads no extensions at run time (--disable-extension-loading)", filename);
++	return;
++#endif
++
+ 	if (IS_ABSOLUTE_PATH(filename, length)) {
+ 		zend_load_extension(filename);
+ 	} else {

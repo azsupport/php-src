@@ -28,7 +28,10 @@
 # other paths of that build inside the old directory move along) and the MySQL
 # socket (MYSQL_SOCK, with a MySQL extension). Without it: our base build
 # (/usr/local/phpXY, --disable-all, CLI and OPcache, nothing else) and the
-# compiler flags of every build (-march of /etc/make.conf).
+# compiler flags of every build (-march of /etc/make.conf). Two options of this
+# fork are on by default, also for a config.installed.sh of a build made before
+# them: OPcache built into PHP (--enable-opcache-static) and no extensions
+# loaded at run time (--disable-extension-loading).
 #
 # The choices are saved as the ports save theirs, in
 # /var/db/php-menu/phpXY.options (PHP_MENU_DB to change), and are the start of the
@@ -68,11 +71,12 @@ menu_data() {
 *	I	core	003	CGI	0	--enable-cgi	--disable-cgi	Build CGI version	bin/php-cgi: FastCGI without FPM, suPHP, mod_fcgid
 *	I	core	004	EMBED	0	--enable-embed	-	Build embedded library	libphp for programs that embed PHP; only if one links with it
 5.6	I	core	005	PHPDBG	0	--enable-phpdbg	-	Interactive PHP debugger	bin/phpdbg; off by default in 5.6
-5.6-7.4	I	core	007	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
 *	I	core	009	DEBUG	0	--enable-debug	-	Build with debugging support	slow; for developers
 *	I	core	010	DTRACE	0	--enable-dtrace	-	Build with DTrace probes	the ports turn it on in 7.4 and later; not needed on a web server
 *	I	core	011	IPV6	1	-	--disable-ipv6	IPv6 protocol support	on by default in PHP (the ports turn it off)
-5.6	I	core	013	PCRE	0	--with-pcre-regex=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE 8.45 is the last release: not needed (package pcre)
+*	I	core	013	OPCACHE_STATIC	1	--enable-opcache-static	-	OPcache built into PHP	option of the fork, as PHP 8.5 does it: no opcache.so, no zend_extension line (zend_extension=opcache.so is skipped); off: opcache.so
+*	I	core	014	NODL	1	--disable-extension-loading	-	Load no extensions at run time	option of the fork: extension=, zend_extension= and dl() refused with a warning, a line for a built-in extension skipped; everything is built in
+5.6	I	core	015	PCRE	0	--with-pcre-regex=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE 8.45 is the last release: not needed (package pcre)
 *	I	ext	001	BCMATH	0	--enable-bcmath	-	bc style precision math functions	-
 *	I	ext	002	BZ2	0	--with-bz2	-	bzip2 library support	bzip2 of the base system
 *	I	ext	003	CALENDAR	0	--enable-calendar	-	calendar conversion support	-
@@ -183,6 +187,7 @@ menu_data() {
 5.6	R	MEMCACHED.IGBINARY	IGBINARY	ext/memcached/config.m4:250 PHP_ADD_EXTENSION_DEP, ext/memcached/php_memcached.c:4177 ZEND_MOD_REQUIRED
 5.6-7.4	R	MEMCACHED.JSON	JSON	php_json_encode of the json extension
 5.6	R	MEMCACHED.SESSION	SESSION	ext/memcached/config.m4:236 PHP_ADD_EXTENSION_DEP, ext/memcached/php_memcached.c:4174 ZEND_MOD_REQUIRED
+*	R	NODL	OPCACHE_STATIC	opcache.so could not be loaded
 5.6	R	PDO_DBLIB	PDO	ext/pdo_dblib/config.m4:11 AC_MSG_ERROR, ext/pdo_dblib/config.m4:85 PHP_ADD_EXTENSION_DEP, ext/pdo_dblib/pdo_dblib.c:44 ZEND_MOD_REQUIRED
 5.6	R	PDO_FIREBIRD	PDO	ext/pdo_firebird/config.m4:64 PHP_ADD_EXTENSION_DEP, ext/pdo_firebird/config.m4:8 AC_MSG_ERROR, ext/pdo_firebird/pdo_firebird.c:39 ZEND_MOD_REQUIRED
 5.6	R	PDO_MYSQL	PDO	ext/pdo_mysql/config.m4:150 PHP_ADD_EXTENSION_DEP, ext/pdo_mysql/config.m4:18 AC_MSG_ERROR, ext/pdo_mysql/pdo_mysql.c:228 ZEND_MOD_REQUIRED
@@ -255,6 +260,7 @@ menu_data() {
 *	O	--disable-enchant
 *	O	--disable-esoob
 *	O	--disable-exif
+*	O	--disable-extension-loading
 *	O	--disable-fileinfo
 *	O	--disable-filter
 *	O	--disable-flatfile
@@ -326,6 +332,7 @@ menu_data() {
 *	O	--disable-odbcver
 5.6	O	--disable-onig
 *	O	--disable-opcache-jit
+*	O	--disable-opcache-static
 *	O	--disable-openssl
 *	O	--disable-openssl-dir
 *	O	--disable-openssl-legacy-provider
@@ -415,6 +422,7 @@ menu_data() {
 *	O	--enable-enchant
 *	O	--enable-esoob
 *	O	--enable-exif
+*	O	--enable-extension-loading
 *	O	--enable-fileinfo
 *	O	--enable-filter
 *	O	--enable-flatfile
@@ -486,6 +494,7 @@ menu_data() {
 *	O	--enable-odbcver
 5.6	O	--enable-onig
 *	O	--enable-opcache-jit
+*	O	--enable-opcache-static
 *	O	--enable-openssl
 *	O	--enable-openssl-dir
 *	O	--enable-openssl-legacy-provider
@@ -861,13 +870,16 @@ menu_data() {
 *	O	--without-zip
 *	O	--without-zlib
 *	O	--without-zlib-dir
+*	N	OPCACHE_STATIC
+*	N	NODL
 *	V	PREFIX	/usr/local/php%S	-	Install directory	--prefix=%V --mandir=%V/man	bin, sbin, lib, include, etc (php.ini with --with-layout=GNU) and man go there
 5.6	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysql/mysqli/pdo_mysql.default_socket; 5.6 takes it only with the mysql extension; empty: none (mysqlnd uses /tmp/mysql.sock)
 7.4+	S	007	gdformats	check	GD	GD.EXTERNAL=0	GD: formats of the libgd of PHP
 7.4+	S	018	swoole	check	SWOOLE	-	Swoole options
 7.4+	S	015	openswoole	check	OPENSWOOLE	-	OpenSwoole options
 7.4+	I	core	005	PHPDBG	0	--enable-phpdbg	--disable-phpdbg	Interactive PHP debugger	bin/phpdbg; PHP builds it by default, also with --disable-all (configure reads the SAPIs first)
-7.4+	I	core	013	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
+7.4	I	core	007	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
+7.4+	I	core	015	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
 7.4	I	ext	000	ARGON2	0	--with-password-argon2=/usr/local	-	Argon2 in password_hash()	package libargon2
 7.4+	I	ext	009	EXCIMER	0	--enable-excimer	-	Excimer sampling profiler (PECL)	-
 7.4+	I	ext	011	FFI	0	--with-ffi	-	Foreign Function Interface support	package libffi
@@ -1104,6 +1116,7 @@ menu_data() {
 8.1+	R	SWOOLE.SQLITE	PDO	PDO driver
 8.1	R	XMLREADER	LIBXML	ext/xmlreader/config.m4:10 AC_MSG_ERROR, ext/xmlreader/php_xmlreader.c:305 ZEND_MOD_REQUIRED
 8.1-8.3	R	XSL	LIBXML	ext/xsl/config.m4:31 PHP_ADD_EXTENSION_DEP, ext/xsl/config.m4:9 AC_MSG_ERROR, ext/xsl/php_xsl.c:31 ZEND_MOD_REQUIRED
+8.1+	X	ZTS	OPCACHE_STATIC	before PHP 8.5 the JIT reaches thread data only from opcache.so
 8.1+	O	--disable-avif
 8.1+	O	--disable-external-libcrypt
 8.1+	O	--disable-fpm-apparmor
@@ -1281,7 +1294,7 @@ trap 'exit 1' INT TERM HUP
 # screens: order id kind parent show-if title
 # items:   screen-order item-order screen id default on off description help
 # rels:    R|X item other why;  dyn: item rule;  defon: item;  owned: option
-# vals_def: value default when description arguments help
+# vals_def: value default when description arguments help;  newitems: item
 menu_data | awk -F '\t' -v b="$branch" -v d="$tmp" '
     function v(x,   p) { split(x, p, "."); return p[1] * 100 + p[2] }
     function inspan(s,   p) {
@@ -1299,13 +1312,14 @@ menu_data | awk -F '\t' -v b="$branch" -v d="$tmp" '
     $2 == "E" { print $3 > (d "/defon") }
     $2 == "O" { print $3 > (d "/owned") }
     $2 == "V" { print $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 > (d "/vals_def") }
+    $2 == "N" { print $3 > (d "/newitems") }
     END {
         for (i = 1; i <= n; i++) {
             split(il[i], f, "\t")
             print so[f[3]] "\t" f[4] "\t" f[3] "\t" f[5] "\t" f[6] "\t" f[7] "\t" f[8] "\t" f[9] "\t" f[10] > (d "/items.u")
         }
     }'
-for f in rels dyn defon owned vals_def; do [ -f "$tmp/$f" ] || : > "$tmp/$f"; done
+for f in rels dyn defon owned vals_def newitems; do [ -f "$tmp/$f" ] || : > "$tmp/$f"; done
 sort -t "$TAB" -k1,1 "$tmp/screens.u" > "$tmp/screens"
 sort -t "$TAB" -k1,1 -k2,2 "$tmp/items.u" > "$tmp/items"
 [ -s "$tmp/items" ] || die "no menu data for PHP $branch"
@@ -1601,6 +1615,21 @@ elif [ -z "$reset" ] && [ -f "$installed" ]; then
     while IFS="$TAB" read -r id st; do
         if [ "$st" = 1 ]; then set_on "$id"; else set_off "$id"; fi
     done < "$tmp/inst_state"
+    # options of the fork (built-in OPcache, no loading): a build made before them
+    # names none of them and gets their defaults
+    if [ -s "$tmp/newitems" ] && ! awk -F '\t' -v opts="$tmp/inst_opts" -v ni="$tmp/newitems" '
+        function name(o) { sub(/=.*/, "", o); return o }
+        BEGIN { while ((getline o < opts) > 0) hn[name(o)] = 1; while ((getline i < ni) > 0) nw[i] = 1 }
+        ($4 in nw) {
+            k = split(($6 == "-" ? "" : $6) " " ($7 == "-" ? "" : $7), w, " ")
+            for (j = 1; j <= k; j++) if (name(w[j]) in hn) f = 1
+        }
+        END { exit !f }' "$tmp/items"; then
+        while IFS="$TAB" read -r _ _ _ id dflt _; do
+            grep -qx -- "$id" "$tmp/newitems" || continue
+            if [ "$dflt" = 1 ]; then set_on "$id"; else set_off "$id"; fi
+        done < "$tmp/items"
+    fi
     # extensions without options of their own (CURL, READLINE, ARGON2 of 8.4):
     # on when one of their items is
     while IFS="$TAB" read -r _ _ scr id _ on _; do

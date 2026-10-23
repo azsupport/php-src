@@ -10,6 +10,9 @@
 #      and the same patch set (unless --force) - checked before any big fetch;
 #   3. rebuild freebsd/<target> = upstream
 #        + one commit applying the curated FreeBSD ports patches
+#        + commits for our build compatibility patches, interim security
+#          backports, bundled PECL extensions, curl and PCRE, and the build
+#          options of this fork (freebsd/patches/<target>/feature-*.patch)
 #        + one commit adding the build id to the php -v banner (PHP_VERSION is
 #          left untouched; php -v shows "... (fork: 20261021-fbsd-802c2107)")
 #        + one commit prepending FreeBSD notes to README.md;
@@ -46,7 +49,7 @@ set -eu
 # Bump when the generated branch content changes (commit layout, README block),
 # so that every branch is rebuilt once. Tooling-only changes must not bump it;
 # wording changes of the README block reach a branch with its next rebuild.
-layout_version=7
+layout_version=8
 
 main_dir="$(cd "$(dirname "$0")/.." && pwd)"
 conf="$main_dir/freebsd/targets.conf"
@@ -104,6 +107,7 @@ patchset_of() {
         cat "$patch_dir"/patch-*
         for c in "$patch_dir"/compat-*.patch; do if [ -f "$c" ]; then cat "$c"; fi; done
         for b in "$patch_dir"/backport-*.patch; do if [ -f "$b" ]; then cat "$b"; fi; done
+        for f in "$patch_dir"/feature-*.patch; do if [ -f "$f" ]; then cat "$f"; fi; done
         pecl_entries
         pecl_entries | while read -r n v u c; do
             if [ -f "$pecl_patches/$n-$v.patch" ]; then cat "$pecl_patches/$n-$v.patch"; fi
@@ -199,6 +203,15 @@ compat_notes() {   # $1: line prefix; build compatibility patches of the target
     done
 }
 has_compat() { for p in "$patch_dir"/compat-*.patch; do [ -f "$p" ] && return 0; done; return 1; }
+
+feature_notes() {   # $1: line prefix; build options of this fork for the target
+    for p in "$patch_dir"/feature-*.patch; do
+        [ -f "$p" ] || continue
+        printf '%s- `%s`: %s\n' "$1" "$(sed -n 's/^Option: //p' "$p" | head -1)" \
+            "$(sed -n 's/^Description: //p' "$p" | head -1)"
+    done
+}
+has_features() { for p in "$patch_dir"/feature-*.patch; do [ -f "$p" ] && return 0; done; return 1; }
 
 backports_notes() {   # $1: line prefix
     while IFS= read -r p; do
@@ -428,6 +441,10 @@ EOF
         printf '>\n> **Bundled PCRE** (commit "Bundle PCRE"):\n>\n'
         pcre_notes "> "
     fi
+    if has_features; then
+        printf '>\n> **Build options of this fork** (commit "Add the build options of this fork"), off unless given to configure:\n>\n'
+        feature_notes "> "
+    fi
     cat <<EOF
 >
 > The upstream \`.github/\` CI configuration is removed so that php-src CI does not
@@ -596,6 +613,30 @@ make_commits() {
             if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
         done | git commit -q -F -
     fi
+    # Build options of this fork (-p1, git format), each off unless its configure
+    # option is given; applied last, in name order. One that no longer applies
+    # fails the build, so that it gets reviewed.
+    if has_features; then
+        for p in "$patch_dir"/feature-*.patch; do
+            [ -f "$p" ] || continue
+            if ! patch -p1 -N -s -f < "$p"; then
+                echo "sync: $target: ${p##*/} does not apply" >&2
+                return 1
+            fi
+        done
+        git add -u
+        {
+            echo "Add the build options of this fork"
+            echo
+            echo "Off unless their configure option is given:"
+            for p in "$patch_dir"/feature-*.patch; do
+                [ -f "$p" ] || continue
+                echo "- $(sed -n 's/^Option: //p' "$p" | head -1) (${p##*/}):"
+                echo "  $(sed -n 's/^Description: //p' "$p" | head -1)"
+            done
+            if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
+        } | git commit -q -F -
+    fi
     # Build id in the `php -v` banner only. PHP_VERSION is left at the upstream
     # value, so phpversion(), version_compare() and "PHP x.y.z" parsers are not
     # disturbed. configure regenerates main/php_version.h from configure.ac/.in, so
@@ -685,6 +726,10 @@ release_notes() {
     if has_curl; then
         printf '\n### Bundled curl\n\nIn `ext/curl/libcurl` (commit "Bundle curl"), used only with `--with-curl=bundled`:\n\n'
         curl_notes ""
+    fi
+    if has_features; then
+        printf '\n### Build options of this fork\n\nCommit "Add the build options of this fork", off unless given to configure:\n\n'
+        feature_notes ""
     fi
     printf '\n### Build\n\nExtract, then in the new directory write the configure options of the installed PHP with [`tools/config-check.sh`](https://github.com/%s/blob/HEAD/tools/config-check.sh) (`sh config-check.sh /usr/local/phpXY`, or `sh config-check.sh --pkg` where PHP comes from packages), run `sh config.installed.sh` (extra options, such as those of the bundled PECL extensions, go after it), then `make` and `make install`. Copy-paste blocks per version are in the [README](https://github.com/%s#building-on-freebsd-from-a-release-tarball).\n' "$gh_repo" "$gh_repo"
 }
