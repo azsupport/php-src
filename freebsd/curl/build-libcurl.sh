@@ -75,12 +75,15 @@ pc_wrap() {   # <libraries>
 }
 
 # configure <name> <source> <prefix> <options>: out of the source tree, in
-# $obj/<name>, with nothing of the system but the compiler, libc and libm
+# $obj/<name>, with nothing of the system but the compiler, libc and libm. LIBS is
+# emptied: the configure of PHP exports the LIBS it has gathered so far (with
+# libraries of /usr/local that the -L here does not reach), and a library the
+# linker cannot find fails every test ("C compiler cannot create executables").
 configure_dep() {
     _n="$1" _s="$2" _p="$3"; shift 3
     rm -rf "${obj:?}/$_n"
     mkdir -p "$obj/$_n"
-    (cd "$obj/$_n" && env CC="$cc" CFLAGS="$dcflags" CPPFLAGS="-I$_p/include" LDFLAGS="-L$_p/lib" \
+    (cd "$obj/$_n" && env CC="$cc" CFLAGS="$dcflags" CPPFLAGS="-I$_p/include" LDFLAGS="-L$_p/lib" LIBS= \
         PKG_CONFIG="$obj/pkg-config" "$_s/configure" --prefix="$_p" --libdir="$_p/lib" \
         --includedir="$_p/include" --disable-shared --enable-static --with-pic \
         --disable-dependency-tracking "$@")
@@ -243,9 +246,11 @@ build_curl() {
     # default OPTIONS) minus what PHP has no use for (README of the fork); c-ares
     # resolves (the port's CARES option, instead of THREADED_RESOLVER);
     # ac_cv_func_SSLv2_client_method=no is from its CONFIGURE_ENV. The -I and -L of
-    # the libraries go first, before those the PHP build may have for /usr/local.
+    # the libraries go first, before those the PHP build may have for /usr/local;
+    # LIBS is emptied, as for the libraries (configure_dep), and so the link line
+    # curl writes holds only what curl itself needs.
     (cd "$obj/curl" && env CC="$cc" CFLAGS="${CFLAGS:-}" CPPFLAGS="-I$deps/include${CPPFLAGS:+ $CPPFLAGS}" \
-        LDFLAGS="-L$deps/lib${LDFLAGS:+ $LDFLAGS}" PKG_CONFIG="$obj/pkg-config" \
+        LDFLAGS="-L$deps/lib${LDFLAGS:+ $LDFLAGS}" LIBS= PKG_CONFIG="$obj/pkg-config" \
         ac_cv_func_SSLv2_client_method=no \
         "$src/configure" --prefix="$prefix" --libdir="$prefix/lib" --includedir="$prefix/include" \
         --disable-shared --enable-static --with-pic --disable-dependency-tracking \

@@ -287,7 +287,7 @@ build_bundle() {
         : > "$work/stamp-$n"
         b="$top/freebsd/curl/build-libcurl.sh"
         case "$n" in
-            curl) OBJDIR="$work/obj-curl" sh "$b" --curl "$work/curl-src/libcurl" "$P" "$P" ;;
+            curl) LIBICONV_PREFIX="$P" OBJDIR="$work/obj-curl" sh "$b" --curl "$work/curl-src/libcurl" "$P" "$P" ;;
             libidn2) LIBICONV_PREFIX="$P" OBJDIR="$work/obj-curl" sh "$b" --lib libidn2 "$work/curl-src/deps/libidn2" "$P" ;;
             *) OBJDIR="$work/obj-curl" sh "$b" --lib "$n" "$work/curl-src/deps/$n" "$P" ;;
         esac || exit 1
