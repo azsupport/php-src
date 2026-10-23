@@ -1,0 +1,12 @@
+Description: ext/pcre tests that print messages of the library: the wording of PCRE2 10.37+ ("atomic assertion expected", the offset after the character) as well as the old one, as php-src has them since 8.1 and 8.3.
+Origin: php-src ext/pcre/tests of PHP-8.1 (offset %r(0|1)%r, %r(1|2)%r) and PHP-8.3 (bug75457.phpt)
+
+--- a/ext/pcre/tests/bug75457.phpt
++++ b/ext/pcre/tests/bug75457.phpt
+@@ -6,5 +6,5 @@
+ var_dump(preg_match($pattern, "hello"));
+ ?>
+ --EXPECTF--
+-Warning: preg_match(): Compilation failed: assertion expected after (?( or (?(?C) at offset 8 in %sbug75457.php on line %d
++Warning: preg_match(): Compilation failed:%r( atomic|)%r assertion expected after (?( or (?(?C) at offset 8 in %sbug75457.php on line %d
+ bool(false)

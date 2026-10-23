@@ -94,7 +94,11 @@ Every branch is upstream plus these commits, in this order:
    gmagick, swoole, OpenSwoole, excimer and mcrypt in `ext/`, built only when
    enabled, see
    [Bundled PECL extensions](#bundled-pecl-extensions).
-5. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
+5. **Bundle curl**: curl in `ext/curl/libcurl`, built into PHP with
+   `--with-curl=bundled`, see [Bundled curl](#bundled-curl).
+6. **Bundle PCRE**: the newest PCRE2 (5.6: PCRE 8.45) instead of the one upstream
+   bundles, see [Bundled PCRE](#bundled-pcre).
+7. **Show the build id in the `php -v` banner**: a new `PHP_FORK_BUILD` macro is
    appended to the banner by C string-literal concatenation, so `php -v` shows the
    build date and upstream commit, for example
    `PHP 7.4.33 (cli) (built: ...) (fork: 20261021-fbsd-802c2107)`. `PHP_VERSION`
@@ -102,7 +106,7 @@ Every branch is upstream plus these commits, in this order:
    `PHP x.y.z` parsers are not disturbed. On 8.2+ the banner is shared by every SAPI
    (`php -v`, `php-fpm -v`); on 5.6/7.4 it is the CLI banner. `phpinfo()` shows the
    plain version, not the build id.
-6. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
+8. **README: describe the freebsd/X.Y branch**: a notes block on top of the original
    README with the exact upstream commit (`Upstream-Commit:` trailer) and the lists
    of applied and not applied ports patches; the release notes carry the same lists.
 
@@ -274,8 +278,9 @@ make install
 /usr/local/php56/bin/php -v
 ```
 
-For 5.6 on FreeBSD 14 and 15, the options `--with-pcre-regex=/usr/local` and
-`--with-mcrypt=/usr/local` need the `pcre` and `libmcrypt` packages; FreeType is
+For 5.6 on FreeBSD 14 and 15, `--with-mcrypt=/usr/local` needs the `libmcrypt`
+package (`--with-pcre-regex=/usr/local` is left out with the bundled PCRE 8.45, see
+[Bundled PCRE](#bundled-pcre)); FreeType is
 found through `pkg-config` (the `freetype2` package no longer ships
 `freetype-config`).
 
@@ -527,6 +532,47 @@ its base system, so there `config-check.sh` keeps `--with-curl` (the curl packag
 and says why; on FreeBSD 14 and 15 it writes `--with-curl=bundled` and lists the
 packages that are missing. A curl security fix reaches PHP with a rebuild: the daily
 upstream check opens an issue for each new curl release and for changes of the port.
+
+### Bundled PCRE
+
+php-src bundles an old PCRE: 5.6 has PCRE 8.38, 7.4 PCRE2 10.35, 8.1 10.39, 8.2 10.40,
+8.3 10.42, 8.4 10.44 (php-src master too, October 2026). Those copies have known
+memory safety bugs: out-of-bounds reads in the JIT compiler before 10.40
+([CVE-2022-1586](https://osv.dev/vulnerability/CVE-2022-1586),
+[CVE-2022-1587](https://osv.dev/vulnerability/CVE-2022-1587): 7.4 and 8.1), the
+fixes of 10.48 (out-of-bounds reads and writes, among them in `pcre2_match` after a
+JIT fallback on invalid UTF,
+[CVE-2026-89156](https://security-tracker.debian.org/tracker/CVE-2026-89156);
+[oss-security, 04.09.2026](https://openwall.com/lists/oss-security/2026/09/04/7))
+and an out-of-bounds write of the JIT with an attacker-controlled pattern before
+10.49 ([CVE-2026-103111](https://app.opencve.io/cve/CVE-2026-103111)), which hit every
+branch; PHP uses the JIT by default (`pcre.jit=1`, 7.0 and later). PCRE 8.38 of 5.6
+is from 2015 and lacks the fixes of 8.39 to 8.45, for example the JIT bugs
+CVE-2017-6004 and CVE-2019-20838 and the integer overflow CVE-2020-14155 (5.6 itself
+does not use the JIT).
+Every branch here carries the newest release instead
+([`freebsd/pcre.conf`](freebsd/pcre.conf)): PCRE2 10.49 in 7.4 to 8.4 and PCRE 8.45,
+the last PCRE1 release, in 5.6. The sync unpacks the release tarball (its SHA-256 is
+the one in freebsd-ports `devel/pcre2` or `devel/pcre`) and imports it with
+[`freebsd/pcre/import-pcre2.sh`](freebsd/pcre/import-pcre2.sh) (5.6:
+[`import-pcre1.sh`](freebsd/pcre/import-pcre1.sh)) the way php-src does: the library
+sources, PHP's own `config.h` (plus the defaults of the release it lacks, such as
+`MAX_VARLOOKBEHIND` for 7.4 to 8.3), the list of sources in `ext/pcre/config0.m4`.
+PHP renames the functions of its bundled PCRE in `main/php_compat.h`
+(`pcre2_compile_8` becomes `php_pcre2_compile`), so a libpcre2 that Apache has loaded
+does not take their calls; the list in php-src misses the functions added since
+PCRE2 10.30 (and the JIT functions of PCRE 8.x), and `pcre2_substitute` of 10.49 calls
+one of them, so the import renames those too. The `ext/pcre` tests pass as before;
+the ones that print messages of the library expect the old and the new wording, as
+php-src has them since 8.1 and 8.3 (`freebsd/pcre/tests-<version>.patch`). A newer
+PCRE also brings its features to the old branches: PHP 7.4 with 10.49 knows
+lookbehinds of limited variable length, such as `(?<=a{1,3})b`.
+
+`--with-external-pcre` (5.6: `--with-pcre-regex=DIR`) still takes the library of
+the system. `config-check.sh` leaves those options out when the PCRE of the tree is
+not older than the one of the system, so the build needs no `pcre2` or `pcre`
+package, and says so; a newer library in the system keeps the option. The daily
+upstream check opens an issue for each new PCRE2 release.
 
 ## How updates happen
 

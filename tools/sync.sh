@@ -56,6 +56,9 @@ pecl_patches="$main_dir/freebsd/pecl"
 # curl for --with-curl=bundled (ext/curl/libcurl): release, patch, build script, hook.
 curl_conf="$main_dir/freebsd/curl.conf"
 curl_dir="$main_dir/freebsd/curl"
+# PCRE instead of the copy upstream bundles: release, import scripts, test fixes.
+pcre_conf="$main_dir/freebsd/pcre.conf"
+pcre_dir="$main_dir/freebsd/pcre"
 gh_repo="${GH_REPO:-${GITHUB_REPOSITORY:-azsupport/php-src}}"
 dist_dir="${DIST_DIR:-$(pwd)/.sync-dist}"
 local_only=0 force=0 release=1 check_only=0 notes_only=0
@@ -108,6 +111,10 @@ patchset_of() {
         curl_entry
         if has_curl; then
             for f in "$curl_dir"/*; do if [ -f "$f" ]; then cat "$f"; fi; done
+        fi
+        pcre_entry
+        if has_pcre; then
+            for f in "$pcre_dir"/*; do if [ -f "$f" ]; then cat "$f"; fi; done
         fi
         echo "$target $url $ref $port $portrev layout=$layout_version"
     } | sha256_of
@@ -318,6 +325,71 @@ curl_bundle() {
     rm -f ext/curl/config.m4.new
 }
 
+# PCRE instead of the copy upstream bundles (freebsd/pcre.conf): "version url
+# sha256" of the target. 8.x is PCRE (5.6), 10.x PCRE2.
+pcre_entry() {
+    if [ -f "$pcre_conf" ]; then awk -v t="$target" '$1 == t { print $2, $3, $4 }' "$pcre_conf"; fi
+}
+has_pcre() { [ -n "$(pcre_entry)" ]; }
+# "PCRE 8.45 ext/pcre/pcrelib devel/pcre --with-pcre-regex=DIR import-pcre1.sh" for a version
+pcre_kind() {
+    case "$1" in
+        8.*) echo "PCRE ext/pcre/pcrelib devel/pcre --with-pcre-regex=DIR import-pcre1.sh" ;;
+        *) echo "PCRE2 ext/pcre/pcre2lib devel/pcre2 --with-external-pcre import-pcre2.sh" ;;
+    esac
+}
+pcre_notes() {   # $1: line prefix
+    pcre_entry | while read -r v u s; do
+        set -- "$1" $(pcre_kind "$v")
+        tp="$pcre_dir/tests-$target.patch"
+        extra=""
+        if [ -f "$tp" ]; then extra="; \`${tp##*/}\`: $(sed -n 's/^Description: //p' "$tp" | head -1 | sed 's/\.$//')"; fi
+        printf '%s- %s %s ([release tarball](%s), SHA-256 `%s`, the same as in freebsd-ports `%s`) in `%s` instead of the copy upstream bundles; every function of it is renamed to `php_pcre*` (`main/php_compat.h`), so a PCRE library that another module loads into the same process (the libpcre2 of Apache) stays separate%s. `%s` still takes the library of the system.\n' \
+            "$1" "$2" "$v" "$u" "$(short "$s" 16)" "$4" "$3" "$extra" "$5"
+    done
+}
+# Replace the bundled PCRE of the worktree with the release of freebsd/pcre.conf
+# (freebsd/pcre/import-pcre2.sh, 5.6: import-pcre1.sh) and apply
+# freebsd/pcre/tests-<target>.patch. Sets pcre_old (the version replaced).
+pcre_bundle() {
+    set -- $(pcre_entry)
+    pv="$1" pu="$2" ps="$3"
+    set -- $(pcre_kind "$pv")
+    pdir="$2" pimp="$pcre_dir/$5"
+    tb="${TMPDIR:-/tmp}/sync-${pu##*/}"
+    if [ ! -f "$tb" ] || [ "$(sha256_of < "$tb")" != "$ps" ]; then
+        # the distfiles cache of FreeBSD has the same file (the same SHA-256)
+        if ! curl -fsSL --retry 3 -o "$tb" "$pu" &&
+            ! curl -fsSL --retry 3 -o "$tb" "https://distcache.freebsd.org/ports-distfiles/${pu##*/}"; then
+            echo "sync: $target: cannot download PCRE $pv ($pu)" >&2
+            return 1
+        fi
+    fi
+    if [ "$(sha256_of < "$tb")" != "$ps" ]; then
+        echo "sync: $target: PCRE $pv: SHA-256 mismatch ($pu)" >&2
+        return 1
+    fi
+    if [ -f "$pdir/pcre2.h" ]; then
+        pcre_old="PCRE2 $(sed -n 's/^#define PCRE2_MAJOR *\([0-9]*\).*/\1/p; s/^#define PCRE2_MINOR *\([0-9]*\).*/.\1/p' "$pdir/pcre2.h" | tr -d '\n')"
+    else
+        pcre_old="PCRE $(sed -n 's/^#define PCRE_MAJOR *\([0-9]*\).*/\1/p; s/^#define PCRE_MINOR *\([0-9]*\).*/.\1/p' "$pdir/pcre.h" 2>/dev/null | tr -d '\n')"
+    fi
+    pt="$(mktemp -d)"
+    tar -xf "$tb" -C "$pt"
+    psrc="$(find "$pt" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    if ! sh "$pimp" . "$psrc" >&2; then
+        echo "sync: $target: ${pimp##*/} failed for PCRE $pv" >&2
+        rm -rf "$pt"
+        return 1
+    fi
+    rm -rf "$pt"
+    tp="$pcre_dir/tests-$target.patch"
+    if [ -f "$tp" ] && ! patch -p1 -N -s -f < "$tp"; then
+        echo "sync: $target: ${tp##*/} does not apply" >&2
+        return 1
+    fi
+}
+
 # README header for a target; uses the variables set in build_target().
 readme_header() {
     upstream_info
@@ -351,6 +423,10 @@ EOF
     if has_curl; then
         printf '>\n> **Bundled curl** (commit "Bundle curl"), used only with `--with-curl=bundled`:\n>\n'
         curl_notes "> "
+    fi
+    if has_pcre; then
+        printf '>\n> **Bundled PCRE** (commit "Bundle PCRE"):\n>\n'
+        pcre_notes "> "
     fi
     cat <<EOF
 >
@@ -493,6 +569,33 @@ make_commits() {
             if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
         done | git commit -q -F -
     fi
+    # PCRE (freebsd/pcre.conf) in ext/pcre/pcre2lib (5.6: ext/pcre/pcrelib) instead
+    # of the copy upstream bundles; -f for the same .gitignore reasons as above.
+    if has_pcre; then
+        pcre_old=""
+        pcre_bundle || return 1
+        git add -A -f ext/pcre main/php_compat.h
+        pcre_entry | while read -r v u s; do
+            set -- $(pcre_kind "$v")
+            echo "Bundle PCRE: $1 $v instead of $pcre_old"
+            echo
+            echo "$2: the $1 $v release tarball, $u"
+            echo "(SHA-256 $s, the same as in freebsd-ports $3), imported with"
+            echo "freebsd/pcre/$5 of azsupport/php-src: the library sources as php-src"
+            echo "imports them, PHP's own config.h (plus the defaults of the release it"
+            echo "lacks) and the list of compilation units in ext/pcre/config0.m4."
+            echo "main/php_compat.h renames every function of the library to php_pcre*,"
+            echo "so a PCRE library that another module loads into the same process (the"
+            echo "libpcre2 of Apache, for mod_php) stays separate. $4 still"
+            echo "takes the library of the system."
+            if [ -f "$pcre_dir/tests-$target.patch" ]; then
+                echo
+                echo "tests-$target.patch: $(sed -n 's/^Description: //p' "$pcre_dir/tests-$target.patch" | head -1)"
+                echo "  Origin: $(sed -n 's/^Origin: //p' "$pcre_dir/tests-$target.patch" | head -1)"
+            fi
+            if [ -n "${EXTRA_TRAILERS:-}" ]; then echo; printf '%s\n' "$EXTRA_TRAILERS"; fi
+        done | git commit -q -F -
+    fi
     # Build id in the `php -v` banner only. PHP_VERSION is left at the upstream
     # value, so phpversion(), version_compare() and "PHP x.y.z" parsers are not
     # disturbed. configure regenerates main/php_version.h from configure.ac/.in, so
@@ -574,6 +677,10 @@ release_notes() {
     if has_pecl; then
         printf '\n### Bundled PECL extensions\n\nIn `ext/` (commit "Bundle PECL extensions"), built only when enabled with their option:\n\n'
         pecl_notes ""
+    fi
+    if has_pcre; then
+        printf '\n### Bundled PCRE\n\nCommit "Bundle PCRE":\n\n'
+        pcre_notes ""
     fi
     if has_curl; then
         printf '\n### Bundled curl\n\nIn `ext/curl/libcurl` (commit "Bundle curl"), used only with `--with-curl=bundled`:\n\n'
