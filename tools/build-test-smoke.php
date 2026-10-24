@@ -114,7 +114,14 @@ if (function_exists('curl_version')) {
             $has = preg_replace('#^brotli/#', '', (string)$cv['brotli_version']);
             check("curl: brotli $br (its decoder)", $has === $br, 'brotli ' . $has);
         }
-        check('curl: c-ares resolves', !empty($cv['ares']), empty($cv['ares']) ? 'no c-ares' : 'c-ares ' . $cv['ares']);
+        if (array_key_exists('ares', $cv)) {
+            check('curl: c-ares resolves', !empty($cv['ares']), empty($cv['ares']) ? 'no c-ares' : 'c-ares ' . $cv['ares']);
+        } else {
+            // PHP 5.6: curl_version() names no c-ares; the bundle has no threaded
+            // resolver, so asynchronous DNS (CURL_VERSION_ASYNCHDNS) is c-ares
+            check('curl: asynchronous DNS (c-ares; this PHP does not name it)', ($cv['features'] & 128) != 0,
+                ($cv['features'] & 128) ? 'AsynchDNS' : 'no AsynchDNS');
+        }
         // CURL_VERSION_* bits of curl.h (the PHP constants differ between versions)
         $bits = array('SSL' => 4, 'libz' => 8, 'AsynchDNS' => 128, 'IDN' => 1024, 'HTTP2' => 65536,
             'PSL' => 1048576, 'brotli' => 8388608, 'alt-svc' => 16777216, 'zstd' => 67108864, 'HSTS' => 268435456);
