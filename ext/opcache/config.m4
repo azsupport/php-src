@@ -11,10 +11,24 @@ PHP_ARG_ENABLE([huge-code-pages],
   [yes],
   [no])
 
+PHP_ARG_ENABLE([opcache-static],
+  [whether to build OPcache into PHP],
+  [AS_HELP_STRING([--enable-opcache-static],
+    [Build OPcache into PHP instead of opcache.so (azsupport/php-src): no
+    zend_extension line is needed, zend_extension=opcache.so is skipped])],
+  [no],
+  [no])
+
 if test "$PHP_OPCACHE" != "no"; then
 
   dnl Always build as shared extension
-  ext_shared=yes
+  dnl Built into PHP with --enable-opcache-static (azsupport/php-src), as PHP 8.5
+  dnl always does.
+  AS_VAR_IF([PHP_OPCACHE_STATIC], [yes], [
+    ext_shared=no
+    AC_DEFINE([HAVE_OPCACHE_STATIC], [1],
+      [Define to 1 if OPcache is built into PHP (--enable-opcache-static).])
+  ], [ext_shared=yes])
 
   if test "$PHP_HUGE_CODE_PAGES" = "yes"; then
     AC_DEFINE(HAVE_HUGE_CODE_PAGES, 1, [Define to enable copying PHP CODE pages into HUGE PAGES (experimental)])
@@ -255,7 +269,7 @@ int main() {
 	Optimizer/escape_analysis.c \
 	Optimizer/compact_vars.c \
 	Optimizer/zend_dump.c,
-	shared,,-DZEND_ENABLE_STATIC_TSRMLS_CACHE=1,,yes)
+	$ext_shared,,-DZEND_ENABLE_STATIC_TSRMLS_CACHE=1,,yes)
 
   PHP_ADD_BUILD_DIR([$ext_builddir/Optimizer], 1)
   PHP_ADD_EXTENSION_DEP(opcache, pcre)
