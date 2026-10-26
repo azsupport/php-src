@@ -504,7 +504,7 @@ changes unless their option is given:
 | igbinary | 3.2.16 | 3.2.16 | 3.2.16 | 2.0.8 |
 | imagick | 3.8.1 | 3.8.1 | 3.8.1 | 3.8.1 |
 | gmagick | 2.0.6RC1 | 2.0.6RC1 | 2.0.6RC1 | 1.1.7RC3 |
-| swoole | 6.2.3 | 6.1.10 | 4.8.13 | — |
+| swoole | 6.2.4 | 6.1.11 | 4.8.13 | — |
 | OpenSwoole | 4.12.1 | 4.12.1 | 4.12.1 | — |
 | excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
 | mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | in PHP 5.6 itself |
@@ -569,7 +569,6 @@ What else the patches change:
 | swoole, OpenSwoole | on by default (`--enable-swoole`, `--enable-openswoole`), and OpenSwoole's configure tests the variable of swoole instead of its own: inside php-src that would build them into every PHP (without `--disable-all`, and OpenSwoole even with it) | off by default |
 | swoole 4.8 and 6.1, OpenSwoole | their own `--enable-openssl`: inside php-src it reset the `--with-openssl` setting, and mysqlnd then built without its OpenSSL code (RSA for `caching_sha2_password`) | dropped: they use OpenSSL when PHP is built `--with-openssl` |
 | swoole, OpenSwoole | `-std=c++11`/`-std=c++14` appended to `CXXFLAGS`, which inside php-src would apply to ext/intl too (ICU 75 and newer need C++17) | dropped |
-| swoole 6.x | calls `sw_usleep()`, declared nowhere, in the branch that FreeBSD (no futex) compiles | `usleep()`, as in the FreeBSD port `devel/php-swoole` |
 | OpenSwoole | no FreeBSD port, and it did not compile on FreeBSD: its `swoole_socket.h` includes `<netinet/ip6.h>` before `<sys/types.h>`, and its hiredis sets `_XOPEN_SOURCE`, which hides the BSD types `<netinet/ip6.h>` needs | both fixed; the build test builds it with gmagick on 7.4 to 8.4 |
 | excimer | FreeBSD has no `gettid()`, so excimer 1.2.4 and later did not compile there (the port `devel/pecl-excimer` stays at 1.2.3) | the thread id of its timer thread from `pthread_getthreadid_np()`; `-fvisibility=hidden` for its own sources only |
 
