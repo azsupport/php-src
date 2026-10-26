@@ -5,7 +5,20 @@ dnl
 PHP_ARG_ENABLE(opcache, whether to enable Zend OPcache support,
 [  --enable-opcache        Enable Zend OPcache support], yes)
 
+PHP_ARG_ENABLE(opcache-static, whether to build OPcache into PHP,
+[  --enable-opcache-static Build OPcache into PHP instead of opcache.so
+                          (azsupport/php-src): no zend_extension line is
+                          needed, zend_extension=opcache.so is skipped], no, no)
+
 if test "$PHP_OPCACHE" != "no"; then
+
+  dnl Built into PHP with --enable-opcache-static (azsupport/php-src).
+  if test "$PHP_OPCACHE_STATIC" = "yes"; then
+    opcache_shared=no
+    AC_DEFINE(HAVE_OPCACHE_STATIC, 1, [Define if OPcache is built into PHP (--enable-opcache-static)])
+  else
+    opcache_shared=shared
+  fi
 
   AC_CHECK_FUNC(mprotect,[
     AC_DEFINE(HAVE_MPROTECT, 1, [Define if you have mprotect() function])
@@ -377,7 +390,7 @@ fi
 	shared_alloc_mmap.c \
 	shared_alloc_posix.c \
 	Optimizer/zend_optimizer.c,
-	shared,,,,yes)
+	$opcache_shared,,,,yes)
 
   PHP_ADD_BUILD_DIR([$ext_builddir/Optimizer], 1)
 fi
