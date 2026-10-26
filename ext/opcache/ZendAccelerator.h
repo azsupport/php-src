@@ -322,6 +322,7 @@ extern const char *zps_api_failure_reason;
 
 BEGIN_EXTERN_C()
 
+void start_accel_extension(void);
 void accel_shutdown(void);
 ZEND_RINIT_FUNCTION(zend_accelerator);
 zend_result accel_post_deactivate(void);
