@@ -1,5 +1,5 @@
 Description: Do not use the Linux aarch64 TLS assembly on FreeBSD (no effect on amd64).
-Origin: freebsd-ports lang/php82/files/patch-TSRM_TSRM.c @ fac6f252ac69
+Origin: freebsd-ports lang/php82/files/patch-TSRM_TSRM.c @ 438e512499a9
 
 --- TSRM/TSRM.c.orig	2023-12-20 06:28:06 UTC
 +++ TSRM/TSRM.c

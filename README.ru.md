@@ -155,9 +155,10 @@ Id сборки:
 |---|---|---|
 | `sapi/fpm/config.m4` | 5.6–8.3 | FPM узнаёт очередь listen через `SO_LISTENQLEN`; в `struct tcp_info` FreeBSD нет полей Linux |
 | `sapi/apache2handler/config.m4` | все | `make install` ставит модуль Apache, не меняя `httpd.conf` (без `apxs -a`), что важно на серверах с несколькими сборками PHP (а наш `compat-apache-module-name.patch` называет файл по версии, ниже) |
-| `build/Makefile.global` (`Makefile.global` в 5.6) | все | `make install` не падает, если `php.ini` нет |
+| `build/Makefile.global` (`Makefile.global` в 5.6) | все | `make test` не останавливается, если загруженный `php.ini` пуст или в каталоге сканирования нет файлов `.ini` (BSD make выполняет рецепт через `sh -e`) |
 | `sapi/fpm/www.conf.in` | 7.4+ | поясняет, что адреса IPv4-mapped на FreeBSD по умолчанию выключены |
 | `TSRM/TSRM.c` | 8.1+ | без ассемблера TLS для Linux aarch64 на FreeBSD (на amd64 ни на что не влияет) |
+| `php.ini-production`, `php.ini-development` | 8.2+ | в обоих шаблонах `session.upload_progress.enabled = Off`, как в порту с 23.10.2026: временная мера против CVE-2026-115560 до следующего релиза PHP. `make install` шаблоны не ставит, так что `php.ini` на сервере остаются как есть, а без `php.ini` действует значение, вкомпилированное по умолчанию (On) |
 | `ext/pcre/php_pcre.h` | 8.4 | с `--with-external-pcre` системный `<pcre2.h>` подключается так же, как в порту; со встроенной PCRE ни на что не влияет |
 | `Zend/zend.h` | 5.6 | без `alloca()` в потокобезопасных (ZTS) сборках на FreeBSD; на сборки без ZTS не влияет |
 | `Zend/zend_compile.h`, `Zend/zend_execute.h`, `Zend/zend_list.[ch]` | 5.6 | макросы с арифметикой указателей превращены во встраиваемые функции (без неопределённого поведения, которое новый clang компилирует неверно) и 64-битные id списка ресурсов |

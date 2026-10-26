@@ -1,0 +1,16 @@
+Description: php.ini-production: session.upload_progress.enabled = Off, a temporary mitigation of CVE-2026-115560 (and CVE-2026-109619) until the next PHP release, as the port; existing php.ini files stay as they are.
+Origin: freebsd-ports lang/php82/files/patch-php.ini-production @ 438e512499a9
+
+--- php.ini-production.orig	2026-10-23 20:29:41 UTC
++++ php.ini-production
+@@ -1541,7 +1541,9 @@ session.sid_bits_per_character = 5
+ ; Development Value: On
+ ; Production Value: On
+ ; https://php.net/session.upload-progress.enabled
+-;session.upload_progress.enabled = On
++; Temporary mitigation for CVE-2026-115560 / CVE-2026-109619.
++; Remove once the fixed PHP release is in the tree.
++session.upload_progress.enabled = Off
+ 
+ ; Cleanup the progress information as soon as all POST data has been read
+ ; (i.e. upload completed).
