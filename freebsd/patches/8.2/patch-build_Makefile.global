@@ -1,5 +1,5 @@
-Description: 'make install' does not fail when no php.ini is present.
-Origin: freebsd-ports lang/php82/files/patch-build_Makefile.global @ fac6f252ac69
+Description: 'make test' does not stop when the egrep that copies the loaded php.ini and the scanned .ini files into tmp-php.ini finds nothing (an empty php.ini, a scan directory without .ini files): BSD make runs the recipe with sh -e.
+Origin: freebsd-ports lang/php82/files/patch-build_Makefile.global @ 438e512499a9
 
 --- build/Makefile.global.orig	2022-08-02 13:57:03 UTC
 +++ build/Makefile.global
