@@ -501,7 +501,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | igbinary | 3.2.16 | 3.2.16 | 3.2.16 | 2.0.8 |
 | imagick | 3.8.1 | 3.8.1 | 3.8.1 | 3.8.1 |
 | gmagick | 2.0.6RC1 | 2.0.6RC1 | 2.0.6RC1 | 1.1.7RC3 |
-| swoole | 6.2.3 | 6.1.10 | 4.8.13 | — |
+| swoole | 6.2.4 | 6.1.11 | 4.8.13 | — |
 | OpenSwoole | 4.12.1 | 4.12.1 | 4.12.1 | — |
 | excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
 | mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | в самом PHP 5.6 |
@@ -564,7 +564,6 @@ OpenSwoole 22 и новее изменили API (пространство им�
 | swoole, OpenSwoole | включены по умолчанию (`--enable-swoole`, `--enable-openswoole`), а configure OpenSwoole проверяет переменную swoole вместо своей: внутри php-src это встроило бы их в каждый PHP (без `--disable-all`, а OpenSwoole даже с ним) | выключены по умолчанию |
 | swoole 4.8 и 6.1, OpenSwoole | свой `--enable-openssl`: внутри php-src он сбрасывал настройку `--with-openssl`, и mysqlnd тогда собирался без своего кода OpenSSL (RSA для `caching_sha2_password`) | убран: они берут OpenSSL, если PHP собран `--with-openssl` |
 | swoole, OpenSwoole | дописывают `-std=c++11`/`-std=c++14` в `CXXFLAGS`, а внутри php-src это действовало бы и на ext/intl (ICU 75 и новее нужен C++17) | убрано |
-| swoole 6.x | вызывает нигде не объявленный `sw_usleep()` в той ветке кода, которую компилирует FreeBSD (нет futex) | `usleep()`, как в порту FreeBSD `devel/php-swoole` |
 | OpenSwoole | порта FreeBSD нет, и на FreeBSD он не компилировался: его `swoole_socket.h` подключает `<netinet/ip6.h>` раньше `<sys/types.h>`, а его hiredis задаёт `_XOPEN_SOURCE`, который прячет типы BSD, нужные `<netinet/ip6.h>` | исправлено и то и другое; тестовая сборка собирает его вместе с gmagick на 7.4–8.4 |
 | excimer | в FreeBSD нет `gettid()`, поэтому excimer 1.2.4 и новее там не компилировался (порт `devel/pecl-excimer` остался на 1.2.3) | id потока своего таймера берёт из `pthread_getthreadid_np()`; `-fvisibility=hidden` только своим исходникам |
 

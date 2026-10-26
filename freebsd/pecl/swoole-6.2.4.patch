@@ -1,5 +1,5 @@
-Description: Build inside php-src as ext/swoole (bundled by this fork): the default of --enable-swoole was "yes", which built it into every PHP configured without --disable-all; it is now "no"; drop the -std=c++14 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer. Also usleep() for sw_usleep() in src/core/misc.cc, which is declared nowhere: FreeBSD has no futex and compiles this branch (the fix of the FreeBSD port devel/php-swoole).
-Origin: azsupport; the misc.cc fix as in FreeBSD ports devel/php-swoole (files/patch-src_core_misc.cc)
+Description: Build inside php-src as ext/swoole (bundled by this fork): the default of --enable-swoole was "yes", which built it into every PHP configured without --disable-all; it is now "no"; drop the -std=c++14 that config.m4 appends to CXXFLAGS, which inside php-src applies to every C++ file and overrides the C++17 that ext/intl needs with ICU 75 and newer.
+Origin: azsupport
 
 --- a/config.m4
 +++ b/config.m4
@@ -29,14 +29,3 @@ Origin: azsupport; the misc.cc fix as in FreeBSD ports devel/php-swoole (files/p
  
      if test "$SW_CPU" = "arm"; then
          PHP_ADD_LIBRARY(atomic, 1, SWOOLE_SHARED_LIBADD)
---- a/src/core/misc.cc
-+++ b/src/core/misc.cc
-@@ -172,7 +172,7 @@
-                 return -1;
-             }
-         } while (0);
--        sw_usleep(1000);
-+        usleep(1000); /* sw_usleep() is declared nowhere: this branch (no futex) is the one FreeBSD builds */
-     }
- }
- 
