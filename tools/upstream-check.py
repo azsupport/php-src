@@ -113,18 +113,31 @@ def vkey(v):
     return tuple(nums) + (stage, int(m.group(3) or 0))
 
 
-def tag_version(tag):
+# Tag prefixes that name a project, and the project. Such a tag is a release only
+# in the repository of that project: c-ares keeps the tags curl-7_14_0 ... curl-7_19_4
+# of the curl releases it once came with.
+PROJECT_PREFIXES = {
+    "curl-": "curl", "cares-": "c-ares", "c-ares-": "c-ares", "pcre2-": "pcre2",
+    "libidn2-": "libidn2", "libpsl-": "libpsl", "nghttp2-": "nghttp2",
+    "libunistring-": "libunistring", "memcache-": "memcache",
+}
+
+
+def tag_version(tag, name=None):
     """Version of a release tag: 6.3.0, v3.4.0, release-2.0.1, RELEASE_3_0_6, memcache-3.0.8,
-    curl-8_23_0, pcre2-10.49, cares-1_34_4, libidn2-2.3.8, libpsl-0.21.5."""
-    for prefix in ("curl-", "cares-"):
+    curl-8_23_0, pcre2-10.49, cares-1_34_4, libidn2-2.3.8, libpsl-0.21.5. With the name of
+    the project (as in the conf files), a tag with the prefix of another project is none."""
+    for prefix in sorted(PROJECT_PREFIXES, key=len, reverse=True):
         if tag.startswith(prefix):
-            tag = tag[len(prefix):].replace("_", ".")
-    for prefix in ("pcre2-", "libidn2-", "libpsl-", "nghttp2-", "libunistring-"):
-        if tag.startswith(prefix):
+            if name and PROJECT_PREFIXES[prefix] != name:
+                return None
             tag = tag[len(prefix):]
+            if re.fullmatch(r"\d+(_\d+)+", tag):
+                tag = tag.replace("_", ".")
+            break
     if tag.startswith("RELEASE_"):
         tag = tag[len("RELEASE_"):].replace("_", ".")
-    v = re.sub(r"^(v|release-|memcache-)", "", tag)
+    v = re.sub(r"^(v|release-)", "", tag)
     return v if vkey(v) else None
 
 
@@ -184,7 +197,7 @@ class Upstream:
         try:
             for line in run(["git", "ls-remote", "--tags", "--refs", url]).splitlines():
                 tag = line.split("refs/tags/", 1)[-1]
-                v = tag_version(tag)
+                v = tag_version(tag, name)
                 if v:
                     self.tags.setdefault(v, tag)
             self.sources += 1
