@@ -1,5 +1,5 @@
 Description: 'make install' installs the module without editing httpd.conf (no apxs -a).
-Origin: freebsd-ports lang/php82/files/patch-sapi_apache2handler_config.m4 @ fac6f252ac69
+Origin: freebsd-ports lang/php82/files/patch-sapi_apache2handler_config.m4 @ 438e512499a9
 
 --- sapi/apache2handler/config.m4.orig	2023-03-14 16:11:05 UTC
 +++ sapi/apache2handler/config.m4

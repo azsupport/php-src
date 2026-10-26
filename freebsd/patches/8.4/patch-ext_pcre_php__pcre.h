@@ -1,5 +1,5 @@
 Description: With --with-external-pcre, include the system <pcre2.h> as the port does; no effect with the bundled PCRE.
-Origin: freebsd-ports lang/php84/files/patch-ext_pcre_php__pcre.h @ fac6f252ac69
+Origin: freebsd-ports lang/php84/files/patch-ext_pcre_php__pcre.h @ 1a235373d266
 
 --- ext/pcre/php_pcre.h.orig	2024-07-28 11:55:02 UTC
 +++ ext/pcre/php_pcre.h

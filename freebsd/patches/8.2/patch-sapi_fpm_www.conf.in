@@ -1,5 +1,5 @@
 Description: Document that IPv4-mapped addresses are disabled by default on FreeBSD.
-Origin: freebsd-ports lang/php82/files/patch-sapi_fpm_www.conf.in @ fac6f252ac69
+Origin: freebsd-ports lang/php82/files/patch-sapi_fpm_www.conf.in @ 438e512499a9
 
 --- sapi/fpm/www.conf.in.orig	2023-03-14 16:11:05 UTC
 +++ sapi/fpm/www.conf.in

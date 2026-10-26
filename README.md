@@ -153,9 +153,10 @@ Only patches that matter for a monolithic build on FreeBSD are applied:
 |---|---|---|
 | `sapi/fpm/config.m4` | 5.6–8.3 | FPM reports the listen queue via `SO_LISTENQLEN`; FreeBSD's `struct tcp_info` lacks the Linux fields |
 | `sapi/apache2handler/config.m4` | all | `make install` installs the Apache module without editing `httpd.conf` (no `apxs -a`), which matters on servers with several PHP builds (and our `compat-apache-module-name.patch` names the file after the version, below) |
-| `build/Makefile.global` (`Makefile.global` in 5.6) | all | `make install` does not fail when no `php.ini` is present |
+| `build/Makefile.global` (`Makefile.global` in 5.6) | all | `make test` does not stop when the loaded `php.ini` is empty or the scan directory has no `.ini` files (BSD make runs the recipe with `sh -e`) |
 | `sapi/fpm/www.conf.in` | 7.4+ | documents that IPv4-mapped addresses are disabled by default on FreeBSD |
 | `TSRM/TSRM.c` | 8.1+ | no Linux aarch64 TLS assembly on FreeBSD (no effect on amd64) |
+| `php.ini-production`, `php.ini-development` | 8.2+ | the two templates set `session.upload_progress.enabled = Off`, as the port does since 23.10.2026: a temporary mitigation of CVE-2026-115560 until the next PHP release. `make install` does not install the templates, so the `php.ini` files on a server stay as they are, and without a `php.ini` the compiled-in default (On) applies |
 | `ext/pcre/php_pcre.h` | 8.4 | with `--with-external-pcre`, the system `<pcre2.h>` is included as in the port; no effect with the bundled PCRE |
 | `Zend/zend.h` | 5.6 | no `alloca()` in thread-safe (ZTS) builds on FreeBSD; no effect on non-ZTS builds |
 | `Zend/zend_compile.h`, `Zend/zend_execute.h`, `Zend/zend_list.[ch]` | 5.6 | pointer-arithmetic macros turned into inline functions (avoids undefined behaviour that newer clang miscompiles) and 64-bit resource list ids |
