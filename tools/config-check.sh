@@ -309,6 +309,21 @@ legacy_opts() {
     legacy_note="--with-openssl-legacy-provider added: $why, and $(ossl_text "$inc") keeps RC4, Blowfish, DES, RC2, CAST5 and MD4 in its legacy provider; without them: sh config.installed.sh --without-openssl-legacy-provider"
 }
 
+# --enable-zend-signals for PHP 5.6 (7.1 and later have it on by default, 5.6 had
+# it off): a signal such as the SIGPROF of max_execution_time then waits until the
+# memory manager has left its critical section, instead of raising the fatal error
+# (a longjmp()) in the middle of it. Left alone when the options name zend signals.
+# $1: options (changed in place). Sets zsig_note.
+zsig_note=""
+zsig_opts() {
+    grep -q -e '--enable-zend-signals' configure 2>/dev/null || return 0
+    zmaj="$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
+    [ "$zmaj" = 5 ] || return 0
+    grep -q -e '^--enable-zend-signals' -e '^--disable-zend-signals' "$1" && return 0
+    printf '%s\n' --enable-zend-signals >> "$1"
+    zsig_note="--enable-zend-signals added (on by default from PHP 7.1): a timeout waits until the memory manager is done instead of breaking into it; without it: sh config.installed.sh --disable-zend-signals"
+}
+
 # The options of a bundled PECL module that keep the features of its installed
 # build, as "php --ri" shows them (serializers, compression, SASL, swoole's hooks),
 # where the bundled version has an option for them (ext/<module>/config.m4): for
@@ -653,6 +668,8 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     [ -n "$pcre_note" ] && note "pcre: $pcre_note"
     legacy_opts "$tmp/opts" /dev/null "$lb/bin/php"
     [ -n "$legacy_note" ] && note "openssl: $legacy_note"
+    zsig_opts "$tmp/opts"
+    [ -n "$zsig_note" ] && note "zend signals: $zsig_note"
     : > "$tmp/pkg_env"
     deps_opts "$tmp/opts" "$tmp/pkg_env"
     [ -n "$deps_note" ] && note "phpdeps: $deps_note"
@@ -936,6 +953,7 @@ ossl_opts "$tmp/installed_order" "$tmp/env"
 curl_opts "$tmp/installed_order" "$tmp/env"
 pcre_opts "$tmp/installed_order"
 legacy_opts "$tmp/installed_order" "$tmp/env" "$php"
+zsig_opts "$tmp/installed_order"
 deps_opts "$tmp/installed_order" "$tmp/env"
 
 printf 'installed:   %s\n             %s\n             %s options, from %s\n' \
@@ -979,6 +997,10 @@ if [ -n "$legacy_note" ]; then
     echo
     echo "openssl: $legacy_note"
 fi
+if [ -n "$zsig_note" ]; then
+    echo
+    echo "zend signals: $zsig_note"
+fi
 if [ -n "$deps_note" ]; then
     echo
     echo "phpdeps: $deps_note"
@@ -1017,6 +1039,7 @@ out="$out_dir/$out_name"
     [ -n "$pcre_note" ] && echo "# pcre: $pcre_note."
     [ -n "$ossl_note" ] && echo "# openssl: $ossl_note."
     [ -n "$legacy_note" ] && echo "# openssl: $legacy_note."
+    [ -n "$zsig_note" ] && echo "# zend signals: $zsig_note."
     [ -n "$deps_note" ] && echo "# phpdeps: $deps_note."
     echo "# Run from inside the new PHP source tree: sh $out"
     echo

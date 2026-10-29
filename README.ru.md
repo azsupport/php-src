@@ -323,6 +323,13 @@ make install
 [Встроенная PCRE](#встроенная-pcre)); FreeType находится через `pkg-config` (в пакете
 `freetype2` больше нет `freetype-config`).
 
+Для 5.6 `config-check.sh` и `php-menu.sh` добавляют ещё `--enable-zend-signals`
+(с PHP 7.1 включено по умолчанию, в 5.6 было выключено): сигнал, например таймаут
+`max_execution_time`, тогда ждёт, пока менеджер памяти выйдет из критического участка,
+а не врывается в него с фатальной ошибкой. Тесты PHP 5.6 дают с ней тот же результат,
+что и без неё (тестовые сборки 29.10.2026). Без неё:
+`sh config.installed.sh --disable-zend-signals`.
+
 **Что делает [`config-check.sh`](tools/config-check.sh):**
 
 | Случай | Что делает скрипт |
@@ -483,7 +490,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | Workflow | [`.github/workflows/build-test.yml`](.github/workflows/build-test.yml): запуск — на https://github.com/azsupport/php-src/actions/workflows/build-test.yml кнопкой **Run workflow** |
 | Машина | виртуальная машина FreeBSD, по умолчанию 15.1: clang 19, OpenSSL 3.5 из базы, библиотеки из `pkg` |
 | Собирает | тарболы `-latest` с опциями configure наших серверов, встроенным curl (`--with-curl=bundled`) и `--with-openssl-legacy-provider` |
-| Проверяет | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (ошибки разбора, DNS и IPv6, `tls://`, `ssl://` и `https://`, legacy-шифры OpenSSL, `openssl_seal()`, GD с FreeType, XML, сессии, встроенный curl и другое) и часть тестов PHP |
+| Проверяет | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (ошибки разбора, DNS и IPv6, `tls://`, `ssl://` и `https://`, legacy-шифры OpenSSL, `openssl_seal()`, GD с FreeType, XML, сессии, встроенный curl, фикс php2shell при превышении `memory_limit` и другое) и часть тестов PHP |
 | Результат | по каждой версии, на странице запуска |
 | На машине с FreeBSD | тот же скрипт, из checkout этой ветки с тарболами в `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` ставит пакеты, `sh tools/build-test.sh --tests 5.6 7.4` собирает и проверяет; наборы опций — в [`tools/build-test.sh`](tools/build-test.sh) |
 
