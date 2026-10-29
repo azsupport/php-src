@@ -322,6 +322,13 @@ package (`--with-pcre-regex=/usr/local` is left out with the bundled PCRE 8.45, 
 [Bundled PCRE](#bundled-pcre)); FreeType is found through `pkg-config` (the
 `freetype2` package no longer ships `freetype-config`).
 
+For 5.6, `config-check.sh` and `php-menu.sh` also add `--enable-zend-signals`
+(on by default from PHP 7.1, off in 5.6): a signal, such as the timeout of
+`max_execution_time`, then waits until the memory manager has left its critical
+section, instead of breaking into it with the fatal error. The 5.6 test suite gives
+the same result with and without it (build tests of 29.10.2026). Without it:
+`sh config.installed.sh --disable-zend-signals`.
+
 **What [`config-check.sh`](tools/config-check.sh) does:**
 
 | Case | What the script does |
@@ -486,7 +493,7 @@ longer needed.
 | Workflow | [`.github/workflows/build-test.yml`](.github/workflows/build-test.yml): start it on https://github.com/azsupport/php-src/actions/workflows/build-test.yml with **Run workflow** |
 | Machine | a FreeBSD VM, by default 15.1: clang 19, base OpenSSL 3.5, libraries from `pkg` |
 | Builds | the `-latest` tarballs with the configure options of our servers, the bundled curl (`--with-curl=bundled`) and `--with-openssl-legacy-provider` |
-| Checks | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (parse errors, DNS and IPv6, `tls://`, `ssl://` and `https://`, the OpenSSL legacy ciphers, `openssl_seal()`, GD with FreeType, XML, sessions, the bundled curl and more) and a part of the PHP test suite |
+| Checks | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (parse errors, DNS and IPv6, `tls://`, `ssl://` and `https://`, the OpenSSL legacy ciphers, `openssl_seal()`, GD with FreeType, XML, sessions, the bundled curl, the php2shell fix when a script goes over `memory_limit` and more) and a part of the PHP test suite |
 | Result | per version, on the run page |
 | On a FreeBSD machine | the same script, from a checkout of this branch with the tarballs in `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` installs the packages, `sh tools/build-test.sh --tests 5.6 7.4` builds and checks; the presets are in [`tools/build-test.sh`](tools/build-test.sh) |
 

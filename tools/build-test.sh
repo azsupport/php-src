@@ -137,7 +137,8 @@ preset() {
                 --with-zlib=/usr --enable-sockets \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
                 --enable-memcache --with-$mg=/usr/local \
-                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary
+                --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary \
+                --enable-zend-signals
             ;;
         7.4)
             CFLAGS="-O3 -pipe -march=$march -fstack-protector-strong -fno-strict-aliasing"
