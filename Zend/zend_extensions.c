@@ -27,6 +27,11 @@ static int last_resource_number;
 
 zend_result zend_load_extension(const char *path)
 {
+#ifdef PHP_NO_EXTENSION_LOADING
+	/* --disable-extension-loading (azsupport/php-src), also for php -z */
+	fprintf(stderr, "Cannot load %s: this PHP loads no extensions at run time (--disable-extension-loading)\n", path);
+	return FAILURE;
+#endif
 #if ZEND_EXTENSIONS_SUPPORT
 	DL_HANDLE handle;
 
