@@ -58,6 +58,41 @@ if (PHP_MAJOR_VERSION == 5) {
         'T_VARIABLE ' . T_VARIABLE . ', T_OPEN_TAG ' . T_OPEN_TAG . ', T_POW ' . T_POW);
 }
 
+// The fix of CVE-2026-109618 (php2shell) in the binary: an allocation over
+// memory_limit must not longjmp() out of a half-done operation. The minimal
+// backports of 5.6, 7.4 and 8.1 end the process (exit code 1, no shutdown
+// functions); the full fix of 8.2 and newer lets the function finish, raises the
+// error at a safe point and then runs the shutdown functions (php-src
+// Zend/tests/oom_after_main_script.phpt). Without the fix: the fatal error at once,
+// then the shutdown functions.
+file_put_contents("$tmp/oom.php", '<?php
+register_shutdown_function(function () { echo "Shutdown function called\n"; });
+function test() {
+    $a = str_repeat("a", 3 * 1024 * 1024);
+    $b = $a . $a;
+    echo "Done\n";
+}
+test();
+');
+$out = array();
+$code = -1;
+exec(escapeshellarg(PHP_BINARY) . ' -n -d memory_limit=8M -d opcache.optimization_level=0 '
+    . escapeshellarg("$tmp/oom.php") . ' 2>&1', $out, $code);
+$o = implode("\n", $out);
+$fatal = strpos($o, 'Allowed memory size');
+$done = strpos($o, 'Done');
+$shut = strpos($o, 'Shutdown function called');
+if (PHP_VERSION_ID < 80200) {
+    $ok = $code === 1 && $fatal !== false && $done === false && $shut === false;
+    $want = 'exit 1, fatal error, no shutdown function';
+} else {
+    $ok = $done !== false && $fatal !== false && $shut !== false && $done < $fatal && $fatal < $shut;
+    $want = 'Done, then the fatal error, then the shutdown function';
+}
+check('php2shell: out of memory', $ok, "exit $code, " . ($done !== false ? 'Done, ' : '')
+    . ($fatal !== false ? 'fatal error, ' : 'no fatal error, ')
+    . ($shut !== false ? 'shutdown function' : 'no shutdown function') . ($ok ? '' : " (want: $want)"));
+
 // Network: name resolution, IPv6 sockets, TLS.
 $ip = gethostbyname('github.com');
 check('DNS', $ip !== 'github.com', "github.com = $ip");

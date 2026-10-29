@@ -34,6 +34,10 @@ on:
         description: 'Build against /usr/local/phpdeps (release phpdeps-fbsd<major>-latest) instead of pkg libraries'
         type: boolean
         default: false
+      configure:
+        description: 'More configure options for every version, separated by spaces (e.g. --enable-zend-signals)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -42,7 +46,7 @@ permissions:
 # cancels the one that waited before, so the variants (swoole/openswoole,
 # imagick/gmagick, tests) get groups of their own and run side by side.
 concurrency:
-  group: build-test-${{ inputs.swoole || 'swoole' }}-${{ inputs.magick || 'imagick' }}-${{ inputs.tests && 'tests' || 'build' }}-${{ inputs.deps && 'deps' || 'pkg' }}
+  group: build-test-${{ inputs.swoole || 'swoole' }}-${{ inputs.magick || 'imagick' }}-${{ inputs.tests && 'tests' || 'build' }}-${{ inputs.deps && 'deps' || 'pkg' }}-${{ inputs.configure }}
   cancel-in-progress: false
 
 jobs:
@@ -88,9 +92,10 @@ jobs:
           SWOOLE: ${{ inputs.swoole }}
           MAGICK: ${{ inputs.magick }}
           PHPDEPS_BUNDLE: ${{ inputs.deps && '1' || '0' }}
+          EXTRA_CONFIGURE: ${{ inputs.configure }}
         with:
           release: ${{ inputs.release }}
-          envs: 'TARGETS TESTS SWOOLE MAGICK PHPDEPS_BUNDLE'
+          envs: 'TARGETS TESTS SWOOLE MAGICK PHPDEPS_BUNDLE EXTRA_CONFIGURE'
           prepare: |
             if [ "$PHPDEPS_BUNDLE" = 1 ]; then sh tools/build-test.sh --phpdeps deps-dist; fi
             sh tools/build-test.sh --deps $TARGETS
