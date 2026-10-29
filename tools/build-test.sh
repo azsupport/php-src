@@ -187,6 +187,9 @@ preset() {
         grep -v -E '^--with-(imagick|gmagick)(=|$)' "$out/configure-options.txt" > "$out/configure-options.new"
         mv "$out/configure-options.new" "$out/configure-options.txt"
     fi
+    # EXTRA_CONFIGURE (the input "configure" of the workflow): more options for
+    # every target, separated by spaces, such as --enable-zend-signals
+    for o in ${EXTRA_CONFIGURE:-}; do printf '%s\n' "$o" >> "$out/configure-options.txt"; done
 }
 
 test_dirs() {
@@ -247,6 +250,7 @@ for target in "$@"; do
         echo "result:   FAIL (no preset for $target)" >> "$sum"; rc=1; continue
     fi
     echo "CFLAGS:   $CFLAGS" >> "$sum"
+    [ -n "${EXTRA_CONFIGURE:-}" ] && echo "extra:    $EXTRA_CONFIGURE" >> "$sum"
     cd "$src" || exit 1
 
     # shellcheck disable=SC2046
