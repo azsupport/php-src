@@ -853,6 +853,19 @@ if test "$PHP_RTLD_NOW" = "yes"; then
   AC_DEFINE(PHP_USE_RTLD_NOW, 1, [ Use dlopen with RTLD_NOW instead of RTLD_LAZY ])
 fi
 
+PHP_ARG_ENABLE([extension-loading],
+  [whether PHP loads extensions at run time],
+  [AS_HELP_STRING([--disable-extension-loading],
+    [Load no extensions at run time (azsupport/php-src): extension=,
+    zend_extension= and dl() are refused, every extension is built in])],
+  [yes],
+  [no])
+
+AS_VAR_IF([PHP_EXTENSION_LOADING], [no],
+  [AC_DEFINE([PHP_NO_EXTENSION_LOADING], [1],
+    [Define to 1 if PHP loads no extensions at run time
+    (--disable-extension-loading).])])
+
 PHP_ARG_WITH([layout],
   [layout of installed files],
   [AS_HELP_STRING([--with-layout=TYPE],
@@ -1040,6 +1053,12 @@ AC_ARG_ENABLE([all],
 
 dnl Reading config stubs.
 esyscmd(./build/config-stubs ext)
+
+dnl --disable-extension-loading (azsupport/php-src): nothing may be built as .so.
+if test "$PHP_EXTENSION_LOADING" = "no" && test -n "$PHP_MODULES$PHP_ZEND_EX"; then
+  php_shared_exts=`echo "$PHP_MODULES $PHP_ZEND_EX" | $SED -e 's,\$(phplibdir)/,,g' -e 's,\.la,,g'`
+  AC_MSG_ERROR([--disable-extension-loading: PHP could not load the extensions built as .so:$php_shared_exts (build them in; OPcache: --enable-opcache-static)])
+fi
 
 dnl Extensions post-config.
 dnl ----------------------------------------------------------------------------
