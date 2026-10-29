@@ -86,9 +86,10 @@ menu_data() {
 *	I	core	009	DEBUG	0	--enable-debug	-	Build with debugging support	slow; for developers
 *	I	core	010	DTRACE	0	--enable-dtrace	-	Build with DTrace probes	the ports turn it on in 7.4 and later; not needed on a web server
 *	I	core	011	IPV6	1	-	--disable-ipv6	IPv6 protocol support	on by default in PHP (the ports turn it off)
-*	I	core	013	OPCACHE_STATIC	1	--enable-opcache-static	-	OPcache built into PHP	option of the fork, as PHP 8.5 does it: no opcache.so, no zend_extension line (zend_extension=opcache.so is skipped); off: opcache.so
-*	I	core	014	NODL	1	--disable-extension-loading	-	Load no extensions at run time	option of the fork: extension=, zend_extension= and dl() refused with a warning, a line for a built-in extension skipped; everything is built in
-5.6	I	core	015	PCRE	0	--with-pcre-regex=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE 8.45 is the last release: not needed (package pcre)
+5.6	I	core	012	ZSIGNALS	1	--enable-zend-signals	--disable-zend-signals	Zend signal handling	a timeout (max_execution_time) waits until the memory manager is done instead of breaking into it; on by default from PHP 7.1, off in 5.6 and in the ports
+*	I	core	014	OPCACHE_STATIC	1	--enable-opcache-static	-	OPcache built into PHP	option of the fork, as PHP 8.5 does it: no opcache.so, no zend_extension line (zend_extension=opcache.so is skipped); off: opcache.so
+*	I	core	015	NODL	1	--disable-extension-loading	-	Load no extensions at run time	option of the fork: extension=, zend_extension= and dl() refused with a warning, a line for a built-in extension skipped; everything is built in
+5.6	I	core	016	PCRE	0	--with-pcre-regex=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE 8.45 is the last release: not needed (package pcre)
 *	I	ext	001	BCMATH	0	--enable-bcmath	-	bc style precision math functions	-
 *	I	ext	002	BZ2	0	--with-bz2	-	bzip2 library support	bzip2 of the base system
 *	I	ext	003	CALENDAR	0	--enable-calendar	-	calendar conversion support	-
@@ -401,6 +402,7 @@ menu_data() {
 *	O	--disable-xmlwriter
 5.6	O	--disable-xpm-dir
 *	O	--disable-xsl
+5.6	O	--disable-zend-signals
 *	O	--disable-zip
 *	O	--disable-zlib
 *	O	--disable-zlib-dir
@@ -563,6 +565,7 @@ menu_data() {
 *	O	--enable-xmlwriter
 5.6	O	--enable-xpm-dir
 *	O	--enable-xsl
+5.6	O	--enable-zend-signals
 *	O	--enable-zip
 *	O	--enable-zlib
 *	O	--enable-zlib-dir
@@ -884,6 +887,7 @@ menu_data() {
 *	O	--without-zlib-dir
 *	N	OPCACHE_STATIC
 *	N	NODL
+5.6	N	ZSIGNALS
 *	V	PREFIX	/usr/local/php%S	-	Install directory	--prefix=%V --mandir=%V/man	bin, sbin, lib, include, etc (php.ini with --with-layout=GNU) and man go there
 5.6	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysql/mysqli/pdo_mysql.default_socket; 5.6 takes it only with the mysql extension; empty: none (mysqlnd uses /tmp/mysql.sock)
 7.4+	S	007	gdformats	check	GD	GD.EXTERNAL=0	GD: formats of the libgd of PHP
@@ -891,7 +895,7 @@ menu_data() {
 7.4+	S	015	openswoole	check	OPENSWOOLE	-	OpenSwoole options
 7.4+	I	core	005	PHPDBG	0	--enable-phpdbg	--disable-phpdbg	Interactive PHP debugger	bin/phpdbg; PHP builds it by default, also with --disable-all (configure reads the SAPIs first)
 7.4	I	core	007	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
-7.4+	I	core	015	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
+7.4+	I	core	016	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
 7.4	I	ext	000	ARGON2	0	--with-password-argon2=/usr/local	-	Argon2 in password_hash()	package libargon2
 7.4+	I	ext	009	EXCIMER	0	--enable-excimer	-	Excimer sampling profiler (PECL)	-
 7.4+	I	ext	011	FFI	0	--with-ffi	-	Foreign Function Interface support	package libffi
@@ -1144,7 +1148,7 @@ menu_data() {
 7.4+	U	roundcube	LDAP	0
 7.4+	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQLI PDO_MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysqli.default_socket and pdo_mysql.default_socket; empty: none (mysqlnd uses /tmp/mysql.sock)
 8.1+	I	core	007	ZTS	0	--enable-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
-8.1+	I	core	012	JIT	1	-	--disable-opcache-jit	OPcache JIT	compiled in by default; turned on in php.ini (opcache.jit, opcache.jit_buffer_size)
+8.1+	I	core	013	JIT	1	-	--disable-opcache-jit	OPcache JIT	compiled in by default; turned on in php.ini (opcache.jit, opcache.jit_buffer_size)
 8.1-8.3	I	ext	000	ARGON2	0	--with-password-argon2	-	Argon2 in password_hash()	package libargon2
 8.1+	I	gdformats	003	GD.F_AVIF	0	--with-avif	-	AVIF image format support	package libavif
 8.1+	I	swoole	003	SWOOLE.PGSQL	0	--enable-swoole-pgsql	-	Coroutine PostgreSQL client	PostgreSQL client package
