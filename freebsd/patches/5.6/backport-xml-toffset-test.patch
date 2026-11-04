@@ -1,0 +1,51 @@
+Description: GHSA-wg4p-4hqh-c3g9 (a recurrence of bug #72714 in xml_parse_into_struct() with XML_OPTION_SKIP_TAGSTART): the test only; 5.6 is not affected, as it passes the tag name to _xml_add_to_info() through SKIP_TAGSTART(), which bounds the offset.
+Origin: the test of php-src commit c5e836c5f98c (18.12.2024, Niels Dossche) of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports)
+
+diff --git a/ext/xml/tests/toffset_bounds.phpt b/ext/xml/tests/toffset_bounds.phpt
+new file mode 100644
+index 000000000..120e6196f
+--- /dev/null
++++ b/ext/xml/tests/toffset_bounds.phpt
+@@ -0,0 +1,42 @@
++--TEST--
++XML_OPTION_SKIP_TAGSTART bounds
++--SKIPIF--
++<?php if (!extension_loaded("xml")) die("skip xml extension not available"); ?>
++--FILE--
++<?php
++$sample = "<?xml version=\"1.0\"?><test><child/></test>";
++$parser = xml_parser_create();
++xml_parser_set_option($parser, XML_OPTION_SKIP_TAGSTART, 100);
++$res = xml_parse_into_struct($parser,$sample,$vals,$index);
++var_dump($vals);
++?>
++--EXPECT--
++array(3) {
++  [0]=>
++  array(3) {
++    ["tag"]=>
++    string(0) ""
++    ["type"]=>
++    string(4) "open"
++    ["level"]=>
++    int(1)
++  }
++  [1]=>
++  array(3) {
++    ["tag"]=>
++    string(0) ""
++    ["type"]=>
++    string(8) "complete"
++    ["level"]=>
++    int(2)
++  }
++  [2]=>
++  array(3) {
++    ["tag"]=>
++    string(0) ""
++    ["type"]=>
++    string(5) "close"
++    ["level"]=>
++    int(1)
++  }
++}

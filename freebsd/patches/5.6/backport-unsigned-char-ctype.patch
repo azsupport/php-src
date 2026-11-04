@@ -1,0 +1,1544 @@
+Description: GHSA-m8rr-4c36-8gq4 (CVE-2026-7258): every char handed to a ctype.h function (isalpha(), isdigit(), isspace(), tolower(), toupper() and the others) is cast to unsigned char: a byte of 0x80 and above made a negative argument, which the C standard leaves undefined and some C libraries use as an index before their table (FreeBSD and glibc check or allow it). The places of 7.4 that 5.6 does not have are left out.
+Origin: port of php-src commits b44c4c80d8a7 (03.05.2026, Ilija Tovilo) and 2c4b0c49d017 (25.10.2026: the -d value check of the CLI, CGI, FPM and phpdbg SAPIs) of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports); in 5.6 also in ext/gd/libgd/xbm.c (gd_xbm.c in 7.4) and in the files that re2c made from the changed .re files
+
+diff --git a/Zend/zend_compile.c b/Zend/zend_compile.c
+index f91f029e4..e95b0c9cb 100644
+--- a/Zend/zend_compile.c
++++ b/Zend/zend_compile.c
+@@ -7460,7 +7460,7 @@ ZEND_API size_t zend_dirname(char *path, size_t len)
+ 	/* Note that on Win32 CWD is per drive (heritage from CP/M).
+ 	 * This means dirname("c:foo") maps to "c:." or "c:" - which means CWD on C: drive.
+ 	 */
+-	if ((2 <= len) && isalpha((int)((unsigned char *)path)[0]) && (':' == path[1])) {
++	if ((2 <= len) && isalpha((unsigned char)path[0]) && (':' == path[1])) {
+ 		/* Skip over the drive spec (if any) so as not to change */
+ 		path += 2;
+ 		len_adjust += 2;
+diff --git a/Zend/zend_operators.c b/Zend/zend_operators.c
+index 192592b0e..6a418f3a9 100644
+--- a/Zend/zend_operators.c
++++ b/Zend/zend_operators.c
+@@ -2262,8 +2262,8 @@ ZEND_API int zend_binary_strcasecmp_l(const char *s1, uint len1, const char *s2,
+ 
+ 	len = MIN(len1, len2);
+ 	while (len--) {
+-		c1 = zend_tolower((int)*(unsigned char *)s1++);
+-		c2 = zend_tolower((int)*(unsigned char *)s2++);
++		c1 = zend_tolower((unsigned char)*(s1++));
++		c2 = zend_tolower((unsigned char)*(s2++));
+ 		if (c1 != c2) {
+ 			return c1 - c2;
+ 		}
+@@ -2283,8 +2283,8 @@ ZEND_API int zend_binary_strncasecmp_l(const char *s1, uint len1, const char *s2
+ 	}
+ 	len = MIN(length, MIN(len1, len2));
+ 	while (len--) {
+-		c1 = zend_tolower((int)*(unsigned char *)s1++);
+-		c2 = zend_tolower((int)*(unsigned char *)s2++);
++		c1 = zend_tolower((unsigned char)*(s1++));
++		c2 = zend_tolower((unsigned char)*(s2++));
+ 		if (c1 != c2) {
+ 			return c1 - c2;
+ 		}
+diff --git a/Zend/zend_virtual_cwd.c b/Zend/zend_virtual_cwd.c
+index 875c8da41..12ba1b468 100644
+--- a/Zend/zend_virtual_cwd.c
++++ b/Zend/zend_virtual_cwd.c
+@@ -469,7 +469,7 @@ CWD_API void virtual_cwd_startup(void) /* {{{ */
+ 	main_cwd_state.cwd_length = strlen(cwd);
+ #ifdef TSRM_WIN32
+ 	if (main_cwd_state.cwd_length >= 2 && cwd[1] == ':') {
+-		cwd[0] = toupper(cwd[0]);
++		cwd[0] = toupper((unsigned char)cwd[0]);
+ 	}
+ #endif
+ 	main_cwd_state.cwd = strdup(cwd);
+@@ -548,7 +548,7 @@ CWD_API char *virtual_getcwd_ex(size_t *length TSRMLS_DC) /* {{{ */
+ 			return NULL;
+ 		}
+ 		memcpy(retval, state->cwd, *length);
+-		retval[0] = toupper(retval[0]);
++		retval[0] = toupper((unsigned char)retval[0]);
+ 		retval[*length-1] = DEFAULT_SLASH;
+ 		retval[*length] = '\0';
+ 		return retval;
+@@ -1286,7 +1286,7 @@ CWD_API int virtual_file_ex(cwd_state *state, const char *path, verify_path_func
+ 			if (resolved_path[start] == 0) {
+ 				goto verify;
+ 			}
+-			resolved_path[start] = toupper(resolved_path[start]);
++			resolved_path[start] = toupper((unsigned char)resolved_path[start]);
+ 			start++;
+ 		}
+ 		resolved_path[start++] = DEFAULT_SLASH;
+@@ -1294,13 +1294,13 @@ CWD_API int virtual_file_ex(cwd_state *state, const char *path, verify_path_func
+ 			if (resolved_path[start] == 0) {
+ 				goto verify;
+ 			}
+-			resolved_path[start] = toupper(resolved_path[start]);
++			resolved_path[start] = toupper((unsigned char)resolved_path[start]);
+ 			start++;
+ 		}
+ 		resolved_path[start++] = DEFAULT_SLASH;
+ 	} else if (IS_ABSOLUTE_PATH(resolved_path, path_length)) {
+ 		/* skip DRIVE name */
+-		resolved_path[0] = toupper(resolved_path[0]);
++		resolved_path[0] = toupper((unsigned char)resolved_path[0]);
+ 		resolved_path[2] = DEFAULT_SLASH;
+ 		start = 3;
+ 	}
+diff --git a/Zend/zend_virtual_cwd.h b/Zend/zend_virtual_cwd.h
+index 86c93153c..6b2f0810f 100644
+--- a/Zend/zend_virtual_cwd.h
++++ b/Zend/zend_virtual_cwd.h
+@@ -70,7 +70,7 @@ typedef unsigned short mode_t;
+ #define IS_UNC_PATH(path, len) \
+ 	(len >= 2 && IS_SLASH(path[0]) && IS_SLASH(path[1]))
+ #define IS_ABSOLUTE_PATH(path, len) \
+-	(len >= 2 && ((isalpha(path[0]) && path[1] == ':') || IS_UNC_PATH(path, len)))
++	(len >= 2 && ((isalpha((unsigned char)(path)[0]) && path[1] == ':') || IS_UNC_PATH(path, len)))
+ 
+ #elif defined(NETWARE)
+ #ifdef HAVE_DIRENT_H
+diff --git a/ext/com_dotnet/com_extension.c b/ext/com_dotnet/com_extension.c
+index 89a76e51d..5276ffe71 100644
+--- a/ext/com_dotnet/com_extension.c
++++ b/ext/com_dotnet/com_extension.c
+@@ -298,11 +298,11 @@ static PHP_INI_MH(OnTypeLibFileUpdate)
+ 		}
+ 
+ 		/* Remove leading/training white spaces on search_string */
+-		while (isspace(*typelib_name)) {/* Ends on '\0' in worst case */
++		while (isspace((unsigned char)*typelib_name)) {/* Ends on '\0' in worst case */
+ 			typelib_name ++;
+ 		}
+ 		ptr = typelib_name + strlen(typelib_name) - 1;
+-		while ((ptr != typelib_name) && isspace(*ptr)) {
++		while ((ptr != typelib_name) && isspace((unsigned char)*ptr)) {
+ 			*ptr = '\0';
+ 			ptr--;
+ 		}
+diff --git a/ext/date/lib/parse_date.c b/ext/date/lib/parse_date.c
+index 7f56abb7c..2a05737e0 100644
+--- a/ext/date/lib/parse_date.c
++++ b/ext/date/lib/parse_date.c
+@@ -486,7 +486,7 @@ static timelib_sll timelib_get_nr(char **ptr, int max_length)
+ 
+ static void timelib_skip_day_suffix(char **ptr)
+ {
+-	if (isspace(**ptr)) {
++	if (isspace((unsigned char)**ptr)) {
+ 		return;
+ 	}
+ 	if (!strncasecmp(*ptr, "nd", 2) || !strncasecmp(*ptr, "rd", 2) ||!strncasecmp(*ptr, "st", 2) || !strncasecmp(*ptr, "th", 2)) {
+@@ -23856,10 +23856,10 @@ timelib_time* timelib_strtotime(char *s, size_t len, struct timelib_error_contai
+ 	in.errors->error_messages = NULL;
+ 
+ 	if (len > 0) {
+-		while (isspace(*s) && s < e) {
++		while (isspace((unsigned char)*s) && s < e) {
+ 			s++;
+ 		}
+-		while (isspace(*e) && e > s) {
++		while (isspace((unsigned char)*e) && e > s) {
+ 			e--;
+ 		}
+ 	}
+diff --git a/ext/date/lib/parse_date.re b/ext/date/lib/parse_date.re
+index d96d7448e..4024bb880 100644
+--- a/ext/date/lib/parse_date.re
++++ b/ext/date/lib/parse_date.re
+@@ -484,7 +484,7 @@ static timelib_sll timelib_get_nr(char **ptr, int max_length)
+ 
+ static void timelib_skip_day_suffix(char **ptr)
+ {
+-	if (isspace(**ptr)) {
++	if (isspace((unsigned char)**ptr)) {
+ 		return;
+ 	}
+ 	if (!strncasecmp(*ptr, "nd", 2) || !strncasecmp(*ptr, "rd", 2) ||!strncasecmp(*ptr, "st", 2) || !strncasecmp(*ptr, "th", 2)) {
+@@ -1745,10 +1745,10 @@ timelib_time* timelib_strtotime(char *s, size_t len, struct timelib_error_contai
+ 	in.errors->error_messages = NULL;
+ 
+ 	if (len > 0) {
+-		while (isspace(*s) && s < e) {
++		while (isspace((unsigned char)*s) && s < e) {
+ 			s++;
+ 		}
+-		while (isspace(*e) && e > s) {
++		while (isspace((unsigned char)*e) && e > s) {
+ 			e--;
+ 		}
+ 	}
+diff --git a/ext/date/lib/parse_iso_intervals.c b/ext/date/lib/parse_iso_intervals.c
+index 7d1de0dde..89c97c215 100644
+--- a/ext/date/lib/parse_iso_intervals.c
++++ b/ext/date/lib/parse_iso_intervals.c
+@@ -927,10 +927,10 @@ void timelib_strtointerval(char *s, size_t len,
+ 	in.errors->error_messages = NULL;
+ 
+ 	if (len > 0) {
+-		while (isspace(*s) && s < e) {
++		while (isspace((unsigned char)*s) && s < e) {
+ 			s++;
+ 		}
+-		while (isspace(*e) && e > s) {
++		while (isspace((unsigned char)*e) && e > s) {
+ 			e--;
+ 		}
+ 	}
+diff --git a/ext/date/lib/parse_iso_intervals.re b/ext/date/lib/parse_iso_intervals.re
+index 6f23bb16f..81be45a09 100644
+--- a/ext/date/lib/parse_iso_intervals.re
++++ b/ext/date/lib/parse_iso_intervals.re
+@@ -421,10 +421,10 @@ void timelib_strtointerval(char *s, size_t len,
+ 	in.errors->error_messages = NULL;
+ 
+ 	if (len > 0) {
+-		while (isspace(*s) && s < e) {
++		while (isspace((unsigned char)*s) && s < e) {
+ 			s++;
+ 		}
+-		while (isspace(*e) && e > s) {
++		while (isspace((unsigned char)*e) && e > s) {
+ 			e--;
+ 		}
+ 	}
+diff --git a/ext/date/lib/timelib.c b/ext/date/lib/timelib.c
+index b9fb66f00..c5e0f4dc1 100644
+--- a/ext/date/lib/timelib.c
++++ b/ext/date/lib/timelib.c
+@@ -97,7 +97,7 @@ void timelib_time_tz_abbr_update(timelib_time* tm, char* tz_abbr)
+ 	TIMELIB_TIME_FREE(tm->tz_abbr);
+ 	tm->tz_abbr = timelib_strdup(tz_abbr);
+ 	for (i = 0; i < tz_abbr_len; i++) {
+-		tm->tz_abbr[i] = toupper(tz_abbr[i]);
++		tm->tz_abbr[i] = toupper((unsigned char)tz_abbr[i]);
+ 	}
+ }
+ 
+diff --git a/ext/filter/logical_filters.c b/ext/filter/logical_filters.c
+index 39260f362..d33379651 100644
+--- a/ext/filter/logical_filters.c
++++ b/ext/filter/logical_filters.c
+@@ -471,21 +471,21 @@ static int _php_filter_validate_domain(char * domain, int len) /* {{{ */
+ 	}
+ 
+ 	/* First char must be alphanumeric */
+-	if(*s == '.' || (hostname && !isalnum((int)*(unsigned char *)s))) {
++	if(*s == '.' || (hostname && !isalnum((unsigned char)*s))) {
+ 		return 0;
+ 	}
+ 
+ 	while (s < e) {
+ 		if (*s == '.') {
+ 			/* The first and the last character of a label must be alphanumeric */
+-			if (*(s + 1) == '.' || (hostname && (!isalnum((int)*(unsigned char *)(s - 1)) || !isalnum((int)*(unsigned char *)(s + 1))))) {
++			if (*(s + 1) == '.' || (hostname && (!isalnum((unsigned char)s[-1]) || !isalnum((unsigned char)s[1])))) {
+ 				return 0;
+ 			}
+ 
+ 			/* Reset label length counter */
+ 			i = 1;
+ 		} else {
+-			if (i > 63 || (hostname && *s != '-' && !isalnum((int)*(unsigned char *)s))) {
++			if (i > 63 || (hostname && *s != '-' && !isalnum((unsigned char)*s))) {
+ 				return 0;
+ 			}
+ 
+@@ -506,9 +506,9 @@ static int is_userinfo_valid(char *str)
+ 	size_t len = strlen(str);
+ 
+ 	while (p - str < len) {
+-		if (isalpha(*p) || isdigit(*p) || strchr(valid, *p)) {
++		if (isalpha((unsigned char)*p) || isdigit((unsigned char)*p) || strchr(valid, *p)) {
+ 			p++;
+-		} else if (*p == '%' && p - str <= len - 3 && isdigit(*(p+1)) && isxdigit(*(p+2))) {
++		} else if (*p == '%' && p - str <= len - 3 && isdigit((unsigned char)p[1]) && isxdigit((unsigned char)p[2])) {
+ 			p += 3;
+ 		} else {
+ 			return 0;
+diff --git a/ext/ftp/ftp.c b/ext/ftp/ftp.c
+index d2f726d03..3f5aabf26 100644
+--- a/ext/ftp/ftp.c
++++ b/ext/ftp/ftp.c
+@@ -483,7 +483,7 @@ ftp_raw(ftpbuf_t *ftp, const char *cmd, zval *return_value)
+ 	array_init(return_value);
+ 	while (ftp_readline(ftp)) {
+ 		add_next_index_string(return_value, ftp->inbuf, 1);
+-		if (isdigit(ftp->inbuf[0]) && isdigit(ftp->inbuf[1]) && isdigit(ftp->inbuf[2]) && ftp->inbuf[3] == ' ') {
++		if (isdigit((unsigned char)ftp->inbuf[0]) && isdigit((unsigned char)ftp->inbuf[1]) && isdigit((unsigned char)ftp->inbuf[2]) && ftp->inbuf[3] == ' ') {
+ 			return;
+ 		}
+ 	}
+@@ -773,7 +773,7 @@ ftp_pasv(ftpbuf_t *ftp, int pasv)
+ 		return 0;
+ 	}
+ 	/* parse out the IP and port */
+-	for (ptr = ftp->inbuf; *ptr && !isdigit(*ptr); ptr++);
++	for (ptr = ftp->inbuf; *ptr && !isdigit((unsigned char)*ptr); ptr++);
+ 	n = sscanf(ptr, "%lu,%lu,%lu,%lu,%lu,%lu", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]);
+ 	if (n != 6) {
+ 		return 0;
+@@ -1005,7 +1005,7 @@ ftp_mdtm(ftpbuf_t *ftp, const char *path)
+ 		return -1;
+ 	}
+ 	/* parse out the timestamp */
+-	for (ptr = ftp->inbuf; *ptr && !isdigit(*ptr); ptr++);
++	for (ptr = ftp->inbuf; *ptr && !isdigit((unsigned char)*ptr); ptr++);
+ 	n = sscanf(ptr, "%4u%2u%2u%2u%2u%2u", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
+ 	if (n != 6) {
+ 		return -1;
+@@ -1206,13 +1206,13 @@ ftp_getresp(ftpbuf_t *ftp)
+ 		}
+ 
+ 		/* Break out when the end-tag is found */
+-		if (isdigit(ftp->inbuf[0]) && isdigit(ftp->inbuf[1]) && isdigit(ftp->inbuf[2]) && ftp->inbuf[3] == ' ') {
++		if (isdigit((unsigned char)ftp->inbuf[0]) && isdigit((unsigned char)ftp->inbuf[1]) && isdigit((unsigned char)ftp->inbuf[2]) && ftp->inbuf[3] == ' ') {
+ 			break;
+ 		}
+ 	}
+ 
+ 	/* translate the tag */
+-	if (!isdigit(ftp->inbuf[0]) || !isdigit(ftp->inbuf[1]) || !isdigit(ftp->inbuf[2])) {
++	if (!isdigit((unsigned char)ftp->inbuf[0]) || !isdigit((unsigned char)ftp->inbuf[1]) || !isdigit((unsigned char)ftp->inbuf[2])) {
+ 		return 0;
+ 	}
+ 
+diff --git a/ext/gd/libgd/xbm.c b/ext/gd/libgd/xbm.c
+index 99931a587..41dcd5083 100644
+--- a/ext/gd/libgd/xbm.c
++++ b/ext/gd/libgd/xbm.c
+@@ -192,7 +192,7 @@ void gdImageXbmCtx(gdImagePtr image, char* file_name, int fg, gdIOCtx * out)
+ 	} else {
+ 		for (i=0; i<l; i++) {
+ 			/* only in C-locale isalnum() would work */
+-			if (!isupper(name[i]) && !islower(name[i]) && !isdigit(name[i])) {
++			if (!isupper((unsigned char)name[i]) && !islower((unsigned char)name[i]) && !isdigit((unsigned char)name[i])) {
+ 				name[i] = '_';
+ 			}
+ 		}
+diff --git a/ext/imap/php_imap.c b/ext/imap/php_imap.c
+index 5dfe1220e..192e96ed9 100644
+--- a/ext/imap/php_imap.c
++++ b/ext/imap/php_imap.c
+@@ -2747,7 +2747,7 @@ PHP_FUNCTION(imap_utf8)
+ #define SPECIAL(c) ((c) <= 0x1f || (c) >= 0x7f)
+ 
+ /* validate a modified-base64 character */
+-#define B64CHAR(c) (isalnum(c) || (c) == '+' || (c) == ',')
++#define B64CHAR(c) (isalnum((unsigned char)(c)) || (c) == '+' || (c) == ',')
+ 
+ /* map the low 64 bits of `n' to the modified-base64 characters */
+ #define B64(n)	("ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
+diff --git a/ext/intl/locale/locale_methods.c b/ext/intl/locale/locale_methods.c
+index 39d80d524..639d66e8e 100644
+--- a/ext/intl/locale/locale_methods.c
++++ b/ext/intl/locale/locale_methods.c
+@@ -1215,7 +1215,7 @@ static int strToMatch(const char* str ,char *retstr)
+ 		if( *str == '-' ){
+ 			*retstr =  '_';
+ 		} else {
+-			*retstr = tolower(*str);
++			*retstr = tolower((unsigned char)*str);
+ 		}
+             str++;
+             retstr++;
+diff --git a/ext/mbstring/mbstring.c b/ext/mbstring/mbstring.c
+index cf5f8ed42..4709ee4ee 100644
+--- a/ext/mbstring/mbstring.c
++++ b/ext/mbstring/mbstring.c
+@@ -1156,7 +1156,7 @@ static char *php_mb_rfc1867_getword(const zend_encoding *encoding, char **line,
+ 
+ static char *php_mb_rfc1867_getword_conf(const zend_encoding *encoding, char *str TSRMLS_DC) /* {{{ */
+ {
+-	while (*str && isspace(*(unsigned char *)str)) {
++	while (*str && isspace((unsigned char)*str)) {
+ 		++str;
+ 	}
+ 
+@@ -1172,7 +1172,7 @@ static char *php_mb_rfc1867_getword_conf(const zend_encoding *encoding, char *st
+ 	} else {
+ 		char *strend = str;
+ 
+-		while (*strend && !isspace(*(unsigned char *)strend)) {
++		while (*strend && !isspace((unsigned char)*strend)) {
+ 			++strend;
+ 		}
+ 		return php_mb_rfc1867_substring_conf(encoding, str, strend - str, 0 TSRMLS_CC);
+diff --git a/ext/pcre/php_pcre.c b/ext/pcre/php_pcre.c
+index 2a8ff199b..ea54cb07d 100644
+--- a/ext/pcre/php_pcre.c
++++ b/ext/pcre/php_pcre.c
+@@ -306,7 +306,7 @@ PHPAPI pcre_cache_entry* pcre_get_compiled_regex_cache(char *regex, int regex_le
+ 
+ 	/* Parse through the leading whitespace, and display a warning if we
+ 	   get to the end without encountering a delimiter. */
+-	while (isspace((int)*(unsigned char *)p)) p++;
++	while (isspace((unsigned char)*p)) p++;
+ 	if (*p == 0) {
+ 		php_error_docref(NULL TSRMLS_CC, E_WARNING,
+ 						 p < regex + regex_len ? "Null byte in regex" : "Empty regular expression");
+@@ -316,7 +316,7 @@ PHPAPI pcre_cache_entry* pcre_get_compiled_regex_cache(char *regex, int regex_le
+ 	/* Get the delimiter and display a warning if it is alphanumeric
+ 	   or a backslash. */
+ 	delimiter = *p++;
+-	if (isalnum((int)*(unsigned char *)&delimiter) || delimiter == '\\') {
++	if (isalnum((unsigned char)delimiter) || delimiter == '\\') {
+ 		php_error_docref(NULL TSRMLS_CC,E_WARNING, "Delimiter must not be alphanumeric or backslash");
+ 		return NULL;
+ 	}
+diff --git a/ext/pdo/pdo.c b/ext/pdo/pdo.c
+index 3bbc42e27..6daa99861 100644
+--- a/ext/pdo/pdo.c
++++ b/ext/pdo/pdo.c
+@@ -303,7 +303,7 @@ PDO_API int php_pdo_parse_data_source(const char *data_source,
+ 			}
+ 		}
+ 
+-		while (i < data_source_len && isspace(data_source[i])) {
++		while (i < data_source_len && isspace((unsigned char)data_source[i])) {
+ 			i++;
+ 		}
+ 
+diff --git a/ext/pdo/pdo_sql_parser.c b/ext/pdo/pdo_sql_parser.c
+index 5a419782b..dfa211793 100644
+--- a/ext/pdo/pdo_sql_parser.c
++++ b/ext/pdo/pdo_sql_parser.c
+@@ -413,7 +413,7 @@ PDO_API int pdo_parse_params(pdo_stmt_t *stmt, char *inquery, int inquery_len,
+ 		if (t == PDO_PARSER_BIND || t == PDO_PARSER_BIND_POS) {
+ 			if (t == PDO_PARSER_BIND) {
+ 				int len = s.cur - s.tok;
+-				if ((inquery < (s.cur - len)) && isalnum(*(s.cur - len - 1))) {
++				if ((inquery < (s.cur - len)) && isalnum((unsigned char)s.cur[-len - 1])) {
+ 					continue;
+ 				}
+ 				query_type |= PDO_PLACEHOLDER_NAMED;
+diff --git a/ext/pdo/pdo_sql_parser.re b/ext/pdo/pdo_sql_parser.re
+index bed5befa8..0b69ddcc4 100644
+--- a/ext/pdo/pdo_sql_parser.re
++++ b/ext/pdo/pdo_sql_parser.re
+@@ -99,7 +99,7 @@ PDO_API int pdo_parse_params(pdo_stmt_t *stmt, char *inquery, int inquery_len,
+ 		if (t == PDO_PARSER_BIND || t == PDO_PARSER_BIND_POS) {
+ 			if (t == PDO_PARSER_BIND) {
+ 				int len = s.cur - s.tok;
+-				if ((inquery < (s.cur - len)) && isalnum(*(s.cur - len - 1))) {
++				if ((inquery < (s.cur - len)) && isalnum((unsigned char)s.cur[-len - 1])) {
+ 					continue;
+ 				}
+ 				query_type |= PDO_PLACEHOLDER_NAMED;
+diff --git a/ext/pdo/pdo_stmt.c b/ext/pdo/pdo_stmt.c
+index 9f9ada9be..11aa2dec0 100644
+--- a/ext/pdo/pdo_stmt.c
++++ b/ext/pdo/pdo_stmt.c
+@@ -220,7 +220,7 @@ int pdo_stmt_describe_columns(pdo_stmt_t *stmt TSRMLS_DC) /* {{{ */
+ 			switch (stmt->dbh->desired_case) {
+ 				case PDO_CASE_UPPER:
+ 					while (*s != '\0') {
+-						*s = toupper(*s);
++						*s = toupper((unsigned char)*s);
+ 						s++;
+ 					}
+ 					break;
+diff --git a/ext/standard/file.c b/ext/standard/file.c
+index 067f9614e..f9a6ffde9 100644
+--- a/ext/standard/file.c
++++ b/ext/standard/file.c
+@@ -2090,7 +2090,7 @@ PHPAPI void php_fgetcsv(php_stream *stream, char delimiter, char enclosure, char
+ 		inc_len = (bptr < limit ? (*bptr == '\0' ? 1: php_mblen(bptr, limit - bptr)): 0);
+ 		if (inc_len == 1) {
+ 			char *tmp = bptr;
+-			while ((*tmp != delimiter) && isspace((int)*(unsigned char *)tmp)) {
++			while ((*tmp != delimiter) && isspace((unsigned char)*tmp)) {
+ 				tmp++;
+   			}
+ 			if (*tmp == enclosure) {
+diff --git a/ext/standard/filters.c b/ext/standard/filters.c
+index a0a6dfaf0..f09c8c511 100644
+--- a/ext/standard/filters.c
++++ b/ext/standard/filters.c
+@@ -1094,7 +1094,7 @@ static php_conv_err_t php_conv_qprint_decode_convert(php_conv_qprint_decode *ins
+ 					goto out;
+ 				}
+ 
+-				if (!isxdigit((int) *ps)) {
++				if (!isxdigit(*ps)) {
+ 					err = PHP_CONV_ERR_INVALID_SEQ;
+ 					goto out;
+ 				}
+diff --git a/ext/standard/formatted_print.c b/ext/standard/formatted_print.c
+index 9529cad93..e4a1f27cc 100644
+--- a/ext/standard/formatted_print.c
++++ b/ext/standard/formatted_print.c
+@@ -458,10 +458,10 @@ php_formatted_print(int ht, int *len, int use_array, int format_offset TSRMLS_DC
+ 
+ 			PRINTF_DEBUG(("sprintf: first looking at '%c', inpos=%d\n",
+ 						  format[inpos], inpos));
+-			if (isascii((int)format[inpos]) && !isalpha((int)format[inpos])) {
++			if (isascii((unsigned char)format[inpos]) && !isalpha((unsigned char)format[inpos])) {
+ 				/* first look for argnum */
+ 				temppos = inpos;
+-				while (isdigit((int)format[temppos])) temppos++;
++				while (isdigit((unsigned char)format[temppos])) temppos++;
+ 				if (format[temppos] == '$') {
+ 					argnum = php_sprintf_getnumber(format, &inpos);
+ 
+@@ -505,7 +505,7 @@ php_formatted_print(int ht, int *len, int use_array, int format_offset TSRMLS_DC
+ 
+ 
+ 				/* after modifiers comes width */
+-				if (isdigit((int)format[inpos])) {
++				if (isdigit((unsigned char)format[inpos])) {
+ 					PRINTF_DEBUG(("sprintf: getting width\n"));
+ 					if ((width = php_sprintf_getnumber(format, &inpos)) < 0) {
+ 						efree(result);
+@@ -523,7 +523,7 @@ php_formatted_print(int ht, int *len, int use_array, int format_offset TSRMLS_DC
+ 				if (format[inpos] == '.') {
+ 					inpos++;
+ 					PRINTF_DEBUG(("sprintf: getting precision\n"));
+-					if (isdigit((int)format[inpos])) {
++					if (isdigit((unsigned char)format[inpos])) {
+ 						if ((precision = php_sprintf_getnumber(format, &inpos)) < 0) {
+ 							efree(result);
+ 							efree(args);
+diff --git a/ext/standard/ftp_fopen_wrapper.c b/ext/standard/ftp_fopen_wrapper.c
+index 5bffa4785..7d6670b12 100644
+--- a/ext/standard/ftp_fopen_wrapper.c
++++ b/ext/standard/ftp_fopen_wrapper.c
+@@ -84,8 +84,8 @@ static inline int get_ftp_result(php_stream *stream, char *buffer, size_t buffer
+ {
+ 	buffer[0] = '\0'; /* in case read fails to read anything */
+ 	while (php_stream_gets(stream, buffer, buffer_size-1) &&
+-		   !(isdigit((int) buffer[0]) && isdigit((int) buffer[1]) &&
+-			 isdigit((int) buffer[2]) && buffer[3] == ' '));
++		   !(isdigit((unsigned char)buffer[0]) && isdigit((unsigned char)buffer[1]) &&
++			 isdigit((unsigned char)buffer[2]) && buffer[3] == ' '));
+ 	return strtol(buffer, NULL, 10);
+ }
+ /* }}} */
+@@ -237,7 +237,7 @@ static php_stream *php_ftp_fopen_connect(php_stream_wrapper *wrapper, const char
+ #define PHP_FTP_CNTRL_CHK(val, val_len, err_msg) {	\
+ 	unsigned char *s = val, *e = s + val_len;	\
+ 	while (s < e) {	\
+-		if (iscntrl(*s)) {	\
++		if (iscntrl((unsigned char)*s)) {	\
+ 			php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, err_msg, val);	\
+ 			goto connect_errexit;	\
+ 		}	\
+@@ -349,14 +349,14 @@ static unsigned short php_fopen_do_pasv(php_stream *stream, char *ip, size_t ip_
+ 		/* parse pasv command (129, 80, 95, 25, 13, 221) */
+ 		tpath = tmp_line;
+ 		/* skip over the "227 Some message " part */
+-		for (tpath += 4; *tpath && !isdigit((int) *tpath); tpath++);
++		for (tpath += 4; *tpath && !isdigit((unsigned char)*tpath); tpath++);
+ 		if (!*tpath) {
+ 			return 0;
+ 		}
+ 		/* skip over the host ip, to get the port */
+ 		hoststart = tpath;
+ 		for (i = 0; i < 4; i++) {
+-			for (; isdigit((int) *tpath); tpath++);
++			for (; isdigit((unsigned char)*tpath); tpath++);
+ 			if (*tpath != ',') {
+ 				return 0;
+ 			}
+@@ -843,7 +843,7 @@ static int php_stream_ftp_url_stat(php_stream_wrapper *wrapper, const char *url,
+ 		struct tm tm, tmbuf, *gmt;
+ 		time_t stamp;
+ 
+-		while (p - tmp_line < sizeof(tmp_line) && !isdigit(*p)) {
++		while (p - tmp_line < sizeof(tmp_line) && !isdigit((unsigned char)*p)) {
+ 			p++;
+ 		}
+ 
+diff --git a/ext/standard/html.c b/ext/standard/html.c
+index 3a7aba256..e10ed0e89 100644
+--- a/ext/standard/html.c
++++ b/ext/standard/html.c
+@@ -799,8 +799,8 @@ static inline int process_numeric_entity(const char **buf, unsigned *code_point)
+ 
+ 	/* strtol allows whitespace and other stuff in the beginning
+ 		* we're not interested */
+-	if ((hexadecimal && !isxdigit(**buf)) ||
+-			(!hexadecimal && !isdigit(**buf))) {
++	if ((hexadecimal && !isxdigit((unsigned char)**buf)) ||
++			(!hexadecimal && !isdigit((unsigned char)**buf))) {
+ 		return FAILURE;
+ 	}
+ 
+diff --git a/ext/standard/math.c b/ext/standard/math.c
+index bb64425ee..1c0b24ea9 100644
+--- a/ext/standard/math.c
++++ b/ext/standard/math.c
+@@ -1097,7 +1097,7 @@ static char *_php_math_number_format_ex_len(double d, int dec, char *dec_point,
+ 
+ 	tmplen = spprintf(&tmpbuf, 0, "%.*F", dec, d);
+ 
+-	if (tmpbuf == NULL || !isdigit((int)tmpbuf[0])) {
++	if (tmpbuf == NULL || !isdigit((unsigned char)tmpbuf[0])) {
+ 		if (result_len) {
+ 			*result_len = tmplen;
+ 		}
+diff --git a/ext/standard/metaphone.c b/ext/standard/metaphone.c
+index 84cf2f0ad..aecd49df5 100644
+--- a/ext/standard/metaphone.c
++++ b/ext/standard/metaphone.c
+@@ -85,7 +85,7 @@ char _codes[26] =
+ };
+ 
+ 
+-#define ENCODE(c) (isalpha(c) ? _codes[((toupper(c)) - 'A')] : 0)
++#define ENCODE(c) (isalpha((unsigned char)(c)) ? _codes[((toupper((unsigned char)(c))) - 'A')] : 0)
+ 
+ #define isvowel(c)  (ENCODE(c) & 1)		/* AEIOU */
+ 
+@@ -109,17 +109,17 @@ char _codes[26] =
+  * accesssing the array directly... */
+ 
+ /* Look at the next letter in the word */
+-#define Next_Letter (toupper(word[w_idx+1]))
++#define Next_Letter (toupper((unsigned char)word[w_idx+1]))
+ /* Look at the current letter in the word */
+-#define Curr_Letter (toupper(word[w_idx]))
++#define Curr_Letter (toupper((unsigned char)word[w_idx]))
+ /* Go N letters back. */
+-#define Look_Back_Letter(n)	(w_idx >= n ? toupper(word[w_idx-n]) : '\0')
++#define Look_Back_Letter(n)	(w_idx >= n ? toupper((unsigned char)word[w_idx-n]) : '\0')
+ /* Previous letter.  I dunno, should this return null on failure? */
+ #define Prev_Letter (Look_Back_Letter(1))
+ /* Look two letters down.  It makes sure you don't walk off the string. */
+-#define After_Next_Letter	(Next_Letter != '\0' ? toupper(word[w_idx+2]) \
++#define After_Next_Letter	(Next_Letter != '\0' ? toupper((unsigned char)word[w_idx+2]) \
+ 											     : '\0')
+-#define Look_Ahead_Letter(n) (toupper(Lookahead(word+w_idx, n)))
++#define Look_Ahead_Letter(n) (toupper((unsigned char)Lookahead(word+w_idx, n)))
+ 
+ 
+ /* Allows us to safely look ahead an arbitrary # of letters */
+@@ -160,7 +160,7 @@ static char Lookahead(char *word, int how_far)
+ #define Phone_Len	(p_idx)
+ 
+ /* Note is a letter is a 'break' in the word */
+-#define Isbreak(c)  (!isalpha(c))
++#define Isbreak(c)  (!isalpha((unsigned char)(c)))
+ 
+ /* {{{ metaphone
+  */
+@@ -195,7 +195,7 @@ static int metaphone(unsigned char *word, int word_len, long max_phonemes, char
+ 
+ /*-- The first phoneme has to be processed specially. --*/
+ 	/* Find our first letter */
+-	for (; !isalpha(Curr_Letter); w_idx++) {
++	for (; !isalpha((unsigned char)Curr_Letter); w_idx++) {
+ 		/* On the off chance we were given nothing but crap... */
+ 		if (Curr_Letter == '\0') {
+ 			End_Phoned_Word
+@@ -279,7 +279,7 @@ static int metaphone(unsigned char *word, int word_len, long max_phonemes, char
+ 		 */
+ 
+ 		/* Ignore non-alphas */
+-		if (!isalpha(Curr_Letter))
++		if (!isalpha((unsigned char)Curr_Letter))
+ 			continue;
+ 
+ 		/* Drop duplicates, except CC */
+diff --git a/ext/standard/quot_print.c b/ext/standard/quot_print.c
+index 6d5835e9a..07f1bd3ac 100644
+--- a/ext/standard/quot_print.c
++++ b/ext/standard/quot_print.c
+@@ -220,11 +220,11 @@ PHP_FUNCTION(quoted_printable_decode)
+ 		switch (str_in[i]) {
+ 		case '=':
+ 			if (str_in[i + 1] && str_in[i + 2] &&
+-				isxdigit((int) str_in[i + 1]) &&
+-				isxdigit((int) str_in[i + 2]))
++				isxdigit((unsigned char)str_in[i + 1]) &&
++				isxdigit((unsigned char)str_in[i + 2]))
+ 			{
+-				str_out[j++] = (php_hex2int((int) str_in[i + 1]) << 4)
+-						+ php_hex2int((int) str_in[i + 2]);
++				str_out[j++] = (php_hex2int((unsigned char)str_in[i + 1]) << 4)
++						+ php_hex2int((unsigned char)str_in[i + 2]);
+ 				i += 3;
+ 			} else  /* check for soft line break according to RFC 2045*/ {
+ 				k = 1;
+diff --git a/ext/standard/scanf.c b/ext/standard/scanf.c
+index ace6d7a8b..923440625 100644
+--- a/ext/standard/scanf.c
++++ b/ext/standard/scanf.c
+@@ -350,7 +350,7 @@ PHPAPI int ValidateFormat(char *format, int numVars, int *totalSubs)
+ 			goto xpgCheckDone;
+ 		}
+ 
+-		if ( isdigit( (int)*ch ) ) {
++		if ( isdigit( (unsigned char)*ch ) ) {
+ 			/*
+ 			 * Check for an XPG3-style %n$ specification.  Note: there
+ 			 * must not be a mixture of XPG3 specs and non-XPG3 specs
+@@ -670,9 +670,9 @@ PHPAPI int php_sscanf_internal( char *string, char *format,
+ 		/*
+ 		 * If we see whitespace in the format, skip whitespace in the string.
+ 		 */
+-		if ( isspace( (int)*ch ) ) {
++		if ( isspace( (unsigned char)*ch ) ) {
+ 			sch = *string;
+-			while ( isspace( (int)sch ) ) {
++			while ( isspace( (unsigned char)sch ) ) {
+ 				if (*string == '\0') {
+ 					goto done;
+ 				}
+@@ -829,7 +829,7 @@ literal:
+ 		if (!(flags & SCAN_NOSKIP)) {
+ 			while (*string != '\0') {
+ 				sch = *string;
+-				if (! isspace((int)sch) ) {
++				if (! isspace((unsigned char)sch) ) {
+ 					break;
+ 				}
+ 				string++;
+@@ -855,7 +855,7 @@ literal:
+ 				end = string;
+ 				while (*end != '\0') {
+ 					sch = *end;
+-					if ( isspace( (int)sch ) ) {
++					if ( isspace( (unsigned char)sch ) ) {
+ 						break;
+ 					}
+ 					end++;
+diff --git a/ext/standard/soundex.c b/ext/standard/soundex.c
+index 4c8761630..2515104f6 100644
+--- a/ext/standard/soundex.c
++++ b/ext/standard/soundex.c
+@@ -74,7 +74,7 @@ PHP_FUNCTION(soundex)
+ 		/* BUG: should also map here accented letters used in non */
+ 		/* English words or names (also found in English text!): */
+ 		/* esstsett, thorn, n-tilde, c-cedilla, s-caron, ... */
+-		code = toupper((int)(unsigned char)str[i]);
++		code = toupper((unsigned char)str[i]);
+ 		if (code >= 'A' && code <= 'Z') {
+ 			if (_small == 0) {
+ 				/* remember first valid char */
+diff --git a/ext/standard/string.c b/ext/standard/string.c
+index 4687b2022..77a6a0024 100644
+--- a/ext/standard/string.c
++++ b/ext/standard/string.c
+@@ -3464,9 +3464,9 @@ PHPAPI void php_stripcslashes(char *str, int *len)
+ 				case 'f':  *target++='\f'; nlen--; break;
+ 				case '\\': *target++='\\'; nlen--; break;
+ 				case 'x':
+-					if (source+1 < end && isxdigit((int)(*(source+1)))) {
++					if (source+1 < end && isxdigit((unsigned char)source[1])) {
+ 						numtmp[0] = *++source;
+-						if (source+1 < end && isxdigit((int)(*(source+1)))) {
++						if (source+1 < end && isxdigit((unsigned char)source[1])) {
+ 							numtmp[1] = *++source;
+ 							numtmp[2] = '\0';
+ 							nlen-=3;
+@@ -4121,7 +4121,7 @@ static void php_hebrev(INTERNAL_FUNCTION_PARAMETERS, int convert_newlines)
+ 
+ 	do {
+ 		if (block_type == _HEB_BLOCK_TYPE_HEB) {
+-			while ((isheb((int)*(tmp+1)) || _isblank((int)*(tmp+1)) || ispunct((int)*(tmp+1)) || (int)*(tmp+1)=='\n' ) && block_end<str_len-1) {
++			while ((isheb((int)*(tmp+1)) || _isblank((int)*(tmp+1)) || ispunct((unsigned char)tmp[1]) || (int)*(tmp+1)=='\n' ) && block_end<str_len-1) {
+ 				tmp++;
+ 				block_end++;
+ 				block_length++;
+@@ -4171,7 +4171,7 @@ static void php_hebrev(INTERNAL_FUNCTION_PARAMETERS, int convert_newlines)
+ 				block_end++;
+ 				block_length++;
+ 			}
+-			while ((_isblank((int)*tmp) || ispunct((int)*tmp)) && *tmp!='/' && *tmp!='-' && block_end > block_start) {
++			while ((_isblank((int)*tmp) || ispunct((unsigned char)*tmp)) && *tmp!='/' && *tmp!='-' && block_end > block_start) {
+ 				tmp--;
+ 				block_end--;
+ 			}
+@@ -4561,7 +4561,7 @@ int php_tag_find(char *tag, int len, char *set) {
+ 				done =1;
+ 				break;
+ 			default:
+-				if (!isspace((int)c)) {
++				if (!isspace((unsigned char)c)) {
+ 					if (state == 0) {
+ 						state=1;
+ 					}
+@@ -4652,7 +4652,7 @@ PHPAPI size_t php_strip_tags_ex(char *rbuf, int len, int *stateptr, char *allow,
+ 				if (in_q) {
+ 					break;
+ 				}
+-				if (isspace(*(p + 1)) && !allow_tag_spaces) {
++				if (isspace((unsigned char)p[1]) && !allow_tag_spaces) {
+ 					goto reg_char;
+ 				}
+ 				if (state == 0) {
+diff --git a/ext/standard/strnatcmp.c b/ext/standard/strnatcmp.c
+index 4b07740be..8410dcd16 100644
+--- a/ext/standard/strnatcmp.c
++++ b/ext/standard/strnatcmp.c
+@@ -52,12 +52,12 @@ compare_right(char const **a, char const *aend, char const **b, char const *bend
+ 	   both numbers to know that they have the same magnitude, so we
+ 	   remember it in BIAS. */
+ 	for(;; (*a)++, (*b)++) {
+-		if ((*a == aend || !isdigit((int)(unsigned char)**a)) &&
+-			(*b == bend || !isdigit((int)(unsigned char)**b)))
++		if ((*a == aend || !isdigit((unsigned char)**a)) &&
++			(*b == bend || !isdigit((unsigned char)**b)))
+ 			return bias;
+-		else if (*a == aend || !isdigit((int)(unsigned char)**a))
++		else if (*a == aend || !isdigit((unsigned char)**a))
+ 			return -1;
+-		else if (*b == bend || !isdigit((int)(unsigned char)**b))
++		else if (*b == bend || !isdigit((unsigned char)**b))
+ 			return +1;
+ 		else if (**a < **b) {
+ 			if (!bias)
+@@ -80,12 +80,12 @@ compare_left(char const **a, char const *aend, char const **b, char const *bend)
+      /* Compare two left-aligned numbers: the first to have a
+         different value wins. */
+ 	for(;; (*a)++, (*b)++) {
+-		if ((*a == aend || !isdigit((int)(unsigned char)**a)) &&
+-			(*b == bend || !isdigit((int)(unsigned char)**b)))
++		if ((*a == aend || !isdigit((unsigned char)**a)) &&
++			(*b == bend || !isdigit((unsigned char)**b)))
+ 			return 0;
+-		else if (*a == aend || !isdigit((int)(unsigned char)**a))
++		else if (*a == aend || !isdigit((unsigned char)**a))
+ 			return -1;
+-		else if (*b == bend || !isdigit((int)(unsigned char)**b))
++		else if (*b == bend || !isdigit((unsigned char)**b))
+ 			return +1;
+ 		 else if (**a < **b)
+ 			 return -1;
+@@ -117,27 +117,27 @@ PHPAPI int strnatcmp_ex(char const *a, size_t a_len, char const *b, size_t b_len
+ 		ca = *ap; cb = *bp;
+ 
+ 		/* skip over leading zeros */
+-		while (leading && ca == '0' && (ap+1 < aend) && isdigit((int)(unsigned char)*(ap+1))) {
++		while (leading && ca == '0' && (ap+1 < aend) && isdigit((unsigned char)ap[1])) {
+ 			ca = *++ap;
+ 		}
+ 
+-		while (leading && cb == '0' && (bp+1 < bend) && isdigit((int)(unsigned char)*(bp+1))) {
++		while (leading && cb == '0' && (bp+1 < bend) && isdigit((unsigned char)bp[1])) {
+ 			cb = *++bp;
+ 		}
+ 
+ 		leading = 0;
+ 
+ 		/* Skip consecutive whitespace */
+-		while (isspace((int)(unsigned char)ca)) {
++		while (isspace(ca)) {
+ 			ca = *++ap;
+ 		}
+ 
+-		while (isspace((int)(unsigned char)cb)) {
++		while (isspace(cb)) {
+ 			cb = *++bp;
+ 		}
+ 
+ 		/* process run of digits */
+-		if (isdigit((int)(unsigned char)ca)  &&  isdigit((int)(unsigned char)cb)) {
++		if (isdigit(ca)  &&  isdigit(cb)) {
+ 			fractional = (ca == '0' || cb == '0');
+ 
+ 			if (fractional)
+@@ -157,8 +157,8 @@ PHPAPI int strnatcmp_ex(char const *a, size_t a_len, char const *b, size_t b_len
+ 		}
+ 
+ 		if (fold_case) {
+-			ca = toupper((int)(unsigned char)ca);
+-			cb = toupper((int)(unsigned char)cb);
++			ca = toupper(ca);
++			cb = toupper(cb);
+ 		}
+ 
+ 		if (ca < cb)
+diff --git a/ext/standard/url.c b/ext/standard/url.c
+index 0278bd47e..545fec775 100644
+--- a/ext/standard/url.c
++++ b/ext/standard/url.c
+@@ -109,7 +109,7 @@ PHPAPI php_url *php_url_parse_ex(char const *str, int length)
+ 		p = s;
+ 		while (p < e) {
+ 			/* scheme = 1*[ lowalpha | digit | "+" | "-" | "." ] */
+-			if (!isalpha(*p) && !isdigit(*p) && *p != '+' && *p != '.' && *p != '-') {
++			if (!isalpha((unsigned char)*p) && !isdigit((unsigned char)*p) && *p != '+' && *p != '.' && *p != '-') {
+ 				if (e + 1 < ue) {
+ 					goto parse_port;
+ 				} else {
+@@ -134,7 +134,7 @@ PHPAPI php_url *php_url_parse_ex(char const *str, int length)
+ 			 * correctly parse things like a.com:80
+ 			 */
+ 			p = e + 1;
+-			while (p < ue && isdigit(*p)) {
++			while (p < ue && isdigit((unsigned char)*p)) {
+ 				p++;
+ 			}
+ 
+@@ -174,7 +174,7 @@ PHPAPI php_url *php_url_parse_ex(char const *str, int length)
+ 		p = e + 1;
+ 		pp = p;
+ 
+-		while (pp < ue && pp - p < 6 && isdigit(*pp)) {
++		while (pp < ue && pp - p < 6 && isdigit((unsigned char)*pp)) {
+ 			pp++;
+ 		}
+ 
+@@ -411,12 +411,12 @@ static int php_htoi(char *s)
+ 	int value;
+ 	int c;
+ 
+-	c = ((unsigned char *)s)[0];
++	c = (unsigned char)s[0];
+ 	if (isupper(c))
+ 		c = tolower(c);
+ 	value = (c >= '0' && c <= '9' ? c - '0' : c - 'a' + 10) * 16;
+ 
+-	c = ((unsigned char *)s)[1];
++	c = (unsigned char)s[1];
+ 	if (isupper(c))
+ 		c = tolower(c);
+ 	value += c >= '0' && c <= '9' ? c - '0' : c - 'a' + 10;
+@@ -540,8 +540,8 @@ PHPAPI int php_url_decode(char *str, int len)
+ 		if (*data == '+') {
+ 			*dest = ' ';
+ 		}
+-		else if (*data == '%' && len >= 2 && isxdigit((int) *(data + 1))
+-				 && isxdigit((int) *(data + 2))) {
++		else if (*data == '%' && len >= 2 && isxdigit((unsigned char)data[1])
++				 && isxdigit((unsigned char)data[2])) {
+ #ifndef CHARSET_EBCDIC
+ 			*dest = (char) php_htoi(data + 1);
+ #else
+@@ -642,8 +642,8 @@ PHPAPI int php_raw_url_decode(char *str, int len)
+ 	char *data = str;
+ 
+ 	while (len--) {
+-		if (*data == '%' && len >= 2 && isxdigit((int) *(data + 1))
+-			&& isxdigit((int) *(data + 2))) {
++		if (*data == '%' && len >= 2 && isxdigit((unsigned char)data[1])
++			&& isxdigit((unsigned char)data[2])) {
+ #ifndef CHARSET_EBCDIC
+ 			*dest = (char) php_htoi(data + 1);
+ #else
+@@ -720,7 +720,7 @@ no_name_header:
+ 				c = *p;
+ 				*p = '\0';
+ 				s = p + 1;
+-				while (isspace((int)*(unsigned char *)s)) {
++				while (isspace((unsigned char)*s)) {
+ 					s++;
+ 				}
+ 
+diff --git a/ext/standard/url_scanner_ex.c b/ext/standard/url_scanner_ex.c
+index 20f82c24a..96251e38b 100644
+--- a/ext/standard/url_scanner_ex.c
++++ b/ext/standard/url_scanner_ex.c
+@@ -78,7 +78,7 @@ static PHP_INI_MH(OnUpdateTags)
+ 			
+ 			*val++ = '\0';
+ 			for (q = key; *q; q++)
+-				*q = tolower(*q);
++				*q = tolower((unsigned char)*q);
+ 			keylen = q - key;
+ 			/* key is stored withOUT NUL
+ 			   val is stored WITH    NUL */
+diff --git a/ext/standard/url_scanner_ex.re b/ext/standard/url_scanner_ex.re
+index 5ee7063c1..f9b737096 100644
+--- a/ext/standard/url_scanner_ex.re
++++ b/ext/standard/url_scanner_ex.re
+@@ -76,7 +76,7 @@ static PHP_INI_MH(OnUpdateTags)
+ 			
+ 			*val++ = '\0';
+ 			for (q = key; *q; q++)
+-				*q = tolower(*q);
++				*q = tolower((unsigned char)*q);
+ 			keylen = q - key;
+ 			/* key is stored withOUT NUL
+ 			   val is stored WITH    NUL */
+diff --git a/ext/standard/versioning.c b/ext/standard/versioning.c
+index 828e36ac2..2dd5605d9 100644
+--- a/ext/standard/versioning.c
++++ b/ext/standard/versioning.c
+@@ -51,8 +51,8 @@ php_canonicalize_version(const char *version)
+  *  s/([^\d\.])([^\D\.])/$1.$2/g;
+  *  s/([^\D\.])([^\d\.])/$1.$2/g;
+  */
+-#define isdig(x) (isdigit(x)&&(x)!='.')
+-#define isndig(x) (!isdigit(x)&&(x)!='.')
++#define isdig(x) (isdigit((unsigned char)(x))&&(x)!='.')
++#define isndig(x) (!isdigit((unsigned char)(x))&&(x)!='.')
+ #define isspecialver(x) ((x)=='-'||(x)=='_'||(x)=='+')
+ 
+ 		lq = *(q - 1);
+@@ -65,7 +65,7 @@ php_canonicalize_version(const char *version)
+ 				*q++ = '.';
+ 			}
+ 			*q++ = *p;
+-		} else if (!isalnum(*p)) {
++		} else if (!isalnum((unsigned char)*p)) {
+ 			if (lq != '.') {
+ 				*q++ = '.';
+ 			}
+@@ -158,17 +158,17 @@ php_version_compare(const char *orig_ver1, const char *orig_ver2)
+ 		if ((n2 = strchr(p2, '.')) != NULL) {
+ 			*n2 = '\0';
+ 		}
+-		if (isdigit(*p1) && isdigit(*p2)) {
++		if (isdigit((unsigned char)*p1) && isdigit((unsigned char)*p2)) {
+ 			/* compare element numerically */
+ 			l1 = strtol(p1, NULL, 10);
+ 			l2 = strtol(p2, NULL, 10);
+ 			compare = sign(l1 - l2);
+-		} else if (!isdigit(*p1) && !isdigit(*p2)) {
++		} else if (!isdigit((unsigned char)*p1) && !isdigit((unsigned char)*p2)) {
+ 			/* compare element names */
+ 			compare = compare_special_version_forms(p1, p2);
+ 		} else {
+ 			/* mix of names and numbers */
+-			if (isdigit(*p1)) {
++			if (isdigit((unsigned char)*p1)) {
+ 				compare = compare_special_version_forms("#N#", p2);
+ 			} else {
+ 				compare = compare_special_version_forms(p1, "#N#");
+@@ -186,13 +186,13 @@ php_version_compare(const char *orig_ver1, const char *orig_ver2)
+ 	}
+ 	if (compare == 0) {
+ 		if (n1 != NULL) {
+-			if (isdigit(*p1)) {
++			if (isdigit((unsigned char)*p1)) {
+ 				compare = 1;
+ 			} else {
+ 				compare = php_version_compare(p1, "#N#");
+ 			}
+ 		} else if (n2 != NULL) {
+-			if (isdigit(*p2)) {
++			if (isdigit((unsigned char)*p2)) {
+ 				compare = -1;
+ 			} else {
+ 				compare = php_version_compare("#N#", p2);
+diff --git a/main/SAPI.c b/main/SAPI.c
+index 660012dab..fa4ea4a50 100644
+--- a/main/SAPI.c
++++ b/main/SAPI.c
+@@ -212,7 +212,7 @@ static void sapi_read_post_data(TSRMLS_D)
+ 				*p = 0;
+ 				break;
+ 			default:
+-				*p = tolower(*p);
++				*p = tolower((unsigned char)*p);
+ 				break;
+ 		}
+ 	}
+@@ -733,10 +733,10 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg TSRMLS_DC)
+ 	header_line = estrndup(header_line, header_line_len);
+ 
+ 	/* cut off trailing spaces, linefeeds and carriage-returns */
+-	if (header_line_len && isspace(header_line[header_line_len-1])) {
++	if (header_line_len && isspace((unsigned char)header_line[header_line_len - 1])) {
+ 		do {
+ 			header_line_len--;
+-		} while(header_line_len && isspace(header_line[header_line_len-1]));
++		} while(header_line_len && isspace((unsigned char)header_line[header_line_len - 1]));
+ 		header_line[header_line_len]='\0';
+ 	}
+ 
+diff --git a/main/fopen_wrappers.c b/main/fopen_wrappers.c
+index 1554aaa1e..5927e5e0e 100644
+--- a/main/fopen_wrappers.c
++++ b/main/fopen_wrappers.c
+@@ -483,7 +483,7 @@ PHPAPI char *php_resolve_path(const char *filename, int filename_length, const c
+ 	}
+ 
+ 	/* Don't resolve paths which contain protocol (except of file://) */
+-	for (p = filename; isalnum((int)*p) || *p == '+' || *p == '-' || *p == '.'; p++);
++	for (p = filename; isalnum((unsigned char)*p) || *p == '+' || *p == '-' || *p == '.'; p++);
+ 	if ((*p == ':') && (p - filename > 1) && (p[1] == '/') && (p[2] == '/')) {
+ 		wrapper = php_stream_locate_url_wrapper(filename, &actual_path, STREAM_OPEN_FOR_INCLUDE TSRMLS_CC);
+ 		if (wrapper == &php_plain_files_wrapper) {
+@@ -512,7 +512,7 @@ PHPAPI char *php_resolve_path(const char *filename, int filename_length, const c
+ 		/* Check for stream wrapper */
+ 		int is_stream_wrapper = 0;
+ 
+-		for (p = ptr; isalnum((int)*p) || *p == '+' || *p == '-' || *p == '.'; p++);
++		for (p = ptr; isalnum((unsigned char)*p) || *p == '+' || *p == '-' || *p == '.'; p++);
+ 		if ((*p == ':') && (p - ptr > 1) && (p[1] == '/') && (p[2] == '/')) {
+ 			/* .:// or ..:// is not a stream wrapper */
+ 			if (p[-1] != '.' || p[-2] != '.' || p - 2 != ptr) {
+@@ -578,7 +578,7 @@ PHPAPI char *php_resolve_path(const char *filename, int filename_length, const c
+ 			actual_path = trypath;
+ 
+ 			/* Check for stream wrapper */
+-			for (p = trypath; isalnum((int)*p) || *p == '+' || *p == '-' || *p == '.'; p++);
++			for (p = trypath; isalnum((unsigned char)*p) || *p == '+' || *p == '-' || *p == '.'; p++);
+ 			if ((*p == ':') && (p - trypath > 1) && (p[1] == '/') && (p[2] == '/')) {
+ 				wrapper = php_stream_locate_url_wrapper(trypath, &actual_path, STREAM_OPEN_FOR_INCLUDE TSRMLS_CC);
+ 				if (!wrapper) {
+diff --git a/main/php_ini.c b/main/php_ini.c
+index 7d27582f4..c837b24d0 100644
+--- a/main/php_ini.c
++++ b/main/php_ini.c
+@@ -47,7 +47,7 @@
+ 		char *tmp = path; \
+ 		while (*tmp) { \
+ 			if (*tmp == '\\') *tmp = '/'; \
+-			else *tmp = tolower(*tmp); \
++			else *tmp = tolower((unsigned char)*tmp); \
+ 				tmp++; \
+ 		} \
+ 	}
+diff --git a/main/php_variables.c b/main/php_variables.c
+index 606a4b03d..f62777f6d 100644
+--- a/main/php_variables.c
++++ b/main/php_variables.c
+@@ -167,7 +167,7 @@ PHPAPI void php_register_variable_ex(char *var_name, zval *val, zval *track_vars
+ 
+ 			ip++;
+ 			index_s = ip;
+-			if (isspace(*ip)) {
++			if (isspace((unsigned char)*ip)) {
+ 				ip++;
+ 			}
+ 			if (*ip==']') {
+@@ -481,7 +481,7 @@ SAPI_API SAPI_TREAT_DATA_FUNC(php_default_treat_data)
+ 
+ 		if (arg == PARSE_COOKIE) {
+ 			/* Remove leading spaces from cookie names, needed for multi-cookie header where ; can be followed by a space */
+-			while (isspace(*var)) {
++			while (isspace((unsigned char)*var)) {
+ 				var++;
+ 			}
+ 			if (var == val || *var == '\0') {
+diff --git a/main/rfc1867.c b/main/rfc1867.c
+index 9ef2ac903..a13972ac8 100644
+--- a/main/rfc1867.c
++++ b/main/rfc1867.c
+@@ -433,7 +433,7 @@ static int multipart_buffer_headers(multipart_buffer *self, zend_llist *header T
+ 		}
+ 
+ 		/* space in the beginning means same header */
+-		if (!isspace(line[0])) {
++		if (!isspace((unsigned char)line[0])) {
+ 			value = strchr(line, ':');
+ 		}
+ 
+@@ -551,7 +551,7 @@ static char *substring_conf(char *start, size_t len, char quote)
+ 
+ static char *php_ap_getword_conf(const zend_encoding *encoding, char *str TSRMLS_DC)
+ {
+-	while (*str && isspace(*str)) {
++	while (*str && isspace((unsigned char)*str)) {
+ 		++str;
+ 	}
+ 
+@@ -567,7 +567,7 @@ static char *php_ap_getword_conf(const zend_encoding *encoding, char *str TSRMLS
+ 	} else {
+ 		char *strend = str;
+ 
+-		while (*strend && !isspace(*strend)) {
++		while (*strend && !isspace((unsigned char)*strend)) {
+ 			++strend;
+ 		}
+ 		return substring_conf(str, (size_t)(strend - str), 0);
+@@ -835,7 +835,7 @@ SAPI_API SAPI_POST_HANDLER_FUNC(rfc1867_post_handler) /* {{{ */
+ 				goto fileupload_done;
+ 			}
+ 
+-			while (isspace(*cd)) {
++			while (isspace((unsigned char)*cd)) {
+ 				++cd;
+ 			}
+ 
+@@ -843,7 +843,7 @@ SAPI_API SAPI_POST_HANDLER_FUNC(rfc1867_post_handler) /* {{{ */
+ 			{
+ 				char *key = NULL, *word = pair;
+ 
+-				while (isspace(*cd)) {
++				while (isspace((unsigned char)*cd)) {
+ 					++cd;
+ 				}
+ 
+diff --git a/main/snprintf.c b/main/snprintf.c
+index 794ee98c4..da9e78d88 100644
+--- a/main/snprintf.c
++++ b/main/snprintf.c
+@@ -394,7 +394,7 @@ PHPAPI char * php_conv_fp(register char format, register double num,
+ 	/*
+ 	 * Check for Infinity and NaN
+ 	 */
+-	if (isalpha((int)*p)) {
++	if (isalpha((unsigned char)*p)) {
+ 		*len = strlen(p);
+ 		memcpy(buf, p, *len + 1);
+ 		*is_negative = FALSE;
+@@ -541,11 +541,11 @@ typedef struct buf_area buffy;
+ #define NUM( c )			( c - '0' )
+ 
+ #define STR_TO_DEC( str, num )		\
+-    num = NUM( *str++ ) ;		\
+-    while ( isdigit((int)*str ) )		\
++    num = NUM( *(str)++ ) ;		\
++    while ( isdigit((unsigned char)*(str) ) )		\
+     {					\
+ 	num *= 10 ;			\
+-	num += NUM( *str++ ) ;		\
++	num += NUM( *(str)++ ) ;		\
+     }
+ 
+ /*
+@@ -650,7 +650,7 @@ static int format_converter(register buffy * odp, const char *fmt, va_list ap) /
+ 			/*
+ 			 * Try to avoid checking for flags, width or precision
+ 			 */
+-			if (isascii((int)*fmt) && !islower((int)*fmt)) {
++			if (isascii((unsigned char)*fmt) && !islower((unsigned char)*fmt)) {
+ 				/*
+ 				 * Recognize flags: -, #, BLANK, +
+ 				 */
+@@ -672,7 +672,7 @@ static int format_converter(register buffy * odp, const char *fmt, va_list ap) /
+ 				/*
+ 				 * Check if a width was specified
+ 				 */
+-				if (isdigit((int)*fmt)) {
++				if (isdigit((unsigned char)*fmt)) {
+ 					STR_TO_DEC(fmt, min_width);
+ 					adjust_width = YES;
+ 				} else if (*fmt == '*') {
+@@ -692,7 +692,7 @@ static int format_converter(register buffy * odp, const char *fmt, va_list ap) /
+ 				if (*fmt == '.') {
+ 					adjust_precision = YES;
+ 					fmt++;
+-					if (isdigit((int)*fmt)) {
++					if (isdigit((unsigned char)*fmt)) {
+ 						STR_TO_DEC(fmt, precision);
+ 					} else if (*fmt == '*') {
+ 						precision = va_arg(ap, int);
+diff --git a/main/spprintf.c b/main/spprintf.c
+index 3f108446b..4133955b2 100644
+--- a/main/spprintf.c
++++ b/main/spprintf.c
+@@ -162,12 +162,12 @@
+ #define NUM(c) (c - '0')
+ 
+ #define STR_TO_DEC(str, num) do {			\
+-	num = NUM(*str++);                  	\
+-	while (isdigit((int)*str)) {        	\
++	num = NUM(*(str)++);                  	\
++	while (isdigit((unsigned char)*(str))) {\
+ 		num *= 10;                      	\
+-		num += NUM(*str++);             	\
++		num += NUM(*(str)++);             	\
+ 		if (num >= INT_MAX / 10) {			\
+-			while (isdigit((int)*str++));	\
++			while (isdigit((unsigned char)*(str)++));	\
+ 			break;							\
+ 		}									\
+     }										\
+@@ -258,7 +258,7 @@ static void xbuf_format_converter(smart_str *xbuf, const char *fmt, va_list ap)
+ 			/*
+ 			 * Try to avoid checking for flags, width or precision
+ 			 */
+-			if (isascii((int)*fmt) && !islower((int)*fmt)) {
++			if (isascii((unsigned char)*fmt) && !islower((unsigned char)*fmt)) {
+ 				/*
+ 				 * Recognize flags: -, #, BLANK, +
+ 				 */
+@@ -280,7 +280,7 @@ static void xbuf_format_converter(smart_str *xbuf, const char *fmt, va_list ap)
+ 				/*
+ 				 * Check if a width was specified
+ 				 */
+-				if (isdigit((int)*fmt)) {
++				if (isdigit((unsigned char)*fmt)) {
+ 					STR_TO_DEC(fmt, min_width);
+ 					adjust_width = YES;
+ 				} else if (*fmt == '*') {
+@@ -300,7 +300,7 @@ static void xbuf_format_converter(smart_str *xbuf, const char *fmt, va_list ap)
+ 				if (*fmt == '.') {
+ 					adjust_precision = YES;
+ 					fmt++;
+-					if (isdigit((int)*fmt)) {
++					if (isdigit((unsigned char)*fmt)) {
+ 						STR_TO_DEC(fmt, precision);
+ 					} else if (*fmt == '*') {
+ 						precision = va_arg(ap, int);
+diff --git a/main/streams/streams.c b/main/streams/streams.c
+index 4e00cd1be..de785d73d 100644
+--- a/main/streams/streams.c
++++ b/main/streams/streams.c
+@@ -1690,7 +1690,7 @@ static inline int php_stream_wrapper_scheme_validate(const char *protocol, unsig
+ 	unsigned int i;
+ 
+ 	for(i = 0; i < protocol_len; i++) {
+-		if (!isalnum((int)protocol[i]) &&
++		if (!isalnum((unsigned char)protocol[i]) &&
+ 			protocol[i] != '+' &&
+ 			protocol[i] != '-' &&
+ 			protocol[i] != '.') {
+@@ -1769,7 +1769,7 @@ PHPAPI php_stream_wrapper *php_stream_locate_url_wrapper(const char *path, const
+ 		return (options & STREAM_LOCATE_WRAPPERS_ONLY) ? NULL : &php_plain_files_wrapper;
+ 	}
+ 
+-	for (p = path; isalnum((int)*p) || *p == '+' || *p == '-' || *p == '.'; p++) {
++	for (p = path; isalnum((unsigned char)*p) || *p == '+' || *p == '-' || *p == '.'; p++) {
+ 		n++;
+ 	}
+ 
+diff --git a/main/streams/transports.c b/main/streams/transports.c
+index 4a1961fd6..1066222ad 100644
+--- a/main/streams/transports.c
++++ b/main/streams/transports.c
+@@ -92,7 +92,7 @@ PHPAPI php_stream *_php_stream_xport_create(const char *name, size_t namelen, in
+ 		}
+ 	}
+ 
+-	for (p = name; isalnum((int)*p) || *p == '+' || *p == '-' || *p == '.'; p++) {
++	for (p = name; isalnum((unsigned char)*p) || *p == '+' || *p == '-' || *p == '.'; p++) {
+ 		n++;
+ 	}
+ 
+diff --git a/sapi/cgi/cgi_main.c b/sapi/cgi/cgi_main.c
+index ccb873aed..f76dfecba 100644
+--- a/sapi/cgi/cgi_main.c
++++ b/sapi/cgi/cgi_main.c
+@@ -1874,7 +1874,7 @@ int main(int argc, char *argv[])
+ 
+ 				if ((val = strchr(php_optarg, '='))) {
+ 					val++;
+-					if (!isalnum(*val) && *val != '"' && *val != '\'' && *val != '\0') {
++					if (!isalnum((unsigned char)*val) && *val != '"' && *val != '\'' && *val != '\0') {
+ 						cgi_sapi_module.ini_entries = realloc(cgi_sapi_module.ini_entries, ini_entries_len + len + sizeof("\"\"\n\0"));
+ 						memcpy(cgi_sapi_module.ini_entries + ini_entries_len, php_optarg, (val - php_optarg));
+ 						ini_entries_len += (val - php_optarg);
+diff --git a/sapi/cli/php_cli.c b/sapi/cli/php_cli.c
+index a80e21c49..659d677ae 100644
+--- a/sapi/cli/php_cli.c
++++ b/sapi/cli/php_cli.c
+@@ -1289,7 +1289,7 @@ int main(int argc, char *argv[])
+ 
+ 				if ((val = strchr(php_optarg, '='))) {
+ 					val++;
+-					if (!isalnum(*val) && *val != '"' && *val != '\'' && *val != '\0') {
++					if (!isalnum((unsigned char)*val) && *val != '"' && *val != '\'' && *val != '\0') {
+ 						ini_entries = realloc(ini_entries, ini_entries_len + len + sizeof("\"\"\n\0"));
+ 						memcpy(ini_entries + ini_entries_len, php_optarg, (val - php_optarg));
+ 						ini_entries_len += (val - php_optarg);
+diff --git a/sapi/cli/php_cli_server.c b/sapi/cli/php_cli_server.c
+index 68c123e9e..480e1e1b6 100644
+--- a/sapi/cli/php_cli_server.c
++++ b/sapi/cli/php_cli_server.c
+@@ -729,7 +729,7 @@ static int sapi_cli_server_register_entry_cb(char **entry TSRMLS_DC, int num_arg
+ 			if (key[i] == '-') {
+ 				key[i] = '_';
+ 			} else {
+-				key[i] = toupper(key[i]);
++				key[i] = toupper((unsigned char)key[i]);
+ 			}
+ 		}
+ 		spprintf(&real_key, 0, "%s_%s", "HTTP", key);
+diff --git a/sapi/fpm/fpm/fpm_conf.c b/sapi/fpm/fpm/fpm_conf.c
+index d77bf062f..704b51d4c 100644
+--- a/sapi/fpm/fpm/fpm_conf.c
++++ b/sapi/fpm/fpm/fpm_conf.c
+@@ -873,7 +873,7 @@ static int fpm_conf_process_all_pools() /* {{{ */
+ 			}
+ 
+ 			for (i = 0; i < strlen(status); i++) {
+-				if (!isalnum(status[i]) && status[i] != '/' && status[i] != '-' && status[i] != '_' && status[i] != '.') {
++				if (!isalnum((unsigned char)status[i]) && status[i] != '/' && status[i] != '-' && status[i] != '_' && status[i] != '.') {
+ 					zlog(ZLOG_ERROR, "[pool %s] the status path '%s' must contain only the following characters '[alphanum]/_-.'", wp->config->name, status);
+ 					return -1;
+ 				}
+@@ -896,7 +896,7 @@ static int fpm_conf_process_all_pools() /* {{{ */
+ 			}
+ 
+ 			for (i = 0; i < strlen(ping); i++) {
+-				if (!isalnum(ping[i]) && ping[i] != '/' && ping[i] != '-' && ping[i] != '_' && ping[i] != '.') {
++				if (!isalnum((unsigned char)ping[i]) && ping[i] != '/' && ping[i] != '-' && ping[i] != '_' && ping[i] != '.') {
+ 					zlog(ZLOG_ERROR, "[pool %s] the ping path '%s' must containt only the following characters '[alphanum]/_-.'", wp->config->name, ping);
+ 					return -1;
+ 				}
+diff --git a/sapi/fpm/fpm/fpm_main.c b/sapi/fpm/fpm/fpm_main.c
+index 22b889c16..763dc1a0b 100644
+--- a/sapi/fpm/fpm/fpm_main.c
++++ b/sapi/fpm/fpm/fpm_main.c
+@@ -1673,7 +1673,7 @@ int main(int argc, char *argv[])
+ 
+ 				if ((val = strchr(php_optarg, '='))) {
+ 					val++;
+-					if (!isalnum(*val) && *val != '"' && *val != '\'' && *val != '\0') {
++					if (!isalnum((unsigned char)*val) && *val != '"' && *val != '\'' && *val != '\0') {
+ 						cgi_sapi_module.ini_entries = realloc(cgi_sapi_module.ini_entries, ini_entries_len + len + sizeof("\"\"\n\0"));
+ 						memcpy(cgi_sapi_module.ini_entries + ini_entries_len, php_optarg, (val - php_optarg));
+ 						ini_entries_len += (val - php_optarg);
+diff --git a/sapi/litespeed/lsapi_main.c b/sapi/litespeed/lsapi_main.c
+index 86d75ba6d..95473a212 100644
+--- a/sapi/litespeed/lsapi_main.c
++++ b/sapi/litespeed/lsapi_main.c
+@@ -1707,12 +1707,12 @@ PHP_FUNCTION(litespeed_response_headers)
+             len = p - h->header;
+             if (( p )&&( len > 0 )) {
+                 memmove( headerBuf, h->header, len );
+-                while( len > 0 && (isspace( headerBuf[len-1])) ) {
++                while( len > 0 && (isspace((unsigned char)headerBuf[len - 1])) ) {
+                     --len;
+                 }
+                 headerBuf[len] = 0;
+                 if ( len ) {
+-                    while( isspace(*++p));
++                    while(isspace((unsigned char)*++p));
+ #if PHP_MAJOR_VERSION < 7
+                     add_assoc_string_ex(return_value, headerBuf, len+1, p, 1);
+ #else
+diff --git a/sapi/litespeed/lsapilib.c b/sapi/litespeed/lsapilib.c
+index be3df2f79..ad3e229b1 100644
+--- a/sapi/litespeed/lsapilib.c
++++ b/sapi/litespeed/lsapilib.c
+@@ -1922,7 +1922,7 @@ static char * GetHeaderVar( LSAPI_Request * pReq, const char * name )
+ 
+             while(( pKey < pKeyEnd )&&( *p ))
+             {
+-                char ch = toupper( *pKey );
++                char ch = toupper( (unsigned char)*pKey );
+                 if ((ch != *p )||(( *p == '_' )&&( ch != '-')))
+                     break;
+                 ++p; ++pKey;
+@@ -2104,7 +2104,7 @@ int LSAPI_ForeachHeader_r( LSAPI_Request * pReq,
+                 if ( ch == '-' )
+                     *p++ = '_';
+                 else
+-                    *p++ = toupper( ch );
++                    *p++ = toupper( (unsigned char)ch );
+             }
+             *p = 0;
+             keyLen += 5;
+@@ -2353,7 +2353,7 @@ int LSAPI_ParseSockAddr( const char * pBind, struct sockaddr * pAddr )
+     if ( !pBind )
+         return -1;
+ 
+-    while( isspace( *pBind ) )
++    while(isspace( (unsigned char)*pBind ) )
+         ++pBind;
+ 
+     strncpy( achAddr, pBind, 256 );
+diff --git a/sapi/phpdbg/phpdbg.c b/sapi/phpdbg/phpdbg.c
+index 0e9b30e3a..a552b7e60 100644
+--- a/sapi/phpdbg/phpdbg.c
++++ b/sapi/phpdbg/phpdbg.c
+@@ -1092,7 +1092,7 @@ phpdbg_main:
+ 
+ 				if ((val = strchr(php_optarg, '='))) {
+ 				  val++;
+-				  if (!isalnum(*val) && *val != '"' && *val != '\'' && *val != '\0') {
++				  if (!isalnum((unsigned char)*val) && *val != '"' && *val != '\'' && *val != '\0') {
+ 					  ini_entries = realloc(ini_entries, ini_entries_len + len + sizeof("\"\"\n\0"));
+ 					  memcpy(ini_entries + ini_entries_len, php_optarg, (val - php_optarg));
+ 					  ini_entries_len += (val - php_optarg);
+diff --git a/sapi/phpdbg/phpdbg_cmd.c b/sapi/phpdbg/phpdbg_cmd.c
+index 7af18309f..c604c079a 100644
+--- a/sapi/phpdbg/phpdbg_cmd.c
++++ b/sapi/phpdbg/phpdbg_cmd.c
+@@ -785,9 +785,9 @@ readline:
+ #endif
+ 	}
+ 
+-	if (buffer && isspace(*buffer)) {
++	if (buffer && isspace((unsigned char)*buffer)) {
+ 		char *trimmed = buffer;
+-		while (isspace(*trimmed))
++		while (isspace((unsigned char)*trimmed))
+ 			trimmed++;
+ 
+ 		trimmed = estrdup(trimmed);
+diff --git a/sapi/phpdbg/phpdbg_prompt.c b/sapi/phpdbg/phpdbg_prompt.c
+index b63018b1e..f36c016e2 100644
+--- a/sapi/phpdbg/phpdbg_prompt.c
++++ b/sapi/phpdbg/phpdbg_prompt.c
+@@ -204,7 +204,7 @@ void phpdbg_try_file_init(char *init_file, size_t init_file_len, zend_bool free_
+ 			while (fgets(cmd, PHPDBG_MAX_CMD, fp) != NULL) {
+ 				cmd_len = strlen(cmd)-1;
+ 
+-				while (cmd_len > 0L && isspace(cmd[cmd_len-1]))
++				while (cmd_len > 0L && isspace((unsigned char)cmd[cmd_len-1]))
+ 					cmd_len--;
+ 
+ 				cmd[cmd_len] = '\0';
+diff --git a/sapi/phpdbg/phpdbg_utils.c b/sapi/phpdbg/phpdbg_utils.c
+index 18d9b3c0d..882de9cee 100644
+--- a/sapi/phpdbg/phpdbg_utils.c
++++ b/sapi/phpdbg/phpdbg_utils.c
+@@ -84,10 +84,10 @@ PHPDBG_API int phpdbg_is_numeric(const char *str) /* {{{ */
+ 		return 0;
+ 
+ 	for (; *str; str++) {
+-		if (isspace(*str) || *str == '-') {
++		if (isspace((unsigned char)*str) || *str == '-') {
+ 			continue;
+ 		}
+-		return isdigit(*str);
++		return isdigit((unsigned char)*str);
+ 	}
+ 	return 0;
+ } /* }}} */
+@@ -98,7 +98,7 @@ PHPDBG_API int phpdbg_is_empty(const char *str) /* {{{ */
+ 		return 1;
+ 
+ 	for (; *str; str++) {
+-		if (isspace(*str)) {
++		if (isspace((unsigned char)*str)) {
+ 			continue;
+ 		}
+ 		return 0;
+@@ -199,12 +199,12 @@ PHPDBG_API char *phpdbg_trim(const char *str, size_t len, size_t *new_len) /* {{
+ 	const char *p = str;
+ 	char *new = NULL;
+ 
+-	while (p && isspace(*p)) {
++	while (p && isspace((unsigned char)*p)) {
+ 		++p;
+ 		--len;
+ 	}
+ 
+-	while (*p && isspace(*(p + len -1))) {
++	while (*p && isspace((unsigned char)p[len - 1])) {
+ 		--len;
+ 	}
+ 
+diff --git a/win32/sendmail.c b/win32/sendmail.c
+index 93e68f4b1..f5a0ea926 100644
+--- a/win32/sendmail.c
++++ b/win32/sendmail.c
+@@ -66,7 +66,7 @@
+ 												efree(response); \
+ 											} \
+ 										}
+-#define SMTP_SKIP_SPACE(str)	{ while (isspace(*str)) { str++; } }
++#define SMTP_SKIP_SPACE(str)	{ while (isspace((unsigned char)*(str))) { (str)++; } }
+ 
+ 
+ #ifndef THREAD_SAFE
+@@ -251,7 +251,7 @@ PHPAPI int TSendMail(char *host, int *error, char **error_message,
+ 			return FAILURE;
+ 		}
+ 		for (i = 0; i < strlen(headers_lc); i++) {
+-			headers_lc[i] = tolower(headers_lc[i]);
++			headers_lc[i] = tolower((unsigned char)headers_lc[i]);
+ 		}
+ 	}
+  
+@@ -697,7 +697,7 @@ static int PostHeader(char *RPath, char *Subject, char *mailTo, char *xheaders T
+ 			return OUT_OF_MEMORY;
+ 		}
+ 		for (i = 0; i < strlen(headers_lc); i++) {
+-			headers_lc[i] = tolower(headers_lc[i]);
++			headers_lc[i] = tolower((unsigned char)headers_lc[i]);
+ 		}
+ 	}
+ 
+@@ -816,7 +816,7 @@ static int MailConnect()
+ 
+ 	/* Resolve the servers IP */
+ 	/*
+-	if (!isdigit(MailHost[0])||!gethostbyname(MailHost))
++	if (!isdigit((unsigned char)MailHost[0])||!gethostbyname(MailHost))
+ 	{
+ 		return (FAILED_TO_RESOLVE_HOST);
+ 	}
