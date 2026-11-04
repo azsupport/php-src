@@ -1,6 +1,7 @@
 #!/bin/sh
-# imagemagick-test.sh - test /usr/local/imagemagick6 and /usr/local/imagemagick7 of
-# tools/build-imagemagick.sh as the video sites use them, and that what
+# imagemagick-test.sh - test ImageMagick 6 and 7 of /usr/local/az (convert6,
+# identify6, composite6...; magick) of tools/build-imagemagick.sh as the video
+# sites use them, and that what
 # freebsd/imagemagick.conf and freebsd/imagemagick/policy.xml leave out is refused.
 #
 # Usage (FreeBSD, as root, after tools/build-imagemagick.sh): sh tools/imagemagick-test.sh
@@ -82,10 +83,10 @@ echo "$T/photo.jpg" > "$T/list.txt"
 
 # --- each ImageMagick ----------------------------------------------------------
 for im in $(awk '$1 == "im" { print $2 }' "$conf"); do
-    pfx="$(awk -v n="$im" '$1 == "im" && $2 == n { print $4 }' "$conf")"
+    pfx="${AZ_PREFIX:-/usr/local/az}"
     v="${im#imagemagick}"
     if [ "$v" = 6 ]; then
-        cv="$pfx/bin/convert"; idf="$pfx/bin/identify"; cps="$pfx/bin/composite"
+        cv="$pfx/bin/convert6"; idf="$pfx/bin/identify6"; cps="$pfx/bin/composite6"
     else
         cv="$pfx/bin/magick"; idf="$pfx/bin/magick identify"; cps="$pfx/bin/magick composite"
     fi

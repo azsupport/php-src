@@ -1,52 +1,58 @@
 #!/bin/sh
-# build-imagemagick.sh - build ImageMagick 6 and 7 for the video sites into
-# /usr/local/imagemagick6 and /usr/local/imagemagick7 (the "im" lines of
-# freebsd/imagemagick.conf): static programs, both installable at once, with only
-# the formats listed there (see the head of that file for which and why).
+# build-imagemagick.sh - build ImageMagick 6 and 7 of /usr/local/az for the video
+# sites (the "im" lines of freebsd/imagemagick.conf): static programs side by
+# side in /usr/local/az/bin, with only the formats listed there (see the head of
+# that file for which and why), against the static libraries of /usr/local/az
+# (tools/build-deps.sh first; tools/build-az.sh runs both, the tests and the
+# packages).
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master):
 #   sh tools/build-imagemagick.sh --tools   install the build tools (pkg)
-#   sh tools/build-imagemagick.sh           build the libraries, both ImageMagicks and the tarballs
+#   sh tools/build-imagemagick.sh           build both ImageMagicks
 #
-# As tools/build-ffmpeg.sh: for every lib and im line the ports framework fetches
-# the distfiles of the port at the commit of the conf, checks them against its
-# distinfo, extracts them and applies the port's patches (make patch); this script
-# then builds the source tree with its own options. A take line gives a new
-# upstream release instead (with the port's patches, or those of
-# freebsd/deps/<name>-<version>/). The libraries go into IM_WORK/prefix (default
-# /var/tmp/imagemagick-work) as static, position independent libraries; each
-# ImageMagick links them in and goes to the prefix of its im line: bin/ (the
-# programs), etc/ImageMagick-<6|7>/ (its configuration, with the policy
-# freebsd/imagemagick/policy.xml), share/ImageMagick-<6|7>/, lib/ImageMagick-*/
-# (its configure.xml), VERSIONS and LICENSES/. fontconfig takes its configuration
-# and fonts from the system (/usr/local/etc/fonts, /usr/local/share/fonts; its
-# cache /var/db/fontconfig), as the port does. Results go to imagemagick-results/
-# (summary.txt, one log per library), the tarballs to dist/
-# (imagemagick<6|7>-fbsd<major>-amd64-<level>.tar.xz, extracted with
-# tar -xf ... -C /usr/local). tools/imagemagick-test.sh tests them.
+# As tools/build-deps.sh: for every im line the ports framework fetches the
+# distfiles of the port at the ports commit of freebsd/deps.conf, checks them
+# against its distinfo, extracts them and applies the port's patches (make
+# patch); this script then builds the source tree with its own options. A take
+# line gives a new upstream release instead (with the port's patches, or those of
+# freebsd/deps/<name>-<version>/). Each ImageMagick links the libraries of
+# AZ_PREFIX (default /usr/local/az) in and is installed into a stage directory
+# first; what it keeps then goes to AZ_PREFIX: its programs in bin/ (ImageMagick
+# 7: magick and the usual names linked to it; ImageMagick 6: every name with a 6
+# at the end, convert6, identify6...), etc/ImageMagick-<6|7>/ (its configuration,
+# with the policy freebsd/imagemagick/policy.xml), share/ImageMagick-<6|7>/,
+# lib/ImageMagick-<version>/ (its configure.xml) and LICENSES/ImageMagick<6|7>-*.
+# ImageMagick 7 also keeps its static libraries, headers and .pc files, for
+# imagick of PHP (--with-imagick=/usr/local/az), with bin/MagickWand-config and
+# bin/MagickCore-config printing the static link line; a test program links them
+# as imagick does. fontconfig takes its configuration and fonts from the system
+# (/usr/local/etc/fonts, /usr/local/share/fonts; its cache /var/db/fontconfig),
+# as the port does. The work directory is AZ_WORK/imagemagick (default
+# /var/tmp/az-work/imagemagick). Results go to imagemagick-results/ (summary.txt,
+# one log per ImageMagick, <name>.VERSIONS). tools/imagemagick-test.sh tests them.
 #
-# Compiler flags as for PHP, phpdeps and FFmpeg: CPUTYPE and CFLAGS of
-# /etc/make.conf with -fstack-protector-strong and -fno-strict-aliasing (and -fPIC);
-# IM_CPUTYPE and IM_CFLAGS (the inputs of the workflow imagemagick.yml) win over
-# make.conf (MAKE_CONF, default /etc/make.conf); without either: x86-64-v3 and
-# -O3 -pipe. The programs: PIE, RELRO and BIND_NOW.
+# Compiler flags as for PHP, the libraries and FFmpeg: CPUTYPE and CFLAGS of
+# /etc/make.conf with -fstack-protector-strong and -fno-strict-aliasing (and
+# -fPIC: the libraries of ImageMagick 7 go into libphp.so); AZ_CPUTYPE and
+# AZ_CFLAGS (the inputs of the workflow az.yml) win over make.conf (MAKE_CONF,
+# default /etc/make.conf); without either: x86-64-v3 and -O3 -pipe. The
+# programs: PIE, RELRO and BIND_NOW.
 #
-# Exit status: 0 everything built, 1 a library or an ImageMagick failed, or this
-# CPU cannot run the level, 2 usage.
+# Exit status: 0 everything built, 1 an ImageMagick failed, the libraries are not
+# there, or this CPU cannot run the level, 2 usage.
 
 set -u
 top="$(pwd)"
 conf="$top/freebsd/imagemagick.conf"
-work="${IM_WORK:-/var/tmp/imagemagick-work}"
-L="$work/prefix"
+A="${AZ_PREFIX:-/usr/local/az}"
+work="${AZ_WORK:-/var/tmp/az-work}/imagemagick"
 res="$top/imagemagick-results"
-dist="$top/dist"
 ports="${PORTSDIR:-$work/ports}"
 ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 major="$(uname -r | cut -d. -f1)"
 
 if [ "${1:-}" = "--tools" ]; then
-    tools="git cmake ninja meson nasm gmake perl5 pkgconf python3 gperf"
+    tools="git gmake perl5 pkgconf python3"
     # shellcheck disable=SC2086
     env ASSUME_ALWAYS_YES=yes pkg install -y $tools
     rc=$?
@@ -68,32 +74,29 @@ mc_get() {
     ' "$mk_conf"
 }
 
-cputype="${IM_CPUTYPE:-$(mc_get CPUTYPE)}"
+cputype="${AZ_CPUTYPE:-$(mc_get CPUTYPE)}"
 cputype="${cputype:-x86-64-v3}"
-opt="${IM_CFLAGS:-$(mc_get CFLAGS)}"
+opt="${AZ_CFLAGS:-$(mc_get CFLAGS)}"
 # shellcheck disable=SC2086
 opt="$(printf '%s\n' ${opt:--O3 -pipe} | grep -v -e '^-march=' -e '^-fPIC$' | tr '\n' ' ' | sed 's/ *$//')"
-level="${cputype#x86-64-}"
 export CC=cc CXX=c++
 export CFLAGS="$opt -march=$cputype -fstack-protector-strong -fno-strict-aliasing -fPIC"
 export CXXFLAGS="$CFLAGS"
-export CPPFLAGS="-I$L/include"
-export LDFLAGS="-L$L/lib"
-# pkg-config with --static (only static libraries), the libraries here first, then
-# the base system; meson puts .pc files into libdata/pkgconfig on FreeBSD
+export CPPFLAGS="-I$A/include"
+export LDFLAGS="-L$A/lib"
+# pkg-config with --static (only static libraries): the libraries of the tree,
+# then the base system
 mkdir -p "$work/bin"
 printf '%s\n' '#!/bin/sh' 'exec pkgconf --static "$@"' > "$work/bin/pkg-config"
 chmod +x "$work/bin/pkg-config"
 export PKG_CONFIG="$work/bin/pkg-config"
-export PKG_CONFIG_LIBDIR="$L/lib/pkgconfig:$L/libdata/pkgconfig:/usr/libdata/pkgconfig"
+export PKG_CONFIG_LIBDIR="$A/lib/pkgconfig:/usr/libdata/pkgconfig"
 unset PKG_CONFIG_PATH
 export PATH="$work/bin:$PATH"
 
-ports_commit="$(awk '$1 == "ports" { print $2 }' "$conf")"
-libs_all="$(awk '$1 == "lib" { print $2 }' "$conf")"
+ports_commit="$(awk '$1 == "ports" { print $2 }' "$top/freebsd/deps.conf")"
 ims_all="$(awk '$1 == "im" { print $2 }' "$conf")"
-port_of() { awk -v n="$1" '($1 == "lib" || $1 == "im") && $2 == n { print $3 }' "$conf"; }
-prefix_of() { awk -v n="$1" '$1 == "im" && $2 == n { print $4 }' "$conf"; }
+port_of() { awk -v n="$1" '$1 == "im" && $2 == n { print $3 }' "$conf"; }
 take_of() { awk -v n="$1" '$1 == "take" && $2 == n { print $3, $4, $5, $6 }' "$conf"; }
 # conf_opts <key>: the options of the lines with that first word (configure, configure6, configure7)
 conf_opts() { awk -v k="$1" '$1 == k { for (i = 2; i <= NF; i++) print $i }' "$conf"; }
@@ -108,16 +111,14 @@ ports_checkout() {
         git -C "$ports" remote add origin https://github.com/freebsd/freebsd-ports &&
         git -C "$ports" fetch -q --depth 1 --filter=blob:none origin "$ports_commit" &&
         git -C "$ports" sparse-checkout set --no-cone /Mk/ /Templates/ /Keywords/ \
-            $(awk '$1 == "lib" || $1 == "im" { printf "/%s/ ", $3 }' "$conf") \
+            $(awk '$1 == "im" { printf "/%s/ ", $3 }' "$conf") \
             '/lang/perl5*/' '/lang/python3*/' &&
         git -C "$ports" checkout -q FETCH_HEAD
 }
-# the ImageMagick ports in their flavor without X11 (the others have no flavors)
+# the ImageMagick ports in their flavor without X11
 pmake() {
     p="$1"; shift
-    case "$p" in graphics/ImageMagick*) fl="FLAVOR=nox11" ;; *) fl="" ;; esac
-    # shellcheck disable=SC2086
-    make -C "$ports/$p" BATCH=yes NO_DEPENDS=yes DISABLE_VULNERABILITIES=yes $fl \
+    make -C "$ports/$p" BATCH=yes NO_DEPENDS=yes DISABLE_VULNERABILITIES=yes FLAVOR=nox11 \
         PORTSDIR="$ports" WRKDIRPREFIX="$work/wrk" DISTDIR="$work/distfiles" "$@"
 }
 
@@ -126,91 +127,56 @@ fix_guess() {
         cp "$ports/Templates/${f##*/}" "$f" && chmod a+rx "$f"
     done
 }
-at() {
-    src="$1"; shift
-    fix_guess "$src"
-    (cd "$src" && ./configure --prefix="$L" --libdir="$L/lib" --includedir="$L/include" \
-        --enable-static --disable-shared --with-pic "$@" && gmake -j"$ncpu" && gmake install)
-}
-cm() {
-    src="$1"; shift
-    cmake -S "$src" -B "$src/_im" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="$L" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_PREFIX_PATH="$L" \
-        -DCMAKE_IGNORE_PREFIX_PATH=/usr/local -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" "$@" &&
-        cmake --build "$src/_im" -j "$ncpu" && cmake --install "$src/_im"
-}
-ms() {
-    src="$1"; shift
-    (cd "$src" && meson setup _im --prefix="$L" --libdir=lib --buildtype=release -Doptimization=plain \
-        --default-library=static -Db_staticpic=true --wrap-mode=nodownload "$@" &&
-        ninja -C _im -j "$ncpu" && ninja -C _im install)
+
+# pc_add <file.pc> <Libs|Libs.private> <-lname>...: add to that line of a .pc file the
+# libraries it does not name yet (as in tools/build-deps.sh)
+pc_add() {
+    pc="$1"; field="$2"; shift 2
+    [ -f "$pc" ] || return 0
+    awk -v field="$field:" -v libs="$*" '
+        function add(line,   n, i, t, have) {
+            n = split(line, t, " "); for (i = 2; i <= n; i++) have[t[i]] = 1
+            n = split(libs, t, " "); for (i = 1; i <= n; i++) if (!(t[i] in have)) line = line " " t[i]
+            return line
+        }
+        $1 == field { $0 = add($0); found = 1 }
+        { print }
+        END { if (!found) print add(field) }
+    ' "$pc" > "$pc.new" && mv "$pc.new" "$pc"
 }
 
-b_png() { cm "$1" -DPNG_SHARED=OFF -DPNG_STATIC=ON -DPNG_TESTS=OFF -DPNG_TOOLS=OFF -DPNG_DEBUG_POSTFIX=""; }
-b_mozjpeg() {
-    # as for phpdeps (the port: JPEG8 API, SIMD), without its tools' PNG input and TurboJPEG
-    cm "$1" -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_JPEG8=ON -DWITH_SIMD=ON -DREQUIRE_SIMD=OFF \
-        -DWITH_ARITH_DEC=OFF -DWITH_ARITH_ENC=OFF -DWITH_12BIT=OFF -DWITH_JAVA=OFF -DWITH_JPEG7=OFF \
-        -DWITH_TURBOJPEG=OFF -DPNG_SUPPORTED=OFF -DWITH_MEM_SRCDST=ON -DFORCE_INLINE=ON \
-        -DCMAKE_INSTALL_LIBDIR="$L/lib" -DCMAKE_INSTALL_INCLUDEDIR="$L/include" \
-        -DCMAKE_INSTALL_BINDIR="$L/bin" -DCMAKE_INSTALL_MANDIR="$L/share/man" \
-        -DCMAKE_INSTALL_DOCDIR="$L/share/doc/mozjpeg"
+# config_wrap <name> <pc module>: bin/<name> of ImageMagick 7, printing the static
+# link line from the .pc files of the tree (the scripts of ImageMagick give the
+# one for shared libraries); imagick of PHP runs MagickWand-config.
+config_wrap() {
+    cat > "$A/bin/$1" <<EOF
+#!/bin/sh
+# $1 of ImageMagick 7 in $A (tools/build-imagemagick.sh of
+# https://github.com/azsupport/php-src): static libraries, so --libs gives the
+# static link line, from the .pc files of $A.
+PKG_CONFIG_LIBDIR='$A/lib/pkgconfig:/usr/libdata/pkgconfig'
+export PKG_CONFIG_LIBDIR
+unset PKG_CONFIG_PATH
+case "\${1:-}" in
+    --cflags|--cppflags) exec /usr/local/bin/pkgconf --cflags $2 ;;
+    --libs|--ldflags) exec /usr/local/bin/pkgconf --static --libs $2 ;;
+    --prefix|--exec-prefix) echo '$A' ;;
+    --version) exec /usr/local/bin/pkgconf --modversion $2 ;;
+    *) echo "Usage: $1 [--cflags] [--cppflags] [--exec-prefix] [--ldflags] [--libs] [--prefix] [--version]" >&2; exit 1 ;;
+esac
+EOF
+    chmod 755 "$A/bin/$1"
 }
-b_webp() {
-    at "$1" --enable-libwebpdecoder --enable-libwebpdemux --enable-libwebpmux --disable-gl --disable-sdl \
-        --disable-png --disable-jpeg --disable-tiff --disable-gif --disable-wic
-}
-# FreeType with zlib only (no PNG glyphs, bzip2 fonts, Brotli WOFF2, HarfBuzz)
-b_freetype2() {
-    cm "$1" -DFT_REQUIRE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=ON -DFT_DISABLE_HARFBUZZ=ON \
-        -DFT_DISABLE_BROTLI=ON
-}
-b_expat() { at "$1" --without-docbook --without-examples --without-tests --without-xmlwf; }
-# fontconfig with the paths of the port, so that it reads the configuration, fonts and
-# cache of the system; installed through a stage directory (nothing into /usr/local)
-b_fontconfig() {
-    st="$work/stage-fontconfig"
-    rm -rf "$st"
-    (cd "$1" && meson setup _im --prefix="$L" --libdir=lib --sysconfdir=/usr/local/etc --localstatedir=/var \
-        --buildtype=release -Doptimization=plain --default-library=static -Db_staticpic=true \
-        --wrap-mode=nodownload -Ddoc=disabled -Dtests=disabled -Dtools=disabled -Dnls=disabled \
-        -Dcache-build=disabled -Dcache-dir=/var/db/fontconfig -Ddefault-fonts-dirs=/usr/local/share/fonts \
-        -Dadditional-fonts-dirs=/usr/local/lib/X11/fonts -Dtemplate-dir=/usr/local/etc/fonts/conf.avail \
-        -Dxml-dir=/usr/local/etc/fonts &&
-        ninja -C _im -j "$ncpu" && DESTDIR="$st" ninja -C _im install) &&
-        cp -R "$st$L/." "$L/"
-}
-# lcms2 as the port (fast float and threaded plugins), without its tools
-b_lcms2() { at "$1" --with-fastfloat --with-threaded --without-jpeg --without-tiff; }
-# the HEVC decoder of libheif (HEIC), no encoder, no tools
-b_libde265() {
-    cm "$1" -DENABLE_ENCODER=OFF -DENABLE_DECODER=OFF -DENABLE_SDL=OFF -DENABLE_INTERNAL_DEVELOPMENT_TOOLS=OFF
-}
-# the AV1 decoder of libheif (AVIF), as for FFmpeg
-b_dav1d() { ms "$1" -Denable_tools=false -Denable_tests=false -Denable_examples=false; }
-# libheif: reading HEIC (libde265) and AVIF (dav1d), built in (no plugins); no
-# encoders, JPEG 2000, VVC or uncompressed codecs, no tools
-b_libheif() {
-    cm "$1" -DBUILD_TESTING=OFF -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON \
-        -DBUILD_DOCUMENTATION=OFF -DWITH_EXAMPLES=OFF -DWITH_GDK_PIXBUF=OFF -DENABLE_PLUGIN_LOADING=OFF \
-        -DWITH_LIBSHARPYUV=OFF -DWITH_FUZZERS=OFF -DBUILD_DEVELOPMENT_TOOLS=OFF \
-        -DWITH_LIBDE265=ON -DWITH_LIBDE265_PLUGIN=OFF -DWITH_DAV1D=ON -DWITH_DAV1D_PLUGIN=OFF \
-        -DWITH_AOM_DECODER=OFF -DWITH_AOM_ENCODER=OFF -DWITH_X265=OFF -DWITH_X264=OFF -DWITH_RAV1E=OFF \
-        -DWITH_SvtEnc=OFF -DWITH_FFMPEG_DECODER=OFF -DWITH_OpenH264_DECODER=OFF -DWITH_OpenH264_ENCODER=OFF \
-        -DWITH_JPEG_DECODER=OFF -DWITH_JPEG_ENCODER=OFF -DWITH_OpenJPEG_DECODER=OFF -DWITH_OpenJPEG_ENCODER=OFF \
-        -DWITH_OPENJPH_DECODER=OFF -DWITH_OPENJPH_ENCODER=OFF -DWITH_KVAZAAR=OFF -DWITH_UVG266=OFF \
-        -DWITH_VVDEC=OFF -DWITH_VVENC=OFF -DWITH_UNCOMPRESSED_CODEC=OFF
-}
+
 # One ImageMagick: after the port's patches those of freebsd/imagemagick/<name>-*.patch,
 # configure with the lines of the conf (configure, configure6 or configure7), static
-# programs (PIE, RELRO, BIND_NOW; stripped), the policy of
-# freebsd/imagemagick/policy.xml; only the programs and their configuration stay
-# (not conjure: it runs MSL scripts, which need libxml2).
+# programs (PIE, RELRO, BIND_NOW; stripped), installed into a stage directory; then
+# what it keeps goes into the tree (see the head of this file). Not conjure: it runs
+# MSL scripts, which need libxml2.
 b_im() {
-    n="$1"; src="$2"; pfx="$(prefix_of "$n")"; v="${n#imagemagick}"
-    [ -n "$pfx" ] || { echo "== no prefix for $n"; return 1; }
-    rm -rf "$pfx"
+    n="$1"; src="$2"; v="${n#imagemagick}"
+    st="$work/stage-$n"
+    rm -rf "$st"
     for p in "$top"/freebsd/imagemagick/"$n"-*.patch; do
         [ -f "$p" ] || continue
         echo "== freebsd/imagemagick/${p##*/}"
@@ -220,18 +186,35 @@ b_im() {
     (
         cd "$src" || exit 1
         # shellcheck disable=SC2046
-        ./configure --prefix="$pfx" LDFLAGS="$LDFLAGS -pie -Wl,-z,relro,-z,now" LIBS="-lc++ -lpthread -lm" \
+        ./configure --prefix="$A" LDFLAGS="$LDFLAGS -pie -Wl,-z,relro,-z,now" LIBS="-lc++ -lpthread -lm" \
             PTHREAD_LIBS=-lpthread $(conf_opts configure) $(conf_opts "configure$v") &&
-            gmake -j"$ncpu" && gmake install-strip
+            gmake -j"$ncpu" && gmake install-strip DESTDIR="$st"
     ) || return 1
     cp "$src/config.log" "$res/$n-config.log" 2>/dev/null
-    rm -f "$pfx/bin/conjure"
-    cp "$top/freebsd/imagemagick/policy.xml" "$pfx/etc/ImageMagick-$v/policy.xml" || return 1
-    rm -rf "$pfx/include" "$pfx/lib/pkgconfig" "$pfx/share/doc" "$pfx/share/man"
-    rm -f "$pfx"/lib/*.a "$pfx"/lib/*.la "$pfx"/bin/*-config
-    mkdir -p "$pfx/LICENSES"
-    for f in LICENSE NOTICE; do [ -f "$src/$f" ] && cp "$src/$f" "$pfx/LICENSES/ImageMagick-$f"; done
-    cp "$work"/licenses/* "$pfx/LICENSES/" 2>/dev/null
+    s="$st$A"
+    [ -d "$s/bin" ] || { echo "== nothing was installed into $s"; return 1; }
+    if [ "$v" = 6 ]; then
+        progs="$(cd "$s/bin" && ls | grep '6$' | grep -v -e '-config6$' -e '^conjure6$')"
+    else
+        progs="$(cd "$s/bin" && ls | grep -v -e '-config$' -e '^conjure$')"
+    fi
+    [ -n "$progs" ] || { echo "== no programs in $s/bin"; return 1; }
+    keep="$(for p in $progs; do echo "bin/$p"; done; cd "$s" && ls -d "etc/ImageMagick-$v" "share/ImageMagick-$v" lib/ImageMagick-"$v".* 2>/dev/null)"
+    if [ "$v" = 7 ]; then
+        keep="$keep $(cd "$s" && ls -d lib/libMagick*-7.*.a lib/pkgconfig/*.pc include/ImageMagick-7 2>/dev/null)"
+    fi
+    echo "== into $A:" $keep
+    # shellcheck disable=SC2086
+    (cd "$s" && tar -cf - $keep) | (cd "$A" && tar -xpf -) || return 1
+    cp "$top/freebsd/imagemagick/policy.xml" "$A/etc/ImageMagick-$v/policy.xml" || return 1
+    if [ "$v" = 7 ]; then
+        # the C++ runtime and the threads of libheif and libde265, for a static link line
+        for pc in "$A"/lib/pkgconfig/MagickCore-7.*.pc; do pc_add "$pc" Libs.private -lc++ -lpthread -lm; done
+        config_wrap MagickCore-config MagickCore-7.Q16HDRI
+        config_wrap MagickWand-config MagickWand-7.Q16HDRI
+    fi
+    mkdir -p "$A/LICENSES"
+    for f in LICENSE NOTICE; do [ -f "$src/$f" ] && cp "$src/$f" "$A/LICENSES/ImageMagick$v-$f"; done
     return 0
 }
 
@@ -272,8 +255,7 @@ port_patches() {
     echo $(( np + ne ))
 }
 
-# build_one <name>: fetch, check, extract and patch with the ports framework, then
-# b_<name> (an im line: b_im)
+# build_one <name>: fetch, check, extract and patch with the ports framework, then b_im
 build_one() {
     n="$1"
     port="$(port_of "$n")"
@@ -297,17 +279,7 @@ build_one() {
         # shellcheck disable=SC2086
         src="$(pmake "$port" $targs -V WRKSRC)"
         echo "== source: $src"
-        if [ -n "$(prefix_of "$n")" ]; then
-            b_im "$n" "$src" || exit 1
-        else
-            "b_$n" "$src" || exit 1
-            # the licence files (libpng 1.6.59 has a directory LICENSES too)
-            mkdir -p "$work/licenses"
-            for f in "$src"/COPYING* "$src"/LICENSE* "$src"/PATENTS*; do
-                [ -e "$f" ] && cp -R "$f" "$work/licenses/$n-${f##*/}"
-            done
-            :
-        fi
+        b_im "$n" "$src" || exit 1
     ) > "$log" 2>&1
     rc=$?
     ver="$(pmake "$port" -V PKGVERSION 2>/dev/null)"
@@ -329,15 +301,16 @@ build_one() {
     return "$rc"
 }
 
-# manifest <im name>: <prefix>/VERSIONS
+# manifest <im name>: imagemagick-results/<name>.VERSIONS
 manifest() {
-    im="$1"; pfx="$(prefix_of "$im")"; v="${im#imagemagick}"
+    im="$1"; v="${im#imagemagick}"
     {
         echo "ImageMagick $v for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
         echo "freebsd-ports $ports_commit; CFLAGS: $CFLAGS"
+        echo "libraries: the static ones of $A (az-libs): libpng, mozjpeg, libwebp, FreeType, fontconfig, expat, lcms2, libheif, libde265, dav1d"
         echo
         while read -r n pkgname port; do
-            case "$n" in imagemagick*) [ "$n" = "$im" ] || continue ;; esac
+            [ "$n" = "$im" ] || continue
             printf '%-13s %-26s %s\n' "$n" "$pkgname" "$port"
             t="$(take_of "$n")"
             if [ -n "$t" ]; then
@@ -346,12 +319,7 @@ manifest() {
                 echo "    ${2##*/} sha256 $3 (upstream release $1, ahead of the port: take line of imagemagick.conf)"
             else
                 di="$(pmake "$port" -V DISTINFO_FILE 2>/dev/null)"
-                for d in $(pmake "$port" -V DISTFILES 2>/dev/null); do
-                    d="${d%%:*}"
-                    awk -v d="$d" '$1 == "SHA256" { f = $2; gsub(/[()]/, "", f); b = f; sub(/.*\//, "", b)
-                        if (b == d) print "    " f " sha256 " $4 }' "$di"
-                done
-                for d in $(pmake "$port" -V PATCHFILES 2>/dev/null); do
+                for d in $(pmake "$port" -V DISTFILES 2>/dev/null) $(pmake "$port" -V PATCHFILES 2>/dev/null); do
                     d="${d%%:*}"
                     awk -v d="$d" '$1 == "SHA256" { f = $2; gsub(/[()]/, "", f); b = f; sub(/.*\//, "", b)
                         if (b == d) print "    " f " sha256 " $4 }' "$di"
@@ -364,22 +332,29 @@ manifest() {
             done
         done < "$res/built.txt"
         echo
-        echo "configure (after --prefix=$pfx and the flags):"
+        echo "configure (after --prefix=$A and the flags):"
         { conf_opts configure; conf_opts "configure$v"; } | sed 's/^/    /'
         echo
+        if [ "$v" = 6 ]; then
+            echo "Programs: bin/*6 (convert6, identify6, mogrify6, composite6, ...)."
+        else
+            echo "Programs: bin/magick and the names linked to it (convert, identify, mogrify, composite, ...);"
+            echo "for imagick of PHP: lib/libMagickCore-7.Q16HDRI.a, lib/libMagickWand-7.Q16HDRI.a, include/ImageMagick-7,"
+            echo "bin/MagickWand-config (the static link line)."
+        fi
         echo "Policy: etc/ImageMagick-$v/policy.xml (freebsd/imagemagick/policy.xml)."
-        echo "Licences in LICENSES/. Sources: the distfiles above (their SHA-256), the patches of the ports at"
-        echo "the commit above and tools/build-imagemagick.sh of https://github.com/azsupport/php-src"
+        echo "Licences: LICENSES/ImageMagick$v-*. Sources: the distfiles above (their SHA-256), the patches of the"
+        echo "port at the commit above and tools/build-imagemagick.sh of https://github.com/azsupport/php-src"
         echo "(freebsd/imagemagick.conf)."
-    } > "$pfx/VERSIONS"
+    } > "$res/$im.VERSIONS"
 }
 
 # The programs: PIE, RELRO, BIND_NOW, libraries of the base system only.
 check_bins() {
-    im="$1"; pfx="$(prefix_of "$im")"
-    case "$im" in imagemagick6) progs="convert identify mogrify composite" ;; *) progs="magick" ;; esac
+    im="$1"
+    case "$im" in imagemagick6) progs="convert6 identify6 mogrify6 composite6" ;; *) progs="magick" ;; esac
     for b in $progs; do
-        f="$pfx/bin/$b"
+        f="$A/bin/$b"
         [ -x "$f" ] || { echo "$im $b: missing" >> "$res/bins-bad.txt"; continue; }
         type="$(readelf -h "$f" | awk '/Type:/ { print $2 }')"
         relro="$(readelf -l "$f" | grep -c GNU_RELRO)"
@@ -392,10 +367,46 @@ check_bins() {
         [ "$relro" -gt 0 ] || echo "$im $b: no RELRO" >> "$res/bins-bad.txt"
         [ "$now" -gt 0 ] || echo "$im $b: no BIND_NOW" >> "$res/bins-bad.txt"
     done
-    case "$im" in imagemagick6) "$pfx/bin/convert" -version ;; *) "$pfx/bin/magick" -version ;; esac > "$res/$im-version.txt" 2>&1
+    case "$im" in imagemagick6) "$A/bin/convert6" -version ;; *) "$A/bin/magick" -version ;; esac > "$res/$im-version.txt" 2>&1
 }
 
-mkdir -p "$res" "$work" "$dist"
+# imagick of PHP links the static libraries of ImageMagick 7 in, with the line of
+# MagickWand-config: a program (and a shared object, as libphp.so) that does so,
+# run once; it has to find HEIC among the formats (libheif, the policy).
+imagick_link_test() {
+    t="$work/imagick-link"
+    rm -rf "$t"; mkdir -p "$t"
+    cat > "$t/t.c" <<'EOF'
+#include <stdio.h>
+#include <string.h>
+#include <MagickWand/MagickWand.h>
+int main(void)
+{
+    size_t n = 0, i, heic = 0;
+    char **f;
+    MagickWandGenesis();
+    f = MagickQueryFormats("*", &n);
+    for (i = 0; i < n; i++)
+        if (strcmp(f[i], "HEIC") == 0)
+            heic = 1;
+    printf("%s; %zu formats; HEIC %s\n", MagickGetVersion(NULL), n, heic ? "yes" : "no");
+    MagickWandTerminus();
+    return heic ? 0 : 1;
+}
+EOF
+    cf="$("$A/bin/MagickWand-config" --cflags)" && lf="$("$A/bin/MagickWand-config" --libs)" || return 1
+    {
+        echo "MagickWand-config --cflags: $cf"
+        echo "MagickWand-config --libs: $lf"
+        # shellcheck disable=SC2086
+        cc $CFLAGS $cf -o "$t/t" "$t/t.c" $lf && "$t/t" &&
+            cc -shared $CFLAGS $cf -o "$t/t.so" "$t/t.c" $lf -Wl,--no-undefined &&
+            echo "shared object: linked" &&
+            echo "libraries of the program: $(ldd "$t/t" | awk 'NR > 1 { print $3 }' | tr '\n' ' ')"
+    } > "$res/imagick-link.txt" 2>&1
+}
+
+mkdir -p "$res" "$work"
 rm -f "$res"/*.tail "$res/bins-bad.txt" "$res/bins.txt"
 : > "$res/summary.txt"; : > "$res/built.txt"
 cpu_model="$(sysctl -n hw.model 2>/dev/null)"
@@ -415,33 +426,37 @@ if [ ! -s "$work/cpu-need" ] || [ -n "$lacks" ]; then
     echo "build-imagemagick: this CPU ${why:-cannot tell the features of} -march=$cputype" >&2
     exit 1
 fi
-ports_checkout || { echo "build-imagemagick: cannot check out freebsd-ports $ports_commit" >> "$res/summary.txt"; exit 1; }
-rm -rf "$L" "$work/licenses"
-mkdir -p "$L"
-rc=0
-for n in $libs_all; do
-    say "$n ($(port_of "$n"))"
-    if ! build_one "$n"; then rc=1; break; fi
+for pc in libpng16 libjpeg libwebp freetype2 fontconfig lcms2 libheif; do
+    if [ ! -f "$A/lib/pkgconfig/$pc.pc" ]; then
+        printf '%-13s FAIL  no %s of the libraries in %s/lib/pkgconfig: build them first (tools/build-deps.sh)\n' libs "$pc" "$A" >> "$res/summary.txt"
+        echo "build-imagemagick: no $A/lib/pkgconfig/$pc.pc; build the libraries first (tools/build-deps.sh)" >&2
+        exit 1
+    fi
 done
-if [ "$rc" = 0 ]; then
-    for im in $ims_all; do
-        say "$im ($(port_of "$im"))"
-        if build_one "$im"; then
-            pfx="$(prefix_of "$im")"
-            manifest "$im"
-            check_bins "$im"
-            if ! grep -q "^$im " "$res/bins-bad.txt" 2>/dev/null; then
-                tarball="$dist/$im-fbsd$major-amd64-$level.tar.xz"
-                tar -cJf "$tarball" -C "$(dirname "$pfx")" "$(basename "$pfx")"
-                sha256 -q "$tarball" > "$tarball.sha256"
-                cp "$pfx/VERSIONS" "$dist/$im-fbsd$major-amd64-$level.VERSIONS.txt"
-                echo "tarball: ${tarball##*/} ($(du -Ak "$tarball" | cut -f1) KB, $(du -sk "$pfx" | cut -f1) KB unpacked)" >> "$res/summary.txt"
-            else
-                rc=1
-            fi
+ports_checkout || { echo "build-imagemagick: cannot check out freebsd-ports $ports_commit" >> "$res/summary.txt"; exit 1; }
+rc=0
+for im in $ims_all; do
+    say "$im ($(port_of "$im"))"
+    if build_one "$im"; then
+        manifest "$im"
+        check_bins "$im"
+        if ! grep -q "^$im " "$res/bins-bad.txt" 2>/dev/null; then
+            echo "installed: $im into $A ($(du -sk "$work/stage-$im" | cut -f1) KB staged)" >> "$res/summary.txt"
         else
             rc=1
         fi
-    done
+    else
+        rc=1
+    fi
+done
+if [ "$rc" = 0 ] && grep -q '^im imagemagick7 ' "$conf"; then
+    if imagick_link_test; then
+        printf '%-13s OK    %s\n' imagick "$(grep -m 1 'formats' "$res/imagick-link.txt")" >> "$res/summary.txt"
+    else
+        printf '%-13s FAIL  the static libraries of ImageMagick 7 do not link as imagick links them (imagemagick-results/imagick-link.txt)\n' imagick >> "$res/summary.txt"
+        tail -n 40 "$res/imagick-link.txt" > "$res/imagick.tail"
+        rc=1
+    fi
 fi
+rm -rf "$work/wrk"
 exit "$rc"

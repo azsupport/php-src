@@ -1,45 +1,43 @@
 #!/bin/sh
-# build-ffmpeg.sh - build /usr/local/ffmpeg (ffmpeg and ffprobe) for the video
-# sites from the FreeBSD ports of freebsd/ffmpeg.conf, with only the formats,
-# codecs and protocols listed there (see the head of that file for why).
+# build-ffmpeg.sh - build ffmpeg and ffprobe of /usr/local/az for the video sites
+# from the FreeBSD port of freebsd/ffmpeg.conf, with only the formats, codecs and
+# protocols listed there (see the head of that file for why), against the static
+# libraries of /usr/local/az (tools/build-deps.sh first; tools/build-az.sh runs
+# both, the tests and the packages).
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master):
 #   sh tools/build-ffmpeg.sh --tools    install the build tools (pkg)
-#   sh tools/build-ffmpeg.sh            build the libraries and FFmpeg, then the tarball
+#   sh tools/build-ffmpeg.sh            build FFmpeg
 #
-# As tools/build-deps.sh: for every lib line the ports framework fetches the
-# distfiles of the port at the commit of ffmpeg.conf, checks them against its
-# distinfo, extracts them and applies the port's patches (make patch; FFmpeg then
-# also those of freebsd/ffmpeg/); this script then builds the source tree with its
-# own options. A take line gives a new
-# upstream release instead (with the port's patches, or those of
-# freebsd/deps/<name>-<version>/). x264, dav1d and libwebp go into FFMPEG_WORK
-# (default /var/tmp/ffmpeg-work) as static, position independent libraries;
-# FFmpeg links them in, so that ffmpeg and ffprobe need no library of /usr/local
-# (only libc, libm, libthr and libz of the base system). FFmpeg goes to
-# FFMPEG_PREFIX (default /usr/local/ffmpeg): bin/ffmpeg, bin/ffprobe, VERSIONS
-# and LICENSES/. Results go to ffmpeg-results/ (summary.txt, one log per
-# library), the tarball to dist/ (ffmpeg-fbsd<major>-amd64-<level>.tar.xz,
-# extracted with tar -xf ... -C /usr/local). tools/ffmpeg-test.sh tests it.
+# As tools/build-deps.sh: the ports framework fetches the distfiles of the port at
+# the ports commit of freebsd/deps.conf, checks them against its distinfo,
+# extracts them and applies the port's patches (make patch), then those of
+# freebsd/ffmpeg/; this script then builds the source tree with its own options.
+# A take line gives a new upstream release instead (with the port's patches, or
+# those of freebsd/deps/<name>-<version>/). FFmpeg links x264, dav1d and libwebp
+# of AZ_PREFIX (default /usr/local/az) in, so that ffmpeg and ffprobe need no
+# library of /usr/local (only libc, libm, libthr and libz of the base system), and
+# goes there too: bin/ffmpeg, bin/ffprobe, LICENSES/FFmpeg-*. Its work directory
+# is AZ_WORK/ffmpeg (default /var/tmp/az-work/ffmpeg). Results go to
+# ffmpeg-results/ (summary.txt, the log, VERSIONS). tools/ffmpeg-test.sh tests it.
 #
-# Compiler flags as for PHP and phpdeps: CPUTYPE and CFLAGS of /etc/make.conf
-# with -fstack-protector-strong and -fno-strict-aliasing; FFMPEG_CPUTYPE and
-# FFMPEG_CFLAGS (the inputs of the workflow ffmpeg.yml) win over make.conf
+# Compiler flags as for PHP and the libraries: CPUTYPE and CFLAGS of
+# /etc/make.conf with -fstack-protector-strong and -fno-strict-aliasing;
+# AZ_CPUTYPE and AZ_CFLAGS (the inputs of the workflow az.yml) win over make.conf
 # (MAKE_CONF, default /etc/make.conf); without either: x86-64-v3 and -O3 -pipe.
 # FFmpeg: LTO, PIE, RELRO and BIND_NOW (configure lines of ffmpeg.conf); its own
 # assembly picks the instructions of the CPU at run time.
 #
-# Exit status: 0 everything built, 1 a library or FFmpeg failed, or this CPU
+# Exit status: 0 built, 1 FFmpeg failed, the libraries are not there, or this CPU
 # cannot run the level, 2 usage.
 
 set -u
 top="$(pwd)"
 conf="$top/freebsd/ffmpeg.conf"
-F="${FFMPEG_PREFIX:-/usr/local/ffmpeg}"
-work="${FFMPEG_WORK:-/var/tmp/ffmpeg-work}"
-L="$work/prefix"
+F="${AZ_PREFIX:-/usr/local/az}"
+work="${AZ_WORK:-/var/tmp/az-work}/ffmpeg"
+L="$F"
 res="$top/ffmpeg-results"
-dist="$top/dist"
 ports="${PORTSDIR:-$work/ports}"
 ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 major="$(uname -r | cut -d. -f1)"
@@ -67,38 +65,37 @@ mc_get() {
     ' "$mk_conf"
 }
 
-cputype="${FFMPEG_CPUTYPE:-$(mc_get CPUTYPE)}"
+cputype="${AZ_CPUTYPE:-$(mc_get CPUTYPE)}"
 cputype="${cputype:-x86-64-v3}"
-opt="${FFMPEG_CFLAGS:-$(mc_get CFLAGS)}"
+opt="${AZ_CFLAGS:-$(mc_get CFLAGS)}"
 # shellcheck disable=SC2086
 opt="$(printf '%s\n' ${opt:--O3 -pipe} | grep -v -e '^-march=' -e '^-fPIC$' | tr '\n' ' ' | sed 's/ *$//')"
 level="${cputype#x86-64-}"
-# FFmpeg adds -fPIC itself (--enable-pic); the libraries need it to go into a PIE.
+# FFmpeg adds -fPIC itself (--enable-pic).
 ffcflags="$opt -march=$cputype -fstack-protector-strong -fno-strict-aliasing"
 export CC=cc CXX=c++
 export CFLAGS="$ffcflags -fPIC"
 export CXXFLAGS="$CFLAGS"
 export CPPFLAGS="-I$L/include"
 export LDFLAGS="-L$L/lib"
-# meson puts the .pc files into libdata/pkgconfig on FreeBSD (x264, dav1d), autotools into lib/pkgconfig
-export PKG_CONFIG_LIBDIR="$L/lib/pkgconfig:$L/libdata/pkgconfig:/usr/libdata/pkgconfig"
+export PKG_CONFIG_LIBDIR="$L/lib/pkgconfig:/usr/libdata/pkgconfig"
 unset PKG_CONFIG_PATH
-# LTO (x264 and FFmpeg) puts LLVM bitcode into static archives: their index needs
-# the ar of LLVM, taken by name when ar of the base system is another one.
+# LTO (FFmpeg, and x264 of the libraries) puts LLVM bitcode into static archives:
+# their index needs the ar of LLVM, taken by name when ar of the base system is
+# another one.
 unset AR RANLIB NM
 if ! ar --version 2>/dev/null | grep -q LLVM && command -v llvm-ar >/dev/null 2>&1; then
     export AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm
 fi
 
-ports_commit="$(awk '$1 == "ports" { print $2 }' "$conf")"
-libs_all="$(awk '$1 == "lib" { print $2 }' "$conf")"
-port_of() { awk -v n="$1" '$1 == "lib" && $2 == n { print $3 }' "$conf"; }
+ports_commit="$(awk '$1 == "ports" { print $2 }' "$top/freebsd/deps.conf")"
+libs_all="$(awk '$1 == "program" { print $2 }' "$conf")"
+port_of() { awk -v n="$1" '$1 == "program" && $2 == n { print $3 }' "$conf"; }
 take_of() { awk -v n="$1" '$1 == "take" && $2 == n { print $3, $4, $5, $6 }' "$conf"; }
 conf_opts() { awk '$1 == "configure" { for (i = 2; i <= NF; i++) print $i }' "$conf"; }
 
-# The framework and the ports of ffmpeg.conf, with what they include
-# (multimedia/x264: the master port of libx264; lang/perl5.* and lang/python3*:
-# the version files of USES=perl5 and USES=python).
+# The framework and the port of ffmpeg.conf, with what it includes (lang/perl5.*
+# and lang/python3*: the version files of USES=perl5 and USES=python).
 ports_checkout() {
     if [ "$(git -C "$ports" rev-parse HEAD 2>/dev/null)" = "$ports_commit" ]; then return 0; fi
     say "freebsd-ports at $ports_commit into $ports"
@@ -109,7 +106,7 @@ ports_checkout() {
         git -C "$ports" remote add origin https://github.com/freebsd/freebsd-ports &&
         git -C "$ports" fetch -q --depth 1 --filter=blob:none origin "$ports_commit" &&
         git -C "$ports" sparse-checkout set --no-cone /Mk/ /Templates/ /Keywords/ \
-            $(awk '$1 == "lib" { printf "/%s/ ", $3 }' "$conf") /multimedia/x264/ \
+            $(awk '$1 == "program" { printf "/%s/ ", $3 }' "$conf") \
             '/lang/perl5*/' '/lang/python3*/' &&
         git -C "$ports" checkout -q FETCH_HEAD
 }
@@ -124,32 +121,11 @@ fix_guess() {
         cp "$ports/Templates/${f##*/}" "$f" && chmod a+rx "$f"
     done
 }
-# meson as USES=meson of the ports (release, the optimization of CFLAGS), static
-# and position independent, into $L
-ms() {
-    src="$1"; shift
-    (cd "$src" && meson setup _ffmpeg --prefix="$L" --libdir=lib --buildtype=release -Doptimization=plain \
-        --default-library=static -Db_staticpic=true --wrap-mode=nodownload "$@" &&
-        ninja -C _ffmpeg -j "$ncpu" && ninja -C _ffmpeg install)
-}
-
-# x264 as the port (options ASM, LTO and OPTIMIZED_CFLAGS on), the library only
-b_x264() { ms "$1" -Dcli=false -Dasm=enabled -Db_lto=true; }
-# dav1d as the port, without its tools, tests and examples
-b_dav1d() { ms "$1" -Denable_tools=false -Denable_tests=false -Denable_examples=false; }
-# libwebp as for phpdeps (the libraries of the port, no tools)
-b_webp() {
-    fix_guess "$1"
-    (cd "$1" && ./configure --prefix="$L" --libdir="$L/lib" --enable-static --disable-shared --with-pic \
-        --enable-libwebpdecoder --enable-libwebpdemux --enable-libwebpmux --disable-gl --disable-sdl \
-        --disable-png --disable-jpeg --disable-tiff --disable-gif --disable-wic &&
-        gmake -j"$ncpu" && gmake install)
-}
 # FFmpeg: after the port's patches those of freebsd/ffmpeg/ (in the order of their
 # names), then configure with the options of the script and the configure lines
 # of ffmpeg.conf
 b_ffmpeg() {
-    rm -rf "$F"
+    rm -f "$F/bin/ffmpeg" "$F/bin/ffprobe" "$F"/LICENSES/FFmpeg-*
     for p in "$top"/freebsd/ffmpeg/*.patch; do
         [ -f "$p" ] || continue
         echo "== freebsd/ffmpeg/${p##*/}"
@@ -231,11 +207,6 @@ build_one() {
         src="$(pmake "$port" $targs -V WRKSRC)"
         echo "== source: $src"
         "b_$n" "$src" || exit 1
-        lic="$(ls "$src" | grep -E '^(COPYING|LICENSE|PATENTS)' | head -n 3)"
-        if [ "$n" != ffmpeg ] && [ -n "$lic" ]; then
-            mkdir -p "$work/licenses"
-            for f in $lic; do cp "$src/$f" "$work/licenses/$n-$f"; done
-        fi
     ) > "$log" 2>&1
     rc=$?
     ver="$(pmake "$port" -V PKGVERSION 2>/dev/null)"
@@ -260,7 +231,8 @@ build_one() {
 manifest() {
     {
         echo "FFmpeg for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
-        echo "freebsd-ports $ports_commit; CFLAGS: $ffcflags (libraries: -fPIC)"
+        echo "freebsd-ports $ports_commit; CFLAGS: $ffcflags"
+        echo "x264, dav1d and libwebp: the static libraries of $F (az-libs)"
         echo
         while read -r n pkgname port; do
             printf '%-8s %-24s %s\n' "$n" "$pkgname" "$port"
@@ -291,10 +263,11 @@ manifest() {
         echo "configure (after --prefix=$F, the compiler and the flags):"
         conf_opts | sed 's/^/    /'
         echo
-        echo "Licence: GPL version 2 or later (FFmpeg with --enable-gpl, x264); the licences are in LICENSES/."
-        echo "Sources: the distfiles above (their SHA-256), the patches of the ports at the commit above,"
+        echo "Licence: GPL version 2 or later (FFmpeg with --enable-gpl, x264); the licences are in"
+        echo "LICENSES/ (FFmpeg-*; x264, dav1d and webp: those of az-libs)."
+        echo "Sources: the distfiles above (their SHA-256), the patches of the port at the commit above,"
         echo "freebsd/ffmpeg/ and tools/build-ffmpeg.sh of https://github.com/azsupport/php-src (freebsd/ffmpeg.conf)."
-    } > "$F/VERSIONS"
+    } > "$res/VERSIONS"
 }
 
 # Hardening and links of the programs, for the report and the tests.
@@ -317,7 +290,7 @@ check_bins() {
     "$F/bin/ffmpeg" -hide_banner -version > "$res/version.txt" 2>&1
 }
 
-mkdir -p "$res" "$work" "$dist"
+mkdir -p "$res" "$work"
 rm -f "$res"/*.tail "$res/bins-bad.txt"
 : > "$res/summary.txt"; : > "$res/built.txt"
 cpu_model="$(sysctl -n hw.model 2>/dev/null)"
@@ -337,26 +310,27 @@ if [ ! -s "$work/cpu-need" ] || [ -n "$lacks" ]; then
     echo "build-ffmpeg: this CPU ${why:-cannot tell the features of} -march=$cputype" >&2
     exit 1
 fi
+for pc in x264 dav1d libwebp; do
+    if [ ! -f "$L/lib/pkgconfig/$pc.pc" ]; then
+        printf '%-8s FAIL  no %s of the libraries in %s/lib/pkgconfig: build them first (tools/build-deps.sh)\n' libs "$pc" "$L" >> "$res/summary.txt"
+        echo "build-ffmpeg: no $L/lib/pkgconfig/$pc.pc; build the libraries first (tools/build-deps.sh)" >&2
+        exit 1
+    fi
+done
 ports_checkout || { echo "build-ffmpeg: cannot check out freebsd-ports $ports_commit" >> "$res/summary.txt"; exit 1; }
-rm -rf "$L" "$work/licenses"
-mkdir -p "$L"
 rc=0
 for n in $libs_all; do
     say "$n ($(port_of "$n"))"
     if ! build_one "$n"; then rc=1; break; fi
 done
 if [ "$rc" = 0 ]; then
-    cp "$work"/licenses/* "$F/LICENSES/" 2>/dev/null
     manifest
     check_bins
     if [ ! -s "$res/bins-bad.txt" ]; then
-        tarball="$dist/ffmpeg-fbsd$major-amd64-$level.tar.xz"
-        tar -cJf "$tarball" -C "$(dirname "$F")" "$(basename "$F")"
-        sha256 -q "$tarball" > "$tarball.sha256"
-        cp "$F/VERSIONS" "$dist/ffmpeg-fbsd$major-amd64-$level.VERSIONS.txt"
-        echo "tarball: ${tarball##*/} ($(du -k "$tarball" | cut -f1) KB, $(du -sk "$F" | cut -f1) KB unpacked)" >> "$res/summary.txt"
+        echo "installed: $F/bin/ffmpeg, $F/bin/ffprobe ($(du -k "$F/bin/ffmpeg" | cut -f1) KB, $(du -k "$F/bin/ffprobe" | cut -f1) KB)" >> "$res/summary.txt"
     else
         rc=1
     fi
+    rm -rf "$work/wrk"
 fi
 exit "$rc"

@@ -182,16 +182,12 @@ def tag_version(tag, name=None):
 
 # What is built from FreeBSD ports, each from a conf file of its own: (conf file,
 # name, where it goes, the workflow that builds it, the steps after a take line).
+AZ_STEPS = ("run az.yml (it builds, tests and publishes the packages to `az-fbsd<major>-amd64-<level>-candidate`), "
+            "the build test of PHP against them, a check on a server, then az.yml with `candidate` off.")
 BUNDLES = [
-    ("deps.conf", "phpdeps", "/usr/local/phpdeps", "deps.yml",
-     "run deps.yml with `candidate`, the build test with `deps` and `deps_release` "
-     "`phpdeps-fbsd<major>-candidate`, then deps.yml for `-latest`."),
-    ("ffmpeg.conf", "ffmpeg", "/usr/local/ffmpeg", "ffmpeg.yml",
-     "run ffmpeg.yml (it builds, tests and publishes `ffmpeg-fbsd<major>-candidate`), check it on a "
-     "server, then ffmpeg.yml with `candidate` off for `-latest`."),
-    ("imagemagick.conf", "imagemagick", "/usr/local/imagemagick6 and /usr/local/imagemagick7", "imagemagick.yml",
-     "run imagemagick.yml (it builds, tests and publishes `imagemagick-fbsd<major>-candidate`), check it "
-     "on a server, then imagemagick.yml with `candidate` off for `-latest`."),
+    ("deps.conf", "phpdeps", "/usr/local/az (az-libs, az-curl)", "az.yml", AZ_STEPS),
+    ("ffmpeg.conf", "ffmpeg", "/usr/local/az (az-ffmpeg)", "az.yml", AZ_STEPS),
+    ("imagemagick.conf", "imagemagick", "/usr/local/az (az-imagemagick6, az-imagemagick7)", "az.yml", AZ_STEPS),
 ]
 # Slave ports whose patches and build are in their master port.
 MASTER_PORTS = {"multimedia/libx264": "multimedia/x264"}
@@ -206,13 +202,20 @@ def deps_rows(kind, cfile="deps.conf"):
 
 
 def deps_ports(cfile):
-    """{name: port} of the lib lines and of the im lines (an ImageMagick of
-    imagemagick.conf) of a conf file."""
-    return {r[0]: r[1] for r in deps_rows("lib", cfile) + deps_rows("im", cfile)}
+    """{name: port} of the lib lines, the im lines (an ImageMagick of
+    imagemagick.conf) and the program lines (FFmpeg of ffmpeg.conf) of a conf file."""
+    return {r[0]: r[1] for r in deps_rows("lib", cfile) + deps_rows("im", cfile) + deps_rows("program", cfile)
+            if len(r) > 1}
+
+
+def ports_conf(cfile="deps.conf"):
+    """The conf file that has the ports commit of cfile: its own ports line, else
+    deps.conf (ffmpeg.conf and imagemagick.conf build with the commit of the libraries)."""
+    return cfile if deps_rows("ports", cfile) else "deps.conf"
 
 
 def deps_ports_commit(cfile="deps.conf"):
-    rows = deps_rows("ports", cfile)
+    rows = deps_rows("ports", ports_conf(cfile))
     return rows[0][0] if rows else None
 
 
@@ -309,7 +312,7 @@ def check_bundle_releases(cfile, bundle, prefix, steps):
             "`freebsd/%s` (the release file, its SHA-256 checked against a second source such as a signature "
             "or the checksums of another distribution, the source directory inside it), the patches of the port "
             "checked against it (`tools/deps-take-check.sh`; ones brought up to %s into `freebsd/deps/%s-%s/`), "
-            "and the same steps." % (port, cfile, steps, cfile, newest, name, newest),
+            "and the same steps." % (port, ports_conf(cfile), steps, cfile, newest, name, newest),
         ]
         findings.append({
             "key": "release:%s:%s:%s" % (kb, name, newest),
@@ -344,8 +347,8 @@ def check_takes(git):
                             "(take line). To go back to the port: move the ports commit of `freebsd/%s` to one "
                             "with that version, delete the take line (and `freebsd/deps/%s-%s/`, if there is one "
                             "and no other conf file takes it), set the upstream line to the version of the port, "
-                            "then rebuild %s; the next check closes this issue." % (
-                                port, pv, cfile, name, ver, cfile, name, ver, bundle),
+                            "then rebuild with az.yml; the next check closes this issue." % (
+                                port, pv, cfile, name, ver, ports_conf(cfile), name, ver),
                 })
     return findings, checked
 
@@ -675,7 +678,7 @@ def ports_followed():
             for p in (port, MASTER_PORTS.get(port)):
                 if p and p != "bundle" and p not in listed:
                     listed.add(p)
-                    ports.append((p, commit, "the ports commit of freebsd/%s" % cfile))
+                    ports.append((p, commit, "the ports commit of freebsd/%s" % ports_conf(cfile)))
     seen = set()
     for target, _url, _ref, port, portrev in conf("targets.conf"):
         if port not in seen:
@@ -864,17 +867,12 @@ def port_finding(git, port, rev, kept, commits, moved, base):
         lines += ["The reviewed revision `%s` is older than the fetched history, so these are all "
                   "commits of that time." % rev, ""]
     newest = commits[0][0][:12] if commits else "<new revision>"
-    if kept == "the ports commit of freebsd/ffmpeg.conf":
-        lines += ["After the review: take what FFmpeg needs (patches of the port for a take line into "
-                  "`freebsd/deps/<name>-<version>/`, of multimedia/ffmpeg into `freebsd/ffmpeg/` when they are "
-                  "not the port's own), then move the ports commit of `freebsd/ffmpeg.conf` to `%s` (the ports "
-                  "of FFmpeg and its libraries move with it: rebuild with ffmpeg.yml); the next check closes "
-                  "this issue." % newest]
-    elif kept == "the ports commit of freebsd/deps.conf":
-        lines += ["After the review: take what phpdeps needs (patches of the port for a take line into "
-                  "`freebsd/deps/<name>-<version>/`), then move the ports commit of `freebsd/deps.conf` to `%s` "
-                  "(the ports of all its libraries move with it: rebuild phpdeps); the next check closes this "
-                  "issue." % newest]
+    if kept == "the ports commit of freebsd/deps.conf":
+        lines += ["After the review: take what /usr/local/az needs (patches of the port for a take line into "
+                  "`freebsd/deps/<name>-<version>/`, of multimedia/ffmpeg into `freebsd/ffmpeg/` and of the "
+                  "ImageMagick ports into `freebsd/imagemagick/` when they are not the port's own), then move "
+                  "the ports commit of `freebsd/deps.conf` to `%s` (the ports of all the libraries, FFmpeg and "
+                  "ImageMagick move with it: rebuild with az.yml); the next check closes this issue." % newest]
     else:
         lines += ["After the review: take what we need into `freebsd/pecl/` (or `freebsd/patches/<target>/` "
                   "for lang ports), then set the reviewed revision (%s) of `%s` to `%s`; the next check "
