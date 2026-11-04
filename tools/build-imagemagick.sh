@@ -197,7 +197,8 @@ b_im() {
         ./configure --prefix="$I" LDFLAGS="$LDFLAGS -pie -Wl,-z,relro,-z,now" LIBS="-lc++ -lpthread -lm" \
             PTHREAD_LIBS=-lpthread $(conf_opts configure) $(conf_opts "configure$v") &&
             gmake -j"$ncpu" && gmake install-strip DESTDIR="$st"
-    ) || return 1
+    ) || { echo "== configure, gmake or gmake install-strip failed ($(df -h "$work" | awk 'NR == 2 { print $4 " free" }'))"; return 1; }
+    echo "== installed into $st"
     cp "$src/config.log" "$res/$n-config.log" 2>/dev/null
     s="$st$I"
     [ -d "$s/bin" ] || { echo "== nothing was installed into $s"; return 1; }
@@ -309,7 +310,12 @@ build_one() {
         printf '%s %s %s\n' "$n" "$pkgname" "$port" >> "$res/built.txt"
     else
         printf '%-13s FAIL  %-20s %-22s %4ss (imagemagick-results/%s.log)\n' "$n" "$ver" "$port" "$(( $(date +%s) - start ))" "$n" >> "$res/summary.txt"
-        tail -n 40 "$log" > "$res/$n.tail"
+        {
+            tail -n 40 "$log"
+            echo "== disk: $(df -h "$work" | awk 'NR == 2 { print $4 " free of " $2 }')"
+            echo "== errors in the log:"
+            grep -n -E '\*\*\*|Error [0-9]+|No space|[Ee]rror:' "$log" | tail -n 20
+        } > "$res/$n.tail"
     fi
     say "$n: $(tail -n 1 "$res/summary.txt" | awk '{ print $2 }')"
     return "$rc"
@@ -375,7 +381,7 @@ check_bins() {
         now="$(readelf -d "$f" | grep -c -E 'BIND_NOW|FLAGS_1.*NOW')"
         libs="$(ldd "$f" | awk 'NR > 1 { print $3 }' | tr '\n' ' ' | sed 's/ *$//')"
         printf '%s %s: %s KB, ELF type %s, RELRO %s, BIND_NOW %s; libraries: %s\n' "$im" "$b" \
-            "$(du -k "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/bins.txt"
+            "$(du -Ak "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/bins.txt"
         case "$libs" in *"/usr/local/"*) echo "$im $b: links a library of /usr/local" >> "$res/bins-bad.txt" ;; esac
         [ "$type" = DYN ] || echo "$im $b: not a PIE (ELF type $type)" >> "$res/bins-bad.txt"
         [ "$relro" -gt 0 ] || echo "$im $b: no RELRO" >> "$res/bins-bad.txt"
@@ -419,10 +425,12 @@ for im in $ims_all; do
         manifest "$im"
         check_bins "$im"
         if ! grep -q "^$im " "$res/bins-bad.txt" 2>/dev/null; then
-            echo "installed: $im into the stage $stage/ImageMagick${im#imagemagick} ($(du -sk "$stage/ImageMagick${im#imagemagick}" | cut -f1) KB)" >> "$res/summary.txt"
+            echo "installed: $im into the stage $stage/ImageMagick${im#imagemagick} ($(du -Ask "$stage/ImageMagick${im#imagemagick}" | cut -f1) KB)" >> "$res/summary.txt"
         else
             rc=1
         fi
+        # its work directory, for the space of the next one
+        rm -rf "$work/wrk"
     else
         rc=1
     fi

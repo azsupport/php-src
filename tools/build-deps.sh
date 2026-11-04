@@ -633,7 +633,7 @@ build_curl_program() {
             now="$(readelf -d "$f" | grep -c -E 'BIND_NOW|FLAGS_1.*NOW')"
             libs="$(ldd "$f" 2>/dev/null | awk 'NF > 2 && $2 == "=>" { print $3 }' | tr '\n' ' ' | sed 's/ *$//')"
             printf '%s: %s KB, ELF type %s, RELRO %s, BIND_NOW %s; libraries: %s\n' "$b" \
-                "$(du -k "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/curl-bins.txt"
+                "$(du -Ak "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/curl-bins.txt"
             case "$libs" in *"/usr/local/"*) echo "$b: links a library of /usr/local" >> "$res/bins-bad.txt" ;; esac
             [ "$type" = DYN ] || echo "$b: not position independent (ELF type $type)" >> "$res/bins-bad.txt"
             [ "$relro" -gt 0 ] || echo "$b: no RELRO" >> "$res/bins-bad.txt"
@@ -699,7 +699,9 @@ manifest
 # Known vulnerabilities of these versions (FreeBSD VuXML), for the report.
 pkg audit -F -q $(awk '{ print $2 }' "$res/built.txt") > "$res/audit.txt" 2>&1 || true
 if [ "$rc" = 0 ] && [ ! -s "$res/pic.txt" ] && [ ! -s "$res/links.txt" ] && [ ! -s "$res/bins-bad.txt" ]; then
-    echo "installed: $P ($(du -sk "$P" | cut -f1) KB)" >> "$res/summary.txt"
+    echo "installed: $P ($(du -Ask "$P" | cut -f1) KB)" >> "$res/summary.txt"
+    # the work directories of the ports, for the space of what is built after
+    rm -rf "$work/wrk"
 else
     rc=1
 fi

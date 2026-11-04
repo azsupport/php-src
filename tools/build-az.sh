@@ -101,16 +101,26 @@ part() { printf '%-16s %s\n' "$1" "$2" >> "$res/summary.txt"; }
 pok=0; pbad=0
 tpass() { echo "ok    $*" >> "$res/tests.txt"; pok=$((pok + 1)); }
 tfail() { echo "FAIL  $*" >> "$res/tests.txt"; pbad=$((pbad + 1)); }
+# space <after what>: the free space of the work directory, into the summary
+space() {
+    d="$work"; [ -d "$d" ] || d=/var/tmp
+    f="$(df -h "$d" | awk 'NR == 2 { print $4 " free of " $2 " (" $5 " used, " $6 ")" }')"
+    say "disk after $1: $f"
+    printf '%-16s %s\n' "disk" "after $1: $f" >> "$res/summary.txt"
+}
 
 # --- the builds ---------------------------------------------------------------------
 rc=0
 say "libraries and the curl program (tools/build-deps.sh)"
 if sh "$top/tools/build-deps.sh"; then part libraries OK; else part libraries FAIL; rc=1; fi
+space "the libraries"
 if [ "$rc" = 0 ]; then
     say "FFmpeg (tools/build-ffmpeg.sh)"
     if sh "$top/tools/build-ffmpeg.sh"; then part ffmpeg OK; else part ffmpeg FAIL; rc=1; fi
+    space "FFmpeg"
     say "ImageMagick 6 and 7 (tools/build-imagemagick.sh)"
     if sh "$top/tools/build-imagemagick.sh"; then part imagemagick OK; else part imagemagick FAIL; rc=1; fi
+    space "ImageMagick"
 fi
 if [ "$rc" != 0 ]; then
     echo "not packaged: a part failed (its results say why)" >> "$res/summary.txt"
@@ -302,7 +312,7 @@ echo "tests: $pok ok, $pbad failed" >> "$res/tests.txt"
     cat "$res/packages.txt"
 } >> "$res/summary.txt"
 if [ "$pbad" = 0 ] && [ "$rc" = 0 ]; then
-    echo "repo: ${repo#"$top"/} ($(du -sk "$repo" | cut -f1) KB): $(ls "$repo" | wc -l | tr -d ' ') files" >> "$res/summary.txt"
+    echo "repo: ${repo#"$top"/} ($(du -Ask "$repo" | cut -f1) KB): $(ls "$repo" | wc -l | tr -d ' ') files" >> "$res/summary.txt"
 else
     rc=1
 fi
