@@ -202,22 +202,30 @@ b_libheif() {
         -DWITH_OPENJPH_DECODER=OFF -DWITH_OPENJPH_ENCODER=OFF -DWITH_KVAZAAR=OFF -DWITH_UVG266=OFF \
         -DWITH_VVDEC=OFF -DWITH_VVENC=OFF -DWITH_UNCOMPRESSED_CODEC=OFF
 }
-# One ImageMagick: configure with the lines of the conf (configure, configure6 or
-# configure7), static programs (PIE, RELRO, BIND_NOW), the policy of
-# freebsd/imagemagick/policy.xml; only the programs and their configuration stay.
+# One ImageMagick: after the port's patches those of freebsd/imagemagick/<name>-*.patch,
+# configure with the lines of the conf (configure, configure6 or configure7), static
+# programs (PIE, RELRO, BIND_NOW; stripped), the policy of
+# freebsd/imagemagick/policy.xml; only the programs and their configuration stay
+# (not conjure: it runs MSL scripts, which need libxml2).
 b_im() {
     n="$1"; src="$2"; pfx="$(prefix_of "$n")"; v="${n#imagemagick}"
     [ -n "$pfx" ] || { echo "== no prefix for $n"; return 1; }
     rm -rf "$pfx"
+    for p in "$top"/freebsd/imagemagick/"$n"-*.patch; do
+        [ -f "$p" ] || continue
+        echo "== freebsd/imagemagick/${p##*/}"
+        patch -p1 -N -s -d "$src" < "$p" || { echo "== ${p##*/} does not apply"; return 1; }
+    done
     fix_guess "$src"
     (
         cd "$src" || exit 1
         # shellcheck disable=SC2046
         ./configure --prefix="$pfx" LDFLAGS="$LDFLAGS -pie -Wl,-z,relro,-z,now" LIBS="-lc++ -lpthread -lm" \
             PTHREAD_LIBS=-lpthread $(conf_opts configure) $(conf_opts "configure$v") &&
-            gmake -j"$ncpu" && gmake install
+            gmake -j"$ncpu" && gmake install-strip
     ) || return 1
     cp "$src/config.log" "$res/$n-config.log" 2>/dev/null
+    rm -f "$pfx/bin/conjure"
     cp "$top/freebsd/imagemagick/policy.xml" "$pfx/etc/ImageMagick-$v/policy.xml" || return 1
     rm -rf "$pfx/include" "$pfx/lib/pkgconfig" "$pfx/share/doc" "$pfx/share/man"
     rm -f "$pfx"/lib/*.a "$pfx"/lib/*.la "$pfx"/bin/*-config
@@ -351,6 +359,9 @@ manifest() {
             fi
             np="$(port_patches "$port")"
             [ "$np" -gt 0 ] && echo "    $np patches of the port"
+            for p in "$top"/freebsd/imagemagick/"$n"-*.patch; do
+                [ -f "$p" ] && echo "    freebsd/imagemagick/${p##*/}: $(head -n 1 "$p")"
+            done
         done < "$res/built.txt"
         echo
         echo "configure (after --prefix=$pfx and the flags):"
