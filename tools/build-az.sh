@@ -293,13 +293,16 @@ int main(void)
     return heic ? 0 : 1;
 }
 EOF
+# environ comes from the program that loads a shared object (crt1.o of httpd, php),
+# not from libc.so: for the link of the shared object with --no-undefined, a weak one
+printf '%s\n' 'char **environ __attribute__((weak));' > "$t/env.c"
 if cf="$("$A/bin/MagickWand-config" --cflags)" && lf="$("$A/bin/MagickWand-config" --libs)" &&
     {
         echo "MagickWand-config --cflags: $cf"
         echo "MagickWand-config --libs: $lf"
         # shellcheck disable=SC2086
         cc -O2 -fPIC $cf -o "$t/t" "$t/t.c" $lf && "$t/t" &&
-            cc -O2 -fPIC -shared $cf -o "$t/t.so" "$t/t.c" $lf -Wl,--no-undefined &&
+            cc -O2 -fPIC -shared $cf -o "$t/t.so" "$t/t.c" "$t/env.c" $lf -Wl,--no-undefined &&
             echo "shared object: linked" &&
             echo "libraries of the program: $(ldd "$t/t" | awk 'NF > 2 && $2 == "=>" { print $3 }' | tr '\n' ' ')"
     } > "$res/imagick-link.txt" 2>&1; then
