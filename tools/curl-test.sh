@@ -1,10 +1,11 @@
 #!/bin/sh
 # curl-test.sh - test the package curl of tools/build-az.sh, installed in the place
-# of that of the ports (tools/build-deps.sh, the line "program curl" of
-# freebsd/deps.conf): the version and features of the bundled curl
-# (freebsd/curl/build-libcurl.sh: the OpenSSL of /usr/local/az, c-ares, HTTP/2,
-# brotli, zstd, IDN, the Public Suffix List; no IMAP, POP3, SMTP, LDAP, telnet,
-# TFTP, DICT, gopher, MQTT, RTSP), a file:// read, an https:// request to
+# of that of the ports (tools/build-deps.sh, build_curl_program; the line "program
+# curl" of freebsd/deps.conf): its version and features, those of the port ftp/curl
+# (the OpenSSL of /usr/local/az, the threaded resolver, HTTP/2, brotli, zstd, IDN,
+# the Public Suffix List, NTLM; the protocols of the port: DICT, FTP, gopher, HTTP,
+# IMAP, IPFS, MQTT, POP3, RTSP, SMTP, telnet, TFTP, WebSocket; no LDAP, SCP and
+# SFTP), a file:// read, an https:// request to
 # github.com (HTTP/2, the CA store of the base system), and libcurl.so: with the
 # libraries of the base system only, and taken by git (git ls-remote over https).
 #
@@ -38,18 +39,19 @@ first="$(head -n 1 "$T/version.txt")"
 feats=" $(sed -n 's/^Features: //p' "$T/version.txt") "
 protos=" $(sed -n 's/^Protocols: //p' "$T/version.txt") "
 case "$first" in *"OpenSSL/3."*) pass "TLS: $(echo "$first" | grep -o 'OpenSSL/[^ ]*')" ;; *) fail "not the OpenSSL 3 of the tree: $first" ;; esac
-case "$first" in *"c-ares/"*) pass "resolver: $(echo "$first" | grep -o 'c-ares/[^ ]*')" ;; *) fail "no c-ares: $first" ;; esac
+# the threaded resolver of the port (AsynchDNS among the features), not c-ares (the curl of PHP)
+case "$first" in *"c-ares/"*) fail "c-ares: the package curl has the threaded resolver of the port: $first" ;; *) pass "resolver: threaded" ;; esac
 miss=""
-for f in alt-svc AsynchDNS brotli HSTS HTTP2 HTTPS-proxy IDN IPv6 libz PSL SSL zstd; do
+for f in alt-svc AsynchDNS brotli HSTS HTTP2 HTTPS-proxy IDN IPv6 libz NTLM PSL SSL zstd; do
     case "$feats" in *" $f "*) ;; *) miss="$miss $f" ;; esac
 done
 if [ -z "$miss" ]; then pass "features:$feats"; else fail "features missing:$miss (have:$feats)"; fi
 extra=""
-for p in dict gopher imap imaps ldap ldaps mqtt pop3 pop3s rtsp smtp smtps telnet tftp; do
+for p in ldap ldaps scp sftp; do
     case "$protos" in *" $p "*) extra="$extra $p" ;; esac
 done
 miss=""
-for p in file ftp ftps http https; do
+for p in dict file ftp ftps gopher gophers http https imap imaps ipfs ipns mqtt pop3 pop3s rtsp smtp smtps telnet tftp ws wss; do
     case "$protos" in *" $p "*) ;; *) miss="$miss $p" ;; esac
 done
 if [ -z "$miss$extra" ]; then pass "protocols:$protos"; else fail "protocols:$protos (missing:${miss:- -}; not wanted:${extra:- -})"; fi

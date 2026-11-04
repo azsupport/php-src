@@ -452,7 +452,7 @@ sources of every branch:
 
 **BUILD** in the main menu builds PHP with the choices, makes the package `phpXY` of
 it and offers to install it (`pkg add`). It needs the packages of az the choices link
-with (`az-libs`; `curl` for the curl of az, `ImageMagick7` for imagick) and installs
+with (`az-libs`, which has the curl of PHP; `ImageMagick7` for imagick) and installs
 them first; outside a source tree it fetches the tarball of the version. By hand,
 inside the source tree after `config-check.sh`, build with the script the menu writes
 instead of `config.installed.sh`:
@@ -496,7 +496,7 @@ Without dialogs: `sh az-menu.sh --batch --template=roundcube`.
 | `lib/php84`, `include/php84`, `share/php84` | the rest of PHP (`phpize84` and `php-config84` take them) |
 
 The files of `etc` are kept when changed (`@config`). The package depends on the
-packages of az it is linked with (`az-libs`, `curl`, `ImageMagick7`), and its
+packages of az it is linked with (`az-libs`, `ImageMagick7`), and its
 annotations have the configure options and `CFLAGS` (`pkg info -A php84`).
 
 | Template | PHP | For |
@@ -525,11 +525,11 @@ The button Options on PDO, and the screen it opens:
 <p><img src="docs/images/menu-roundcube-options.png" alt="The button Options on PDO" width="800"></p>
 <p><img src="docs/images/menu-roundcube-pdo.png" alt="The drivers of PDO" width="800"></p>
 
-The extensions with the `roundcube` template, and of the bare build (the defaults:
-the CLI and OPcache only):
+The extensions with the `roundcube` template, and of the base build (the defaults:
+the CLI and OPcache, redis with igbinary and zstd, memcached without SASL):
 
 <p><img src="docs/images/menu-roundcube-ext.png" alt="Extensions with the roundcube template" width="800"></p>
-<p><img src="docs/images/menu-bare-ext.png" alt="Extensions of the bare build" width="800"></p>
+<p><img src="docs/images/menu-bare-ext.png" alt="Extensions of the base build" width="800"></p>
 
 <details>
 <summary>More screens: where to start, the build options, the main menu, the scripts</summary>
@@ -576,7 +576,7 @@ longer needed.
 | Builds | the `-latest` tarballs with the configure options of our servers, the bundled curl (`--with-curl=bundled`) and `--with-openssl-legacy-provider` |
 | Checks | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (parse errors, DNS and IPv6, `tls://`, `ssl://` and `https://`, the OpenSSL legacy ciphers, `openssl_seal()`, GD with FreeType, XML, sessions, the bundled curl, the php2shell fix when a script goes over `memory_limit` and more) and a part of the PHP test suite |
 | Result | per version, on the run page |
-| With the packages of az | the input `az`: against the static libraries of the packages `az-libs`, `curl` and `ImageMagick7` of the repository az (`az_release`: its release, by default `az-fbsd<major>-amd64-v3`), in the layout of the packages |
+| With the packages of az | the input `az`: against the static libraries of the packages `az-libs` and `ImageMagick7` of the repository az (`az_release`: its release, by default `az-fbsd<major>-amd64-v3`), in the layout of the packages |
 | On a FreeBSD machine | the same script, from a checkout of this branch with the tarballs in `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` installs the packages, `sh tools/build-test.sh --tests 5.6 7.4` builds and checks; the presets are in [`tools/build-test.sh`](tools/build-test.sh) |
 
 ### Bundled PECL extensions
@@ -738,7 +738,7 @@ How it is built and used:
 | The system libcurl | plain `--with-curl` still takes it |
 | OpenSSL | curl 8.18.0 and later need OpenSSL 3.0 or later. FreeBSD 13.x has OpenSSL 1.1.1 in its base system, so there `config-check.sh` keeps `--with-curl` (the curl package) and says why; on FreeBSD 14 and 15 it writes `--with-curl=bundled` |
 | Security fixes | of curl or of one of its libraries reach PHP with a rebuild: the daily [upstream check](#upstream-check) opens an issue for each new release (the tags of their repositories), for changes of their FreeBSD ports, and when a port takes a release file the bundle has not (its distinfo). A release comes with its port; before it only for a vulnerability that touches us, or a bug we have: the release issues name the CVE and GHSA ids of the release notes |
-| The packages of az | [`tools/build-deps.sh`](tools/build-deps.sh) builds curl and these libraries from the same files the same way, static, into `/usr/local/az`: the PHP packages of az link them (`--with-curl=/usr/local/az`), and the package `curl` has `bin/curl` and `lib/libcurl.so.4` of them, in the place of those of the port ([Packages](#packages-the-repository-az)) |
+| The packages of az | [`tools/build-deps.sh`](tools/build-deps.sh) builds curl and these libraries from the same files the same way, static, into `/usr/local/az` (the package `az-libs`): the PHP packages of az link them (`--with-curl=/usr/local/az`). The package `curl` (`bin/curl`, `lib/libcurl.so.4`, in the place of those of the port) is a build of its own of the same release with the options of the port, apart from it ([Packages](#packages-the-repository-az)) |
 
 The options are those of the FreeBSD port, with these differences:
 
@@ -818,12 +818,12 @@ of the release `az-fbsd15-amd64-v3` (or `-v2`) of this fork.
 
 | Package | Origin | What it has |
 |---|---|---|
-| `curl` | `ftp/curl` | `bin/curl` and `lib/libcurl.so.4` (git and the other programs that take libcurl keep working): the curl of PHP with its libraries ([Bundled curl](#bundled-curl)), without IMAP, POP3, SMTP, LDAP and NTLM |
+| `curl` | `ftp/curl` | `bin/curl` and `lib/libcurl.so.4` (git and the other programs that take libcurl keep working): a build of its own with the options of the port (its protocols, HTTP/2, NTLM, IDN, PSL, brotli, zstd, the threaded resolver), without SCP and SFTP (libssh2) and GSSAPI; PHP does not need it |
 | `ffmpeg` | `multimedia/ffmpeg` | `bin/ffmpeg`, `bin/ffprobe`: [FFmpeg for the video sites](#ffmpeg-for-the-video-sites) |
 | `ImageMagick6` | `graphics/ImageMagick6` | `bin/convert6`, `bin/identify6`, `bin/mogrify6`, `bin/composite6`, ...: [ImageMagick 6 and 7](#imagemagick-6-and-7-for-the-video-sites) |
 | `ImageMagick7` | `graphics/ImageMagick7` | `bin/magick` and the names linked to it (`convert`, `identify`, ...); in `/usr/local/az` its static libraries, for imagick |
 | `php56` ... `php84` | `lang/php56` ... `lang/php84` | PHP of this fork in the layout of [`az-menu.sh`](#az-menush-the-packages-and-what-goes-into-php) (`bin/php84`, `sbin/php-fpm84`, rc.d `php_fpm84`, `etc/php84`, `libphp84.so`): ready ones with the options of the [build test](#build-test-on-freebsd), or built on the server with its own |
-| `az-libs` | `az/libs` | the static libraries of `/usr/local/az` (OpenSSL, the libraries of curl, libxml2, ICU, GD and its formats, x264, dav1d, libheif and the others of [`freebsd/deps.conf`](freebsd/deps.conf)) the others are built with: for a build of PHP on the server; nothing runs from it |
+| `az-libs` | `az/libs` | the static libraries of `/usr/local/az` (OpenSSL, the curl of PHP with only what PHP needs ([Bundled curl](#bundled-curl)) and its libraries, libxml2, ICU, GD and its formats, x264, dav1d, libheif and the others of [`freebsd/deps.conf`](freebsd/deps.conf)) the others are built with: for a build of PHP on the server; nothing runs from it |
 
 On a server, `az-menu.sh --repo` writes the repository for the level of its CPU
 (`/usr/local/etc/pkg/repos/az.conf`) and updates its catalog; the packages then go

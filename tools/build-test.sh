@@ -6,7 +6,7 @@
 #
 # Usage (from the top of a php-src checkout of master):
 #   sh tools/build-test.sh --deps 5.6 7.4        install the packages the presets need
-#   sh tools/build-test.sh --az <dir>            install az-libs, curl and ImageMagick7 from
+#   sh tools/build-test.sh --az <dir>            install az-libs and ImageMagick7 from
 #                                                the repository of pkg in <dir> (az.yml)
 #   sh tools/build-test.sh [--tests] 5.6 7.4     build dist/php-<target>-fbsd-latest.tar.xz
 #
@@ -96,14 +96,14 @@ if [ "${1:-}" = "--deps" ]; then
     deps "$@"
     exit $?
 fi
-# az-libs, curl and ImageMagick7 from the files of a repository of pkg in $2 (the
+# az-libs (with the curl of PHP) and ImageMagick7 from the files of a repository of pkg in $2 (the
 # release az-fbsd<major>-amd64-<level> of az.yml), as the repository az
 if [ "${1:-}" = "--az" ]; then
     d="$(cd "${2:-.}" 2>/dev/null && pwd)"
     [ -n "$d" ] && [ -f "$d/meta.conf" ] || { echo "build-test: no repository of pkg (meta.conf) in ${2:-.}" >&2; exit 1; }
     mkdir -p /usr/local/etc/pkg/repos
     printf 'az: { url: "file://%s", signature_type: "none", priority: 100, enabled: yes }\n' "$d" > /usr/local/etc/pkg/repos/az.conf
-    pkg update -f -r az && env ASSUME_ALWAYS_YES=yes pkg install -y -r az az-libs curl ImageMagick7
+    pkg update -f -r az && env ASSUME_ALWAYS_YES=yes pkg install -y -r az az-libs ImageMagick7
     exit $?
 fi
 run_tests=0

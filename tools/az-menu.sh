@@ -15,8 +15,8 @@
 # https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh, the
 # copy with its version: the top line of every screen and --version show it), it
 # takes the source of the branch from the release freebsd-X.Y-latest of the fork
-# (its SHA-256 checked), and the static libraries PHP is linked with (az-libs, and
-# curl and ImageMagick7 for curl and imagick: their static libraries in
+# (its SHA-256 checked), and the static libraries PHP is linked with (az-libs, with
+# the curl of PHP, and ImageMagick7 for imagick: its static libraries in
 # /usr/local/az) from the repository of pkg of the fork
 # (/usr/local/etc/pkg/repos/az.conf: --repo writes it), builds PHP with the
 # choices, makes the package phpXY of it (which depends on those packages) and
@@ -181,14 +181,14 @@ menu_data() {
 *	I	ext	016	GETTEXT	0	--with-gettext=/usr/local	-	gettext library support	package gettext-runtime
 *	I	ext	017	GMAGICK	0	--with-gmagick=/usr/local	-	GraphicsMagick image library (Gmagick, PECL)	package GraphicsMagick; not with imagick
 *	I	ext	018	GMP	0	--with-gmp=/usr/local	-	GNU MP support	package gmp
-5.6	I	ext	019	HASH	0	--enable-hash	-	HASH Message Digest Framework	built in from PHP 7.4; mhash: next screen
+5.6	I	ext	019	HASH	1	--enable-hash	-	HASH Message Digest Framework	built in from PHP 7.4; mhash: next screen
 *	I	ext	020	ICONV	0	--with-iconv=/usr/local	-	iconv support	GNU libiconv (package libiconv): //TRANSLIT as on Linux
 *	I	ext	021	IGBINARY	1	--enable-igbinary	-	Binary serializer (igbinary, PECL)	-
 *	I	ext	022	IMAGICK	0	--with-imagick=/usr/local	-	ImageMagick image library (Imagick, PECL)	package ImageMagick7
 5.6-8.3	I	ext	023	IMAP	0	--with-imap=/usr/local	-	IMAP support	package cclient (built with SSL)
 5.6	I	ext	024	INTERBASE	0	--with-interbase=/usr/local	-	Interbase 6 database support (Firebird)	Firebird client package (firebirdNN-client)
 5.6	I	ext	025	INTL	0	--enable-intl --with-icu-dir=/usr/local	-	Internationalization(ICU)	package icu; PHP 5.6 with ICU 7x is untested
-5.6-7.4	I	ext	026	JSON	0	--enable-json	-	JavaScript Object Serialization support	built in from PHP 8.0
+5.6-7.4	I	ext	026	JSON	1	--enable-json	-	JavaScript Object Serialization support	built in from PHP 8.0
 *	I	ext	027	LDAP	0	--with-ldap=/usr/local	-	OpenLDAP support	package openldap26-client
 5.6	I	ext	028	LIBXML	0	--enable-libxml --with-libxml-dir=/usr/local	-	libxml2 support (needed by the XML extensions)	package libxml2
 5.6	I	ext	029	MBSTRING	0	--enable-mbstring	-	multibyte string support	oniguruma built in
@@ -215,7 +215,7 @@ menu_data() {
 *	I	ext	051	READLINE	0	-	-	readline support (CLI only)	only for php -a; library: next screen
 5.6	I	ext	052	RECODE	0	--with-recode=/usr/local	-	recode support	package recode
 *	I	ext	053	REDIS	1	--enable-redis	-	Redis client (phpredis, PECL)	serializers, compression, sessions: next screen
-*	I	ext	054	SESSION	0	--enable-session	-	session support	needed by almost every site
+*	I	ext	054	SESSION	1	--enable-session	-	session support	needed by almost every site
 *	I	ext	055	SHMOP	0	--enable-shmop	-	shmop support	-
 *	I	ext	056	SIMPLEXML	0	--enable-simplexml	-	simplexml support	-
 *	I	ext	057	SNMP	0	--with-snmp=/usr/local	-	SNMP support	package net-snmp
@@ -1625,11 +1625,10 @@ package_php() {
     awk -v c=" $configs " 'index(c, " " $0 " ") { print "@config " $0; next } { print }' "$pl.files" > "$pl"
     # the packages of /usr/local/az it is built with, and the options
     deps=""
-    for d in az-libs curl ImageMagick7; do
+    for d in az-libs ImageMagick7; do
         pkg info -e "$d" || continue
         case "$d" in
             az-libs) grep -q -- "^PKG_CONFIG='$AZ/bin/pkg-config'" "$out_abs" || continue ;;
-            curl) grep -q -- "^'--with-curl=$AZ'" "$out_abs" || continue ;;
             ImageMagick7) grep -q -- "^'--with-imagick=$AZ'" "$out_abs" || continue ;;
         esac
         deps="$deps $d=$(pkg query %o "$d")=$(pkg query %v "$d")"
@@ -2097,7 +2096,7 @@ defaults() {
     done < "$tmp/dyn"
 }
 defaults
-def_start="the defaults: CLI and OPcache only"
+def_start="the defaults: CLI, OPcache, redis, memcached"
 start="$def_start"
 
 # config.installed.sh: its environment lines and its options, one per line, unquoted
@@ -2493,16 +2492,15 @@ confirm() {
 build_here() {
     [ "$(id -u)" = 0 ] || die "building the package needs root (pkg, a stage for make install)"
     need="az-libs"
-    is_on CURL && need="$need curl"
     is_on IMAGICK && need="$need ImageMagick7"
     missing=""
-    # curl and ImageMagick7 of the repository az (their static libraries are in /usr/local/az)
+    # az-libs (with the curl of PHP) and ImageMagick7 of the repository az (its
+    # static libraries are in /usr/local/az); the package curl is not needed
     for d in $need; do
         if [ "$d" = az-libs ]; then pkg info -e az-libs || missing="$missing az-libs"
         elif [ ! -f "$AZ/share/doc/az-libs/VERSIONS" ]; then missing="$missing $d"
         else
-            case "$d" in curl) f="$AZ/lib/libcurl.a" ;; *) f="$AZ/bin/MagickWand-config" ;; esac
-            [ -e "$f" ] || missing="$missing $d"
+            [ -e "$AZ/bin/MagickWand-config" ] || missing="$missing $d"
         fi
     done
     if [ -n "$missing" ]; then
