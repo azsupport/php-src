@@ -68,8 +68,14 @@ if [ -f "$so" ]; then
     l="$(ldd "$so" 2>/dev/null | awk 'NF > 2 && $2 == "=>" { print $3 }' | tr '\n' ' ')"
     case "$l" in *"/usr/local/"*) fail "libcurl.so.4 links a library of /usr/local: $l" ;; *) pass "libcurl.so.4: $l" ;; esac
     x="$(nm -D --defined-only "$so" | awk 'NF >= 3 && $3 !~ /^(curl_|_init$|_fini$|_edata$|_end$|__bss_start$)/' | head -n 3 | tr '\n' ' ')"
-    if [ -z "$x" ]; then pass "libcurl.so.4 exports curl_* only ($(nm -D --defined-only "$so" | grep -c ' curl_') functions)"
-    else fail "libcurl.so.4 exports more: $x"; fi
+    n="$(nm -D --defined-only "$so" | grep -c ' curl_')"
+    miss=""
+    for f in curl_global_init curl_easy_init curl_easy_setopt curl_easy_perform curl_multi_perform curl_version_info; do
+        nm -D --defined-only "$so" | grep -q " $f\$" || miss="$miss $f"
+    done
+    if [ -n "$x" ]; then fail "libcurl.so.4 exports more than curl_*: $x"
+    elif [ -n "$miss" ] || [ "$n" -lt 50 ]; then fail "libcurl.so.4 exports $n curl_* functions, missing:${miss:- -}"
+    else pass "libcurl.so.4 exports curl_* only ($n functions)"; fi
     # git over https takes it (git-remote-http links libcurl.so.4)
     g="$(ls /usr/local/libexec/git-core/git-remote-http 2>/dev/null)"
     if [ -n "$g" ]; then

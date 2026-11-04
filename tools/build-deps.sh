@@ -598,14 +598,28 @@ build_curl_program() {
         so="libcurl.so.$((VERSIONCHANGE - VERSIONDEL))"
         full="$so.$VERSIONDEL.$VERSIONADD"
         echo "== $full of $P/lib/libcurl.a"
-        cc -shared -o "$r/lib/$full" -Wl,-soname,"$so" -Wl,--whole-archive "$P/lib/libcurl.a" -Wl,--no-whole-archive \
+        # libcurl.a is built with its functions hidden (CURL_STATICLIB, -fvisibility=hidden:
+        # PHP exports none of them): one object of it with curl_* visible again
+        # (tools/elf-export.py), exported by the version script, nothing else
+        lo="$work/libcurl-so"
+        rm -rf "$lo" && mkdir -p "$lo" || exit 1
+        ld -r --whole-archive "$P/lib/libcurl.a" -o "$lo/libcurl.o" || exit 1
+        nv="$(python3 -I "$top/tools/elf-export.py" "$lo/libcurl.o" curl_)" || { echo "== tools/elf-export.py: no curl_* in libcurl.a"; exit 1; }
+        echo "== curl_* made visible: $nv"
+        printf '%s\n' '{' '  global: curl_*;' '  local: *;' '};' > "$lo/libcurl.vers"
+        cc -shared -o "$r/lib/$full" -Wl,-soname,"$so" "$lo/libcurl.o" \
             "$P/lib/libssl.a" "$P/lib/libcrypto.a" "$P/lib/libiconv.a" -lz -lm -lpthread \
-            -Wl,--exclude-libs,libssl.a:libcrypto.a:libiconv.a \
+            -Wl,--exclude-libs,libssl.a:libcrypto.a:libiconv.a -Wl,--version-script="$lo/libcurl.vers" \
             -Wl,-z,relro,-z,now -Wl,--no-undefined || exit 1
         strip --strip-unneeded "$r/lib/$full" || exit 1
         ln -sf "$full" "$r/lib/$so" && ln -sf "$full" "$r/lib/libcurl.so" || exit 1
         bad="$(nm -D --defined-only "$r/lib/$full" | awk 'NF >= 3 && $3 !~ /^(curl_|_init$|_fini$|_edata$|_end$|__bss_start$)/ { print $3 }' | head -n 5 | tr '\n' ' ')"
         [ -z "$bad" ] || { echo "== $full exports more than curl_*: $bad"; exit 1; }
+        n="$(nm -D --defined-only "$r/lib/$full" | grep -c ' curl_')"
+        for f in curl_global_init curl_easy_init curl_easy_setopt curl_easy_perform curl_multi_perform curl_version_info; do
+            nm -D --defined-only "$r/lib/$full" | grep -q " $f\$" || { echo "== $full does not export $f ($n curl_* functions)"; exit 1; }
+        done
+        echo "== $full exports $n curl_* functions"
         cp -R "$P/include/curl" "$r/include/" || exit 1
         sed -e 's|^prefix=.*|prefix=/usr/local|' -e 's|^Libs:.*|Libs: -L${libdir} -lcurl|' \
             -e '/^Libs.private:/d' -e '/^Requires/d' "$P/lib/pkgconfig/libcurl.pc" > "$r/libdata/pkgconfig/libcurl.pc" || exit 1
