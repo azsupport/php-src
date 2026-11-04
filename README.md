@@ -783,9 +783,7 @@ tar -xf ffmpeg-fbsd15-amd64-v3.tar.xz -C /usr/local
 ```
 
 The sites then take `/usr/local/ffmpeg/bin/ffmpeg` and `/usr/local/ffmpeg/bin/ffprobe`
-in their settings (the path of ffprobe on its own: one made from the path of ffmpeg
-by replacing every `ffmpeg` would be `/usr/local/ffprobe/bin/ffprobe`). The `ffmpeg`
-package stays for what else uses it.
+in their settings. The `ffmpeg` package stays for what else uses it.
 
 The workflow [`ffmpeg.yml`](.github/workflows/ffmpeg.yml) ("FFmpeg for the video
 sites") builds it in FreeBSD for x86-64-v3 and v2 with
