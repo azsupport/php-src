@@ -40,6 +40,48 @@ KEYS = {'enter': b'\r', 'down': b'\x1bOB', 'up': b'\x1bOA', 'pgdn': b'\x1b[6~', 
         'right': b'\x1bOC', 'left': b'\x1bOD'}
 
 
+# pkg for the session of the packages: the catalog of the repository az as a server
+# reads it (the versions of a build of az.yml and az-php.yml of 05.11.2026)
+FAKE_PKG = r"""#!/bin/sh
+cat_az() {
+    printf '%s\t%s\t%s\n' \
+        az-libs 20261105_26110500 'Static libraries of /usr/local/az, for builds of PHP and the programs' \
+        curl 8.23.0_26110500 'Command line tool and library for transferring data with URLs (static, of azsupport/php-src)' \
+        ffmpeg 9.0.2_26110500,1 'FFmpeg for the video sites, static (ffmpeg, ffprobe)' \
+        ImageMagick6 6.9.13.59_26110500,1 'ImageMagick 6 for the video sites, static (convert6, identify6, ...)' \
+        ImageMagick7 7.1.2.34_26110500 'ImageMagick 7 for the video sites, static (magick), and its libraries for imagick' \
+        php56 5.6.40_26110500 'PHP 5.6 of azsupport/php-src (php56, php-fpm56, libphp56.so), static' \
+        php74 7.4.33_26110500 'PHP 7.4 of azsupport/php-src (php74, php-fpm74, libphp74.so), static' \
+        php81 8.1.34_26110500 'PHP 8.1 of azsupport/php-src (php81, php-fpm81, libphp81.so), static' \
+        php82 8.2.30_26110500 'PHP 8.2 of azsupport/php-src (php82, php-fpm82, libphp82.so), static' \
+        php83 8.3.29_26110500 'PHP 8.3 of azsupport/php-src (php83, php-fpm83, libphp83.so), static' \
+        php84 8.4.27_26110500 'PHP 8.4 of azsupport/php-src (php84, php-fpm84, libphp84.so), static'
+}
+case "$1" in
+    update) exit 0 ;;
+    query) exit 1 ;;
+    rquery)
+        shift
+        [ "$1" = -r ] && shift 2
+        fmt="$1"; n="${2:-}"
+        case "$fmt" in
+            '%n-%v: %c') cat_az | awk -F '\t' -v n="$n" '$1 == n { print $1 "-" $2 ": " $3 }' ;;
+            '%e')
+                v="${n#php}"; b="${v%?}.${v#?}"
+                echo "PHP $b of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/az." ;;
+            '%At%Av'|'%At	%Av')
+                v="${n#php}"
+                printf 'configure\t%s\n' "--prefix=/usr/local --program-suffix=$v --sysconfdir=/usr/local/etc/php$v --libdir=/usr/local/lib/php$v --includedir=/usr/local/include/php$v --datadir=/usr/local/share/php$v --mandir=/usr/local/share/man --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-curl=/usr/local/az --enable-dom --enable-filter --enable-mbstring --enable-opcache --enable-session --enable-gd --enable-mysqlnd --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-zip --enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd --enable-memcached --with-libmemcached-dir=/usr/local/az --disable-memcached-sasl --with-imagick=/usr/local/az"
+                printf 'cflags\t%s\n' '-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing'
+                printf 'built_by\t%s\n' 'az-menu.sh r16 (b28c3f4391, 05.11.2026 00:34 CET)' ;;
+            '%dn-%dv') printf '%s\n' az-libs-20261105_26110500 curl-8.23.0_26110500 ImageMagick7-7.1.2.34_26110500 ;;
+            *) cat_az ;;
+        esac ;;
+    *) exit 1 ;;
+esac
+"""
+
+
 def color(name, default, bright=False):
     name = ALIASES.get(name, name)
     if name == 'default':
@@ -64,7 +106,7 @@ class Term:
             os.execvpe(argv[0], argv, env)
         self.pid, self.fd = pid, fd
 
-    def settle(self, quiet=0.35, limit=8.0):
+    def settle(self, quiet=1.2, limit=12.0):
         """read until the program is quiet"""
         end = time.time() + limit
         last = time.time()
@@ -94,14 +136,20 @@ class Term:
         return rows
 
     def close(self):
-        try:
-            os.kill(self.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            os.waitpid(self.pid, 0)
-        except ChildProcessError:
-            pass
+        """the menu and the dialog it waits for (its process group, the session of the pty)"""
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(self.pid, sig)
+            except ProcessLookupError:
+                return
+            end = time.time() + 2
+            while time.time() < end:
+                try:
+                    if os.waitpid(self.pid, os.WNOHANG)[0]:
+                        return
+                except ChildProcessError:
+                    return
+                time.sleep(0.05)
 
 
 class Painter:
@@ -177,6 +225,15 @@ def main():
     with open(os.path.join(fake, 'uname'), 'w') as f:
         f.write('#!/bin/sh\ncase "$1" in -p|-m) echo amd64 ;; -r) echo 15.1-RELEASE ;; *) echo FreeBSD ;; esac\n')
     os.chmod(os.path.join(fake, 'uname'), 0o755)
+    # pkg as a server with the repository az sees it: the catalog of az (rquery), the
+    # update, nothing of it installed yet (query)
+    with open(os.path.join(fake, 'pkg'), 'w') as f:
+        f.write(FAKE_PKG)
+    os.chmod(os.path.join(fake, 'pkg'), 0o755)
+    azconf = os.path.join(work, 'az.conf')
+    with open(azconf, 'w') as f:
+        f.write('az: { url: "https://github.com/azsupport/php-src/releases/download/az-fbsd15-amd64-v3", '
+                'signature_type: "none", priority: 100, enabled: yes }\n')
     mkconf = os.path.join(work, 'make.conf')
     with open(mkconf, 'w') as f:
         f.write('CPUTYPE?=x86-64-v3\n')
@@ -185,6 +242,7 @@ def main():
         'LC_ALL': 'C.UTF-8', 'HOME': work, 'DIALOG': args.dialog, 'MAKE_CONF': mkconf,
         'AZ_MENU_DB': '/var/db/az-menu', 'OUT': './config.menu.sh', 'INSTALLED': './config.installed.sh',
         'LINES': str(ROWS), 'COLUMNS': str(COLS), 'TZ': 'Europe/Prague',
+        'AZ_REPO_CONF': azconf, 'AZ_MENU_WORK': os.path.join(work, 'az-menu'),
     }
     menu = ['sh', MENU, '8.4']
 
@@ -214,7 +272,9 @@ def main():
         ('enter', 2.0, None),  # curl: which libcurl
         ('enter', 2.0, None),  # GD options
         ('enter', 2.0, None),  # mbstring options
+        ('enter', 2.0, None),  # php-memcached options (memcached is on by default)
         ('enter', 2.0, None),  # OpenSSL options (PDO was shown already)
+        ('enter', 2.0, None),  # phpredis options (redis is on by default)
         ('enter', 2.5, 'menu-main'),
         ('end', 0.8, None),
         ('up', 2.0, None),
@@ -225,12 +285,37 @@ def main():
         ('enter', 3.0, None),
     ], painter, args.out, env, work)
 
-    # bare PHP: the defaults (CLI and OPcache only)
+    # the packages of az (sh az-menu.sh outside a PHP source tree): ffmpeg,
+    # ImageMagick 7 and the ready php74 ticked (the first page of the list: the
+    # terminal of pyte follows the scrolling of a list badly), then Options on php74
+    fresh()
+    session('menu-packages', ['sh', MENU], [
+        (None, 2.5, None),
+        ('down', 0.5, None),
+        ('down', 0.5, None),
+        (' ', 0.8, None),      # ffmpeg
+        ('down', 0.5, None),
+        ('down', 0.5, None),
+        (' ', 0.8, None),      # ImageMagick7
+        ('down', 0.5, None),   # php56
+        ('down', 0.5, None),   # php56.build
+        ('down', 0.5, None),   # php74, the ready one
+        (' ', 3.0, 'menu-packages'),
+        ('right', 0.8, None),  # the buttons: Cancel,
+        ('right', 2.0, None),  # Options
+        ('enter', 4.0, 'menu-packages-options'),  # what the ready php74 is built with
+        ('enter', 1.5, None),
+        ('esc', 1.0, None),
+    ], painter, args.out, env, work)
+
+    # the defaults: CLI and OPcache; redis (igbinary, zstd) and memcached
     fresh()
     session('menu-bare', menu, [
         (None, 2.0, None),
         ('enter', 2.5, 'menu-bare-core'),
         ('enter', 3.0, 'menu-bare-ext'),
+        ('enter', 2.0, 'menu-bare-memcached'),  # php-memcached options
+        ('enter', 2.5, 'menu-bare-redis'),  # phpredis options
         ('enter', 2.5, None),
         ('end', 0.8, None),
         ('up', 2.0, None),

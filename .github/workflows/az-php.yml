@@ -4,7 +4,7 @@ name: az PHP packages for FreeBSD
 # tarballs of the fork with the presets of the build test (tools/build-test.sh: the
 # configure options of our servers) in the layout of the packages of
 # tools/az-menu.sh (/usr/local, bin/php84, sbin/php-fpm84, etc/php84...), against
-# the static libraries of the packages az-libs, curl and ImageMagick7 of the same
+# the static libraries of the packages az-libs (with the curl of PHP) and ImageMagick7 of the same
 # repository (AZ_BUNDLE=1), with the compiler flags of the servers for an x86-64
 # level; the smoke checks of the build test, then the package of each version
 # (AZ_PACKAGE=1: tools/az-menu.sh --package) installed, all versions side by side,

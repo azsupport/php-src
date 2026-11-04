@@ -23,8 +23,9 @@
 # freebsd/deps/<name>-<version>/. curl and the libraries it needs
 # ("bundle" in deps.conf) are the ones of --with-curl=bundled instead: the
 # release files of freebsd/curl.conf and freebsd/curl-deps.conf (tools/curl-sources.sh),
-# built by freebsd/curl/build-libcurl.sh; the curl program and libcurl.so of the
-# same build go to a stage, for the package curl (the line "program curl", see
+# built by freebsd/curl/build-libcurl.sh, with only what PHP needs; the curl
+# program and libcurl.so of the package curl are a build of their own, with the
+# options of the port ftp/curl, into a stage (the line "program curl", see
 # build_curl_program). All: only static libraries, -fPIC, into
 # AZ_PREFIX (default /usr/local/az), in AZ_WORK/deps (default
 # /var/tmp/az-work/deps); the licences go to LICENSES/. Results go to
@@ -559,8 +560,9 @@ manifest() {
             [ "$np" -gt 0 ] && echo "    $np patches of the port"
         done < "$res/built.txt"
         echo
-        echo "The package curl (tools/build-az.sh): bin/curl and lib/libcurl.so.4 of /usr/local, of the bundled"
-        echo "curl above (the same options and libraries), libcurl.a in $P for the builds of PHP."
+        echo "curl above: the static libcurl.a in $P for the builds of PHP, with only what PHP needs. The package"
+        echo "curl (tools/build-az.sh): bin/curl and lib/libcurl.so.4 of /usr/local, a build of its own of the same"
+        echo "release with the options of the port ftp/curl, against the libraries above."
     } > "$res/VERSIONS"
     mkdir -p "$P/share/doc/az-libs"
     cp "$res/VERSIONS" "$P/share/doc/az-libs/VERSIONS"
@@ -568,48 +570,77 @@ manifest() {
 
 # The curl program and libcurl.so (deps.conf: "program curl"), for the package curl
 # of tools/build-az.sh, which takes the place of the curl of the ports (git and the
-# other packages that link libcurl.so get this one): into the stage AZ_STAGE/curl
-# (default AZ_WORK/stage/curl) as files of /usr/local: bin/curl, the program of the
-# build of libcurl above (freebsd/curl/build-libcurl.sh configured the whole tree
-# in $work/obj-curl/curl and built lib/), static, PIE, RELRO, BIND_NOW, stripped;
-# lib/libcurl.so.4 of the libcurl.a above (curl and its libraries, only curl_*
-# global) with the static OpenSSL of the tree inside, its symbols hidden, so that it
-# needs only libz and libthr of the base system; include/curl/, libcurl.pc,
-# curl-config (--static-libs: the static libcurl of /usr/local/az, for PHP),
-# libcurl.m4, the licence.
+# other packages that link libcurl.so get this one). A build of its own, apart
+# from the curl of PHP above (the static libcurl.a of /usr/local/az, in az-libs,
+# with only what PHP needs): the same release, with the options of the port
+# ftp/curl (its CONFIGURE_ARGS and its default options: the protocols DICT, FTP,
+# GOPHER, HTTP, HTTP/2, IMAP, IPFS, MQTT, POP3, RTSP, SMTP, TELNET, TFTP,
+# WebSocket, NTLM, IDN, PSL, brotli, zstd, the threaded resolver), without SCP and
+# SFTP (libssh2) and GSSAPI, which the libraries of /usr/local/az do not have;
+# against the static libraries of /usr/local/az. Into the stage AZ_STAGE/curl
+# (default AZ_WORK/stage/curl) as files of /usr/local: bin/curl, static, PIE,
+# RELRO, BIND_NOW, stripped; lib/libcurl.so.4 of the libcurl.a of this build
+# (curl_* made visible by tools/elf-export.py and exported, the libraries inside
+# hidden), so that both need only libz and libthr of the base system;
+# include/curl/, libdata/pkgconfig/libcurl.pc, curl-config, libcurl.m4, the
+# manual pages, the licence.
 build_curl_program() {
-    o="$work/obj-curl/curl"
+    ob="$work/obj-curl-sys"
     cs="$work/curl-src/libcurl"
     r="${AZ_STAGE:-${AZ_WORK:-/var/tmp/az-work}/stage}/curl/usr/local"
     log="$res/curl-program.log"
     start=$(date +%s)
     cv="$(bundle_ver curl)"
     (
-        [ -f "$o/src/Makefile" ] || { echo "== no build of curl in $o (build curl first)"; exit 1; }
-        rm -rf "${r%/usr/local}"
-        mkdir -p "$r/bin" "$r/lib" "$r/include" "$r/libdata/pkgconfig" "$r/share/aclocal" "$r/share/licenses/curl" || exit 1
-        rm -f "$o/src/curl"
-        cd "$o/src" && gmake -j"$ncpu" ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=: MAKEINFO=: \
-            LDFLAGS="-L$P/lib -pie -Wl,-z,relro,-z,now" curl || exit 1
-        install -s -m 755 "$o/src/curl" "$r/bin/curl" || exit 1
+        [ -x "$cs/configure" ] || { echo "== no source of curl in $cs (tools/curl-sources.sh)"; exit 1; }
+        rm -rf "$ob" "${r%/usr/local}" "$work/curl-sys-dest"
+        mkdir -p "$ob" "$r/bin" "$r/lib" "$r/libdata/pkgconfig" "$r/share/licenses/curl" || exit 1
+        echo "== configure (the options of the port ftp/curl)"
+        # LIBS: libidn2 of the tree uses the libiconv of the tree
+        (cd "$ob" && LIBS="-liconv" LDFLAGS="-L$P/lib -pie -Wl,-z,relro,-z,now" "$cs/configure" \
+            --prefix=/usr/local --disable-shared --enable-static --with-pic --disable-dependency-tracking \
+            --with-openssl="$P" --enable-openssl-auto-load-config --with-ca-path=/etc/ssl/certs --without-ca-bundle \
+            --enable-threaded-resolver --disable-ares \
+            --with-nghttp2="$P" --with-brotli="$P" --with-zstd="$P" --with-libidn2="$P" --with-libpsl="$P" \
+            --enable-alt-svc --enable-cookies --enable-dict --enable-ftp --enable-file --enable-gopher \
+            --enable-http --enable-imap --enable-ipfs --enable-ipv6 --enable-mqtt --enable-ntlm \
+            --enable-pop3 --enable-proxy --enable-rtsp --enable-smtp --enable-telnet --enable-tftp \
+            --enable-websockets --disable-ldap --disable-ldaps \
+            --without-libssh2 --without-libssh --without-gssapi \
+            --disable-httpsig --disable-unity --disable-werror --enable-aws --enable-dateparse \
+            --enable-dnsshuffle --enable-headers-api --enable-hsts --enable-http-auth --enable-manual \
+            --enable-mime --enable-netrc --enable-progress-meter --enable-ssls-export --enable-typecheck \
+            --without-zsh-functions-dir --without-fish-functions-dir) || exit 1
+        echo "== build"
+        gmake -C "$ob" -j"$ncpu" || exit 1
+        gmake -C "$ob" install-strip DESTDIR="$work/curl-sys-dest" || exit 1
+        d="$work/curl-sys-dest/usr/local"
+        install -s -m 755 "$d/bin/curl" "$r/bin/curl" || exit 1
+        cp -R "$d/include" "$r/" || exit 1
+        [ -d "$d/share/man" ] && { mkdir -p "$r/share" && cp -R "$d/share/man" "$r/share/"; }
+        [ -d "$d/share/aclocal" ] && { mkdir -p "$r/share" && cp -R "$d/share/aclocal" "$r/share/"; }
         # the name of libcurl.so of curl's libtool numbers (lib/Makefile.soname):
         # libcurl.so.<change - del>.<del>.<add>, as the port has it (libcurl.so.4.8.0)
         eval "$(sed -n -E 's/^(VERSIONCHANGE|VERSIONADD|VERSIONDEL)=([0-9]+).*/\1=\2/p' "$cs/lib/Makefile.soname")"
         so="libcurl.so.$((VERSIONCHANGE - VERSIONDEL))"
         full="$so.$VERSIONDEL.$VERSIONADD"
-        echo "== $full of $P/lib/libcurl.a"
-        # libcurl.a is built with its functions hidden (CURL_STATICLIB, -fvisibility=hidden:
-        # PHP exports none of them): one object of it with curl_* visible again
-        # (tools/elf-export.py), exported by the version script, nothing else
+        echo "== $full of the libcurl.a of this build"
+        # libcurl.a is built with its functions hidden (CURL_STATICLIB, -fvisibility=hidden):
+        # one object of it with curl_* visible again (tools/elf-export.py), exported by
+        # the version script, the libraries inside hidden (--exclude-libs)
         lo="$work/libcurl-so"
         rm -rf "$lo" && mkdir -p "$lo" || exit 1
-        ld -r --whole-archive "$P/lib/libcurl.a" -o "$lo/libcurl.o" || exit 1
+        ld -r --whole-archive "$ob/lib/.libs/libcurl.a" -o "$lo/libcurl.o" || exit 1
         nv="$(python3 -I "$top/tools/elf-export.py" "$lo/libcurl.o" curl_)" || { echo "== tools/elf-export.py: no curl_* in libcurl.a"; exit 1; }
         echo "== curl_* made visible: $nv"
         printf '%s\n' '{' '  global: curl_*;' '  local: *;' '};' > "$lo/libcurl.vers"
-        cc -shared -o "$r/lib/$full" -Wl,-soname,"$so" "$lo/libcurl.o" \
-            "$P/lib/libssl.a" "$P/lib/libcrypto.a" "$P/lib/libiconv.a" -lz -lm -lpthread \
-            -Wl,--exclude-libs,libssl.a:libcrypto.a:libiconv.a -Wl,--version-script="$lo/libcurl.vers" \
+        # the static link line of libcurl, without its first word (libcurl.a) and the
+        # flags of programs (-pie, -z relro, -z now)
+        deps="$(sh "$ob/curl-config" --static-libs | tr ' ' '\n' | sed '1d' | grep -v -E '^(-pie|-Wl,-z,.*)$' | tr '\n' ' ')"
+        echo "== the libraries inside: $deps"
+        # shellcheck disable=SC2086
+        cc -shared -o "$r/lib/$full" -Wl,-soname,"$so" "$lo/libcurl.o" $deps -lm -lpthread \
+            -Wl,--exclude-libs,ALL -Wl,--version-script="$lo/libcurl.vers" \
             -Wl,-z,relro,-z,now -Wl,--no-undefined || exit 1
         strip --strip-unneeded "$r/lib/$full" || exit 1
         ln -sf "$full" "$r/lib/$so" && ln -sf "$full" "$r/lib/libcurl.so" || exit 1
@@ -620,22 +651,18 @@ build_curl_program() {
             nm -D --defined-only "$r/lib/$full" | grep -q " $f\$" || { echo "== $full does not export $f ($n curl_* functions)"; exit 1; }
         done
         echo "== $full exports $n curl_* functions"
-        cp -R "$P/include/curl" "$r/include/" || exit 1
-        sed -e 's|^prefix=.*|prefix=/usr/local|' -e 's|^Libs:.*|Libs: -L${libdir} -lcurl|' \
-            -e '/^Libs.private:/d' -e '/^Requires/d' "$P/lib/pkgconfig/libcurl.pc" > "$r/libdata/pkgconfig/libcurl.pc" || exit 1
-        printf '%s\n' '#!/bin/sh' \
-            '# curl-config of libcurl in /usr/local (the package curl of https://github.com/azsupport/php-src:' \
-            '# libcurl.so, the bundled curl of the fork); --static-libs: the static libcurl of /usr/local/az.' \
-            'case "${1:-}" in' \
-            '    --libs) echo "-L/usr/local/lib -lcurl" ;;' \
-            '    --cflags) echo "-I/usr/local/include" ;;' \
-            '    --prefix|--exec-prefix) echo /usr/local ;;' \
-            "    --static-libs) exec $P/bin/curl-config --static-libs ;;" \
-            "    *) exec $P/bin/curl-config.orig \"\$@\" ;;" \
-            'esac' > "$r/bin/curl-config" && chmod 755 "$r/bin/curl-config" || exit 1
-        cp "$cs/docs/libcurl/libcurl.m4" "$r/share/aclocal/" && cp "$cs/COPYING" "$r/share/licenses/curl/COPYING" || exit 1
+        # libcurl.pc and curl-config for libcurl.so: no static libraries in this package
+        pcf="$(ls "$d"/lib/pkgconfig/libcurl.pc "$d"/libdata/pkgconfig/libcurl.pc 2>/dev/null | head -n 1)"
+        [ -n "$pcf" ] || { echo "== no libcurl.pc in $d"; exit 1; }
+        sed -e 's|^Libs:.*|Libs: -L${libdir} -lcurl|' -e '/^Libs.private:/d' -e '/^Requires.private:/d' \
+            "$pcf" > "$r/libdata/pkgconfig/libcurl.pc" || exit 1
+        awk '/^ *--static-libs\)/ { print; print "    echo \"curl-config: the libcurl of this package is libcurl.so only\" >&2"; print "    exit 1"; skip = 1; next }
+            skip && /;;/ { skip = 0 }
+            !skip { print }' "$d/bin/curl-config" > "$r/bin/curl-config" && chmod 755 "$r/bin/curl-config" || exit 1
+        cp "$cs/COPYING" "$r/share/licenses/curl/COPYING" || exit 1
         # the program and libcurl.so as they are, with the libraries of the base system only
         LD_LIBRARY_PATH="$r/lib" "$r/bin/curl" --version > "$res/curl-version.txt" 2>&1 || exit 1
+        cat "$res/curl-version.txt"
     ) > "$log" 2>&1
     rc=$?
     : > "$res/curl-bins.txt"

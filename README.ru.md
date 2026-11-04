@@ -449,7 +449,7 @@ C каждой ветки:
 
 **BUILD** в главном меню собирает PHP с выбранным, делает из него пакет `phpXY` и
 предлагает его поставить (`pkg add`). Ему нужны пакеты az, с которыми линкуется
-выбранное (`az-libs`; `curl` для curl из az, `ImageMagick7` для imagick), — их он ставит
+выбранное (`az-libs`, в нём и curl для PHP; `ImageMagick7` для imagick), — их он ставит
 сначала; вне дерева исходников он скачивает тарбол версии. Вручную, внутри дерева
 исходников после `config-check.sh`, собирайте скриптом, который пишет меню, вместо
 `config.installed.sh`:
@@ -493,7 +493,7 @@ sh config.menu.sh
 | `lib/php84`, `include/php84`, `share/php84` | остальное от PHP (их берут `phpize84` и `php-config84`) |
 
 Файлы из `etc` сохраняются, если их поменяли (`@config`). Пакет зависит от пакетов az,
-с которыми слинкован (`az-libs`, `curl`, `ImageMagick7`), а в его аннотациях — опции
+с которыми слинкован (`az-libs`, `ImageMagick7`), а в его аннотациях — опции
 configure и `CFLAGS` (`pkg info -A php84`).
 
 | Шаблон | PHP | Для чего |
@@ -521,10 +521,10 @@ mbstring и OpenSSL, главное меню и скрипт, который о�
 <p><img src="docs/images/menu-roundcube-options.png" alt="Кнопка Options на PDO" width="800"></p>
 <p><img src="docs/images/menu-roundcube-pdo.png" alt="Драйверы PDO" width="800"></p>
 
-Расширения с шаблоном `roundcube` и у голой сборки (по умолчанию: только CLI и OPcache):
+Расширения с шаблоном `roundcube` и у базовой сборки (по умолчанию: CLI и OPcache, redis с igbinary и zstd, memcached без SASL):
 
 <p><img src="docs/images/menu-roundcube-ext.png" alt="Расширения с шаблоном roundcube" width="800"></p>
-<p><img src="docs/images/menu-bare-ext.png" alt="Расширения голой сборки" width="800"></p>
+<p><img src="docs/images/menu-bare-ext.png" alt="Расширения базовой сборки" width="800"></p>
 
 <details>
 <summary>Ещё экраны: с чего начать, опции сборки, главное меню, скрипты</summary>
@@ -569,7 +569,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | Собирает | тарболы `-latest` с опциями configure наших серверов, встроенным curl (`--with-curl=bundled`) и `--with-openssl-legacy-provider` |
 | Проверяет | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (ошибки разбора, DNS и IPv6, `tls://`, `ssl://` и `https://`, legacy-шифры OpenSSL, `openssl_seal()`, GD с FreeType, XML, сессии, встроенный curl, фикс php2shell при превышении `memory_limit` и другое) и часть тестов PHP |
 | Результат | по каждой версии, на странице запуска |
-| С пакетами az | вход `az`: со статическими библиотеками пакетов `az-libs`, `curl` и `ImageMagick7` из репозитория az (`az_release` — его релиз, по умолчанию `az-fbsd<major>-amd64-v3`), в раскладке пакетов |
+| С пакетами az | вход `az`: со статическими библиотеками пакетов `az-libs` и `ImageMagick7` из репозитория az (`az_release` — его релиз, по умолчанию `az-fbsd<major>-amd64-v3`), в раскладке пакетов |
 | На машине с FreeBSD | тот же скрипт, из checkout этой ветки с тарболами в `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` ставит пакеты, `sh tools/build-test.sh --tests 5.6 7.4` собирает и проверяет; наборы опций — в [`tools/build-test.sh`](tools/build-test.sh) |
 
 ### Встроенные расширения PECL
@@ -728,7 +728,7 @@ PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведё�
 | Системный libcurl | его по-прежнему берёт простой `--with-curl` |
 | OpenSSL | curl 8.18.0 и новее нужен OpenSSL 3.0 или новее. Во FreeBSD 13.x в базовой системе OpenSSL 1.1.1, поэтому там `config-check.sh` оставляет `--with-curl` (пакет curl) и объясняет почему; на FreeBSD 14 и 15 он пишет `--with-curl=bundled` |
 | Исправления безопасности | curl или одной из его библиотек попадают в PHP с пересборкой: ежедневная [проверка апстрима](#проверка-апстрима) открывает issue на каждый новый релиз (теги их репозиториев), на изменения их портов FreeBSD и когда порт взял файл релиза, которого нет в бандле (его distinfo). Релиз приходит вместе с портом; раньше — только ради уязвимости, которая нас касается, или нашей ошибки: issue о релизе называет CVE и GHSA из его заметок |
-| Пакеты az | [`tools/build-deps.sh`](tools/build-deps.sh) собирает curl и эти библиотеки из тех же файлов так же, статически, в `/usr/local/az`: с ними линкуются PHP-пакеты az (`--with-curl=/usr/local/az`), а в пакете `curl` из них `bin/curl` и `lib/libcurl.so.4` — вместо тех, что из порта ([Пакеты](#пакеты-репозиторий-az)) |
+| Пакеты az | [`tools/build-deps.sh`](tools/build-deps.sh) собирает curl и эти библиотеки из тех же файлов так же, статически, в `/usr/local/az` (пакет `az-libs`): с ними линкуются PHP-пакеты az (`--with-curl=/usr/local/az`). Пакет `curl` (`bin/curl`, `lib/libcurl.so.4` вместо тех, что из порта) — отдельная сборка того же релиза с опциями порта ([Пакеты](#пакеты-репозиторий-az)) |
 
 Опции — как в порту FreeBSD, с такими отличиями:
 
@@ -806,12 +806,12 @@ BIND_NOW), под x86-64-v3 (AVX2) и x86-64-v2. У пакета имя, origin 
 
 | Пакет | Origin | Что в нём |
 |---|---|---|
-| `curl` | `ftp/curl` | `bin/curl` и `lib/libcurl.so.4` (git и другие программы, которые берут libcurl, продолжают работать): curl из PHP с его библиотеками ([Встроенный curl](#встроенный-curl)), без IMAP, POP3, SMTP, LDAP и NTLM |
+| `curl` | `ftp/curl` | `bin/curl` и `lib/libcurl.so.4` (git и другие программы, которые берут libcurl, продолжают работать): своя сборка с опциями порта (его протоколы, HTTP/2, NTLM, IDN, PSL, brotli, zstd, потоковый резолвер), без SCP и SFTP (libssh2) и GSSAPI; PHP он не нужен |
 | `ffmpeg` | `multimedia/ffmpeg` | `bin/ffmpeg`, `bin/ffprobe`: [FFmpeg для видеосайтов](#ffmpeg-для-видеосайтов) |
 | `ImageMagick6` | `graphics/ImageMagick6` | `bin/convert6`, `bin/identify6`, `bin/mogrify6`, `bin/composite6`, …: [ImageMagick 6 и 7](#imagemagick-6-и-7-для-видеосайтов) |
 | `ImageMagick7` | `graphics/ImageMagick7` | `bin/magick` и имена-ссылки на него (`convert`, `identify`, …); в `/usr/local/az` его статические библиотеки — для imagick |
 | `php56` … `php84` | `lang/php56` … `lang/php84` | PHP этого форка в раскладке [`az-menu.sh`](#az-menush-пакеты-и-что-войдёт-в-php) (`bin/php84`, `sbin/php-fpm84`, rc.d `php_fpm84`, `etc/php84`, `libphp84.so`): готовые — с опциями [тестовой сборки](#тестовая-сборка-на-freebsd), или собранные на сервере с его собственными |
-| `az-libs` | `az/libs` | статические библиотеки `/usr/local/az` (OpenSSL, библиотеки curl, libxml2, ICU, GD и её форматы, x264, dav1d, libheif и остальные из [`freebsd/deps.conf`](freebsd/deps.conf)), с которыми собраны остальные: для сборки PHP на сервере; из него ничего не запускается |
+| `az-libs` | `az/libs` | статические библиотеки `/usr/local/az` (OpenSSL, curl для PHP только с тем, что нужно PHP ([Встроенный curl](#встроенный-curl)), и его библиотеки, libxml2, ICU, GD и её форматы, x264, dav1d, libheif и остальные из [`freebsd/deps.conf`](freebsd/deps.conf)), с которыми собраны остальные: для сборки PHP на сервере; из него ничего не запускается |
 
 На сервере `az-menu.sh --repo` записывает репозиторий под уровень его процессора
 (`/usr/local/etc/pkg/repos/az.conf`) и обновляет его каталог; дальше пакеты ставятся

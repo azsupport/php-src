@@ -11,7 +11,8 @@
 #   curl           in the place of ftp/curl: bin/curl (static) and lib/libcurl.so.4
 #                  (the libraries of curl and OpenSSL inside it, only curl_*
 #                  exported), so that git and the other packages that link libcurl
-#                  take this one; the static libcurl in /usr/local/az for PHP
+#                  take this one: a build of its own with the options of the port;
+#                  the curl of PHP is the static libcurl of az-libs
 #   ffmpeg         in the place of multimedia/ffmpeg: bin/ffmpeg, bin/ffprobe
 #                  (tools/build-ffmpeg.sh, freebsd/ffmpeg.conf)
 #   ImageMagick6   bin/convert6, identify6, mogrify6, composite6... with
@@ -139,12 +140,6 @@ old="$(pkg query %n ffmpeg ffmpeg-nox11 ImageMagick7 ImageMagick7-nox11 ImageMag
 [ -n "$old" ] && pkg delete -y $old > "$res/pkg-delete.log" 2>&1
 
 # --- the packages -------------------------------------------------------------------
-# the files of curl in /usr/local/az (its static libcurl, for PHP) go with it
-mkdir -p "$stage/curl$A"
-# shellcheck disable=SC2046
-(cd "$A" && tar -cf - bin/curl-config bin/curl-config.orig lib/libcurl.a lib/pkgconfig/libcurl.pc include/curl \
-    $(ls -d LICENSES/curl-* 2>/dev/null)) | (cd "$stage/curl$A" && tar -xpf -) ||
-    tfail "curl: the files of $A could not be copied"
 # version and epoch of a port, from the built.txt of a part ("<name> <pkgname> <port>")
 pv() { awk -v n="$2" '$1 == n { v = $2; sub(/^.*-/, "", v); e = ""; if (index(v, ",")) e = substr(v, index(v, ",")); sub(/[_,].*$/, "", v); print v "|" e }' "$1"; }
 v_curl="$(pv "$top/deps-results/built.txt" curl)"
@@ -154,9 +149,10 @@ v_im7="$(pv "$top/imagemagick-results/built.txt" imagemagick7)"
 # share/doc/<name>/VERSIONS
 docs() { mkdir -p "$stage/$1/usr/local/share/doc/$1" && cp "$2" "$stage/$1/usr/local/share/doc/$1/VERSIONS"; }
 {
-    echo "curl ${v_curl%|*} for FreeBSD $major (amd64, $cputype): bin/curl, lib/libcurl.so.4 (and the static libcurl of"
-    echo "$A for PHP) of the bundled curl of the fork (freebsd/curl.conf, freebsd/curl-deps.conf,"
-    echo "freebsd/curl/build-libcurl.sh), with the libraries of az-libs; the build of the libraries:"
+    echo "curl ${v_curl%|*} for FreeBSD $major (amd64, $cputype): bin/curl and lib/libcurl.so.4, the release of the"
+    echo "bundled curl of the fork (freebsd/curl.conf) with the options of the port ftp/curl (tools/build-deps.sh,"
+    echo "build_curl_program), against the libraries of az-libs; the curl of PHP is the static libcurl of az-libs."
+    echo "The build of the libraries:"
     echo
     cat "$top/deps-results/VERSIONS"
     echo
@@ -186,9 +182,9 @@ print(json.dumps({
 EOF
 }
 manifest az-libs az/libs "$(date -u +%Y%m%d)|" "$A" "Static libraries of /usr/local/az, for builds of PHP and the programs" \
-    MULTI devel "The static, position independent libraries of $A (freebsd/deps.conf of https://github.com/azsupport/php-src): PHP built against them (az-menu.sh, config-check.sh) and the programs of the fork need no library of /usr/local/lib. Versions: $A/share/doc/az-libs/VERSIONS."
+    MULTI devel "The static, position independent libraries of $A (freebsd/deps.conf of https://github.com/azsupport/php-src), with the curl of PHP (the static libcurl, only what PHP needs): PHP built against them (az-menu.sh, config-check.sh) and the programs of the fork need no library of /usr/local/lib. Versions: $A/share/doc/az-libs/VERSIONS."
 manifest curl ftp/curl "$v_curl" /usr/local "Command line tool and library for transferring data with URLs (static, of azsupport/php-src)" \
-    MIT ftp "curl ${v_curl%|*} with c-ares, HTTP/2, brotli, zstd, IDN and the Public Suffix List, the OpenSSL of az-libs inside: bin/curl (static) and lib/libcurl.so.4 in the place of those of the port ftp/curl (no IMAP, POP3, SMTP, LDAP, NTLM, telnet, TFTP, DICT, gopher, MQTT, RTSP), and the static libcurl of $A for PHP. Versions: share/doc/curl/VERSIONS."
+    MIT ftp "curl ${v_curl%|*} with the options of the port ftp/curl (HTTP/2, the protocols of the port, NTLM, IDN, the Public Suffix List, brotli, zstd, the threaded resolver; no SCP and SFTP, no GSSAPI), the OpenSSL of az-libs inside: bin/curl (static) and lib/libcurl.so.4 in the place of those of the port. Versions: share/doc/curl/VERSIONS."
 manifest ffmpeg multimedia/ffmpeg "$v_ffmpeg" /usr/local "FFmpeg for the video sites, static (ffmpeg, ffprobe)" \
     GPLv2+ multimedia "FFmpeg ${v_ffmpeg%|*} with only what the video sites need (freebsd/ffmpeg.conf of https://github.com/azsupport/php-src): bin/ffmpeg and bin/ffprobe, static, in the place of those of the port. Versions and options: share/doc/ffmpeg/VERSIONS."
 manifest ImageMagick6 graphics/ImageMagick6 "$v_im6" /usr/local "ImageMagick 6 for the video sites, static (convert6, identify6, ...)" \
@@ -203,10 +199,8 @@ plist() {
     (cd "$2" && find . ! -type d | sed 's#^\.##' | LC_ALL=C sort) |
         awk '/\/etc\/ImageMagick-[67]\/policy\.xml$/ { print "@config " $0; next } { print }' > "$res/plist.$1"
 }
-# the files of az-libs: those of /usr/local/az but curl's
-(cd / && find ".$A" ! -type d | sed 's#^\.##' | LC_ALL=C sort) > "$res/files.az"
-(cd "$stage/curl" && find ".$A" ! -type d | sed 's#^\.##' | LC_ALL=C sort) > "$res/files.az-curl"
-LC_ALL=C comm -23 "$res/files.az" "$res/files.az-curl" > "$res/plist.az-libs"
+# the files of az-libs: all of /usr/local/az (with the static libcurl of PHP)
+(cd / && find ".$A" ! -type d | sed 's#^\.##' | LC_ALL=C sort) > "$res/plist.az-libs"
 for n in curl ffmpeg ImageMagick6 ImageMagick7; do plist "$n" "$stage/$n"; done
 for n in az-libs curl ffmpeg ImageMagick6 ImageMagick7; do
     if [ "$n" = az-libs ]; then r=/; else r="$stage/$n"; fi
