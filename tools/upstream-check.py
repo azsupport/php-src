@@ -22,6 +22,12 @@ that differs from the bundled one (the port took a new release, the public
 suffix list a new date) - not while the bundle is ahead of the port, as a new
 release is taken without waiting for the port.
 
+The libraries of /usr/local/phpdeps built from ports (freebsd/deps.conf): their
+upstream releases ("upstream" lines: tags or a directory listing) newer than the
+version built, which is taken without waiting for the port ("take" lines); the
+commits to their ports after the ports commit of deps.conf; and a port that has
+caught up with a take line, which can go then.
+
 PHP branches. For the targets that follow the php-src release tags: the end of
 security support of the branch (php.net/releases/branches.php), from 60 days
 before it on, with whether Remi Collet's php-src-security has a
@@ -140,6 +146,132 @@ def tag_version(tag, name=None):
         tag = tag[len("RELEASE_"):].replace("_", ".")
     v = re.sub(r"^(v|release-)", "", tag)
     return v if vkey(v) else None
+
+
+def deps_rows(kind):
+    """The rows of freebsd/deps.conf of one kind ("lib", "take", "upstream"), without it."""
+    if not os.path.exists(os.path.join(ROOT, "freebsd", "deps.conf")):
+        return []
+    return [r[1:] for r in conf("deps.conf") if r[0] == kind]
+
+
+def deps_ports_commit():
+    rows = deps_rows("ports")
+    return rows[0][0] if rows else None
+
+
+def norm_version(v):
+    """79-1, 2-15-0, 76_1: the digits joined with dots."""
+    return re.sub(r"(?<=\d)[-_](?=\d)", ".", v)
+
+
+def deps_versions(source, pattern, series):
+    """The final releases of a library of phpdeps: the tags of a git repository, or the
+    names in a directory listing (a source ending in "/"), that match the pattern
+    (group 1 the version, or a group "patch", a patch level of the series)."""
+    rx = re.compile(pattern) if pattern else None
+    if source.endswith("/"):
+        names = [n.rstrip("/").rsplit("/", 1)[-1] for n in re.findall(r'href="([^"?#]+)"', http(source))]
+    else:
+        names = [l.split("refs/tags/", 1)[-1] for l in run(["git", "ls-remote", "--tags", "--refs", source]).splitlines()]
+    found = {}
+    for name in names:
+        if rx:
+            m = rx.fullmatch(name)
+            if not m:
+                continue
+            if "patch" in rx.groupindex:
+                if not series:
+                    continue
+                v = "%s.%d" % (series, int(m.group("patch")))
+            else:
+                v = norm_version(m.group(1))
+        else:
+            v = tag_version(name)
+            if not v:
+                continue
+        k = vkey(v)
+        if not k or k[4] != 3:
+            continue  # not a final release
+        if series and not (v == series or v.startswith(series + ".")):
+            continue
+        found.setdefault(v, name)
+    return found
+
+
+def check_deps_releases():
+    """New upstream releases of the libraries of phpdeps built from ports."""
+    findings, checked = [], set()
+    ports = {r[0]: r[1] for r in deps_rows("lib")}
+    takes = {r[0]: r[1] for r in deps_rows("take")}
+    for row in deps_rows("upstream"):
+        name, built, source = row[0], row[1], row[2]
+        pattern = row[3] if len(row) > 3 else None
+        series = row[4] if len(row) > 4 else None
+        try:
+            found = deps_versions(source, pattern, series)
+        except Exception as e:
+            warn("phpdeps %s: no releases from %s: %s" % (name, source, e))
+            continue
+        checked.add("release:deps:%s:" % name)
+        if not found:
+            warn("phpdeps %s: nothing in %s matches %s" % (name, source, pattern))
+            continue
+        if name in takes and takes[name] != built and not (series and "patch" in (pattern or "")):
+            warn("phpdeps %s: the upstream line says %s, the take line %s" % (name, built, takes[name]))
+        newest = max(found, key=vkey)
+        if not vkey(built) or vkey(newest) <= vkey(built):
+            continue
+        port = ports.get(name, "?")
+        where = "listing" if source.endswith("/") else "tag `%s`" % found[newest]
+        lines = [
+            "**%s %s** is out (%s of %s)." % (name, newest, where, source),
+            "",
+            "Built now in `/usr/local/phpdeps`: %s (`%s`, `freebsd/deps.conf`)%s." % (
+                built, port, ", the release of its take line" if name in takes else ", the version of the port"),
+            "",
+            "To take it (now: the port `%s` is followed for its patches, not waited for): in `freebsd/deps.conf` "
+            "add or update the take line of %s (the release file, its SHA-256 checked against a second source "
+            "such as a signature or the checksums of another distribution, the source directory inside it) and "
+            "the version of its upstream line; check that the patches of the port still apply (or put ones "
+            "brought up to %s into `freebsd/deps/%s-%s/`); run deps.yml with `candidate`, the build test with "
+            "`deps` and `deps_release` `phpdeps-fbsd<major>-candidate`, then deps.yml for `-latest`. "
+            "Not wanted: close this issue." % (port, name, newest, name, newest),
+        ]
+        findings.append({
+            "key": "release:deps:%s:%s" % (name, newest),
+            "kind": "release",
+            "title": "phpdeps: %s %s is out (built: %s)" % (name, newest, built),
+            "body": "\n".join(lines),
+        })
+    return findings, checked
+
+
+def check_takes(git):
+    """A port of phpdeps that has caught up with the release of its take line."""
+    findings, checked = [], set()
+    ports = {r[0]: r[1] for r in deps_rows("lib")}
+    for row in deps_rows("take"):
+        name, ver = row[0], row[1]
+        port = ports.get(name)
+        if not port or port == "bundle":
+            continue
+        pv = port_version(git, port)
+        if not pv:
+            continue
+        checked.add("take:%s:" % name)
+        if vkey(norm_version(pv)) and vkey(ver) and vkey(norm_version(pv)) >= vkey(ver):
+            findings.append({
+                "key": "take:%s:%s" % (name, ver),
+                "kind": "ports",
+                "title": "phpdeps: %s has %s now, the take line of %s %s can go" % (port, pv, name, ver),
+                "body": "freebsd-ports `%s` (main) has version %s; `freebsd/deps.conf` takes %s %s before it "
+                        "(take line). To go back to the port: move the ports commit of `freebsd/deps.conf` to one "
+                        "with that version, delete the take line (and `freebsd/deps/%s-%s/`, if there is one), set "
+                        "the upstream line to the version of the port, then rebuild phpdeps; the next check closes "
+                        "this issue." % (port, pv, name, ver, name, ver),
+            })
+    return findings, checked
 
 
 def curl_deps():
@@ -450,6 +582,13 @@ def release_finding(up, v, hits, pin):
 def ports_followed():
     """(ports dir, reviewed revision, where the revision is kept)."""
     ports = [(r[1], r[2], "freebsd/upstream.conf") for r in conf("upstream.conf") if r[0] == "port"]
+    commit = deps_ports_commit()
+    if commit:
+        listed = {p for p, _r, _k in ports}
+        for name, port in [r[:2] for r in deps_rows("lib")]:
+            if port != "bundle" and port not in listed:
+                listed.add(port)
+                ports.append((port, commit, "the ports commit of freebsd/deps.conf"))
     seen = set()
     for target, _url, _ref, port, portrev in conf("targets.conf"):
         if port not in seen:
@@ -503,7 +642,8 @@ def check_ports(workdir, days):
         if commits or not exists:
             findings.append(port_finding(git, port, rev, kept, commits, moved, base))
     more, chk = check_distinfo(git)
-    return findings + more, checked | chk
+    more2, chk2 = check_takes(git)
+    return findings + more + more2, checked | chk | chk2
 
 
 def bundled_dists():
@@ -637,9 +777,15 @@ def port_finding(git, port, rev, kept, commits, moved, base):
         lines += ["The reviewed revision `%s` is older than the fetched history, so these are all "
                   "commits of that time." % rev, ""]
     newest = commits[0][0][:12] if commits else "<new revision>"
-    lines += ["After the review: take what we need into `freebsd/pecl/` (or `freebsd/patches/<target>/` "
-              "for lang ports), then set the reviewed revision (%s) of `%s` to `%s`; the next check "
-              "closes this issue." % (kept, port, newest)]
+    if kept == "the ports commit of freebsd/deps.conf":
+        lines += ["After the review: take what phpdeps needs (patches of the port for a take line into "
+                  "`freebsd/deps/<name>-<version>/`), then move the ports commit of `freebsd/deps.conf` to `%s` "
+                  "(the ports of all its libraries move with it: rebuild phpdeps); the next check closes this "
+                  "issue." % newest]
+    else:
+        lines += ["After the review: take what we need into `freebsd/pecl/` (or `freebsd/patches/<target>/` "
+                  "for lang ports), then set the reviewed revision (%s) of `%s` to `%s`; the next check "
+                  "closes this issue." % (kept, port, newest)]
     body = "\n".join(lines)
     if len(body) > BODY_LIMIT:
         body = body[:BODY_LIMIT] + "\n\n... (cut, see the commits above)"
@@ -724,6 +870,9 @@ def main():
 
     pins = {r[1]: r[2] for r in conf("upstream.conf") if r[0] == "pin"}
     findings, checked = check_releases(workdir, pins)
+    more, checked_deps = check_deps_releases()
+    findings += more
+    checked |= checked_deps
     more, checked_ports = check_ports(workdir, args.days)
     findings += more
     checked |= checked_ports

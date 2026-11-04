@@ -14,7 +14,11 @@
 # For every library the ports framework fetches the distfiles of the port at the
 # commit of deps.conf, checks them against its distinfo, extracts them and
 # applies the port's patches (make patch); this script then configures and builds
-# the source tree that way with its own options. curl and the libraries it needs
+# the source tree that way with its own options. A "take" line of deps.conf (a
+# new upstream release the port does not have yet) gives the release file
+# instead: fetched here, checked against the SHA-256 of the line, handed to the
+# framework with a distinfo of its own, with the port's patches or those of
+# freebsd/deps/<name>-<version>/. curl and the libraries it needs
 # ("bundle" in deps.conf) are the ones of --with-curl=bundled instead: the
 # release files of freebsd/curl.conf and freebsd/curl-deps.conf (tools/curl-sources.sh),
 # built by freebsd/curl/build-libcurl.sh. All: only static libraries, -fPIC,
@@ -101,6 +105,8 @@ export PATH="$P/bin:$PATH"
 ports_commit="$(awk '$1 == "ports" { print $2 }' "$conf")"
 libs_all="$(awk '$1 == "lib" { print $2 }' "$conf")"
 port_of() { awk -v n="$1" '$1 == "lib" && $2 == n { print $3 }' "$conf"; }
+# take_of <name>: "version release-file SHA-256 source-dir" of its take line, if any
+take_of() { awk -v n="$1" '$1 == "take" && $2 == n { print $3, $4, $5, $6 }' "$conf"; }
 
 # A sparse checkout of freebsd-ports at the commit of deps.conf: the framework
 # (Mk, Templates, Keywords) and the ports of deps.conf, with what they include
@@ -232,6 +238,34 @@ b_gettext() {
         --disable-acl --with-libiconv-prefix="$P" --without-emacs ac_cv_lib_rt_sched_yield=no
 }
 
+# take_args <name> <port>: the make arguments that build the release of the take
+# line of <name> instead of the port's distfiles, after fetching the file into
+# DISTDIR and checking its SHA-256; nothing when there is no take line. The
+# version goes to $take_ver.
+take_args() {
+    take_ver=""
+    t="$(take_of "$1")"
+    [ -n "$t" ] || return 0
+    set -- $t "$2"
+    take_ver="$1"
+    tf="${2##*/}"
+    mkdir -p "$work/distfiles"
+    if [ ! -f "$work/distfiles/$tf" ] || [ "$(sha256 -q "$work/distfiles/$tf")" != "$3" ]; then
+        rm -f "$work/distfiles/$tf"
+        fetch -q -o "$work/distfiles/$tf" "$2" || { echo "== fetch $2 failed" >&2; return 1; }
+    fi
+    if [ "$(sha256 -q "$work/distfiles/$tf")" != "$3" ]; then
+        echo "== $tf: SHA-256 $(sha256 -q "$work/distfiles/$tf"), not $3 as in deps.conf" >&2
+        return 1
+    fi
+    printf 'TIMESTAMP = %s\nSHA256 (%s) = %s\nSIZE (%s) = %s\n' "$(date +%s)" "$tf" "$3" "$tf" \
+        "$(stat -f %z "$work/distfiles/$tf")" > "$work/distinfo-take-$n"
+    wd="$(pmake "$5" -V WRKDIR)"
+    pd="$top/freebsd/deps/$n-$take_ver"
+    printf '%s\n' "DISTFILES=$tf" "PATCHFILES=" "DISTINFO_FILE=$work/distinfo-take-$n" "WRKSRC=$wd/$4"
+    if [ -d "$pd" ]; then printf '%s\n' "PATCHDIR=$pd"; fi
+}
+
 # One library: fetch, check, extract and patch with the ports framework, then build.
 build_one() {
     n="$1"
@@ -239,11 +273,23 @@ build_one() {
     log="$res/$n.log"
     start=$(date +%s)
     if [ "$port" = bundle ]; then build_bundle "$n"; return; fi
+    targs="$(take_args "$n" "$port" 2>"$res/$n.take")"
+    trc=$?
+    take_of "$n" | grep -q . && take_ver="$(take_of "$n" | awk '{ print $1 }')" || take_ver=""
     (
-        echo "== $n: $port at $ports_commit"
-        pmake "$port" clean >/dev/null 2>&1
-        pmake "$port" patch || { echo "make patch failed"; exit 1; }
-        src="$(pmake "$port" -V WRKSRC)"
+        if [ "$trc" != 0 ]; then cat "$res/$n.take"; echo "== $n: the release of the take line could not be had"; exit 1; fi
+        if [ -n "$take_ver" ]; then
+            echo "== $n: $port at $ports_commit with the release $take_ver of the take line in deps.conf:"
+            printf '   %s\n' $targs
+        else
+            echo "== $n: $port at $ports_commit"
+        fi
+        # shellcheck disable=SC2086
+        pmake "$port" $targs clean >/dev/null 2>&1
+        # shellcheck disable=SC2086
+        pmake "$port" $targs patch || { echo "make patch failed"; exit 1; }
+        # shellcheck disable=SC2086
+        src="$(pmake "$port" $targs -V WRKSRC)"
         echo "== source: $src"
         : > "$work/stamp-$n"
         "b_$n" "$src" || exit 1
@@ -255,6 +301,13 @@ build_one() {
     rc=$?
     ver="$(pmake "$port" -V PKGVERSION 2>/dev/null)"
     pkgname="$(pmake "$port" -V PKGNAME 2>/dev/null)"
+    if [ -n "$take_ver" ]; then
+        # the name pkg audit knows, with the version taken and the epoch of the port
+        epoch="$(pmake "$port" -V PORTEPOCH 2>/dev/null)"
+        case "$epoch" in ""|0) epoch="" ;; *) epoch=",$epoch" ;; esac
+        pkgname="${pkgname%-*}-$take_ver$epoch"
+        ver="$take_ver (port: $ver)"
+    fi
     if [ "$rc" = 0 ]; then
         printf '%-14s OK    %-22s %-24s %4ss\n' "$n" "$ver" "$port" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
         printf '%s %s %s\n' "$n" "$pkgname" "$port" >> "$res/built.txt"
@@ -403,6 +456,20 @@ manifest() {
                     awk '!/^#/ && NF >= 4 { u = $3; s = $4 } END { n = split(u, p, "/"); print "    " p[n] " sha256 " s }' "$top/freebsd/curl.conf"
                 else
                     awk -v n="$n" '$1 == n { print "    " $4 " sha256 " $3 }' "$work/curl-src/deps/VERSIONS"
+                fi
+                continue
+            fi
+            t="$(take_of "$n")"
+            if [ -n "$t" ]; then
+                # shellcheck disable=SC2086
+                set -- $t
+                echo "    ${2##*/} sha256 $3 (upstream release $1, ahead of the port: take line of deps.conf)"
+                if [ -d "$top/freebsd/deps/$n-$1" ]; then
+                    np="$(ls "$top/freebsd/deps/$n-$1" | grep -c '^patch-')"
+                    [ "$np" -gt 0 ] && echo "    $np patches of the port, brought up to $1 (freebsd/deps/$n-$1)"
+                else
+                    np="$(ls "$ports/$port/files" 2>/dev/null | grep -c '^patch-')"
+                    [ "$np" -gt 0 ] && echo "    $np patches of the port"
                 fi
                 continue
             fi

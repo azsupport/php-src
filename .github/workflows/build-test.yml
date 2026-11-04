@@ -34,6 +34,10 @@ on:
         description: 'Build against /usr/local/phpdeps (release phpdeps-fbsd<major>-latest) instead of pkg libraries'
         type: boolean
         default: false
+      deps_release:
+        description: 'With deps: the release of phpdeps to take, such as phpdeps-fbsd15-candidate (empty: phpdeps-fbsd<major>-latest)'
+        type: string
+        default: ''
       configure:
         description: 'More configure options for every version, separated by spaces (e.g. --enable-zend-signals)'
         required: false
@@ -74,10 +78,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE: ${{ inputs.release }}
+          DEPS_RELEASE: ${{ inputs.deps_release }}
         run: |
           major="${RELEASE%%.*}"
           mkdir -p deps-dist
-          gh release download "phpdeps-fbsd$major-latest" --repo "$GITHUB_REPOSITORY" --dir deps-dist \
+          gh release download "${DEPS_RELEASE:-phpdeps-fbsd$major-latest}" --repo "$GITHUB_REPOSITORY" --dir deps-dist \
             --pattern "phpdeps-fbsd$major-amd64-*.tar.xz" --pattern "phpdeps-fbsd$major-amd64-*.tar.xz.sha256"
           cd deps-dist
           for f in phpdeps-fbsd$major-amd64-*.tar.xz; do
