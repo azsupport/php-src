@@ -222,7 +222,10 @@ b_im() {
         # libMagickCore-7.a, libMagickWand-7.a, MagickCore-7.pc, MagickWand-7.pc
         cp "$s"/lib/libMagick*-7*.a "$root$A/lib/" && cp -R "$s/include/ImageMagick-7" "$root$A/include/" ||
             { echo "== no static libraries or headers of ImageMagick 7 in $s: $(ls "$s/lib" | tr '\n' ' ')"; return 1; }
-        for pc in "$s"/lib/pkgconfig/*.pc; do
+        # the .pc files: in libdata/pkgconfig, as the port puts them (lib/pkgconfig without it)
+        pcd="$s/libdata/pkgconfig"; [ -d "$pcd" ] || pcd="$s/lib/pkgconfig"
+        ls "$pcd"/*.pc > /dev/null 2>&1 || { echo "== no .pc files of ImageMagick 7 in $s/libdata/pkgconfig or $s/lib/pkgconfig"; return 1; }
+        for pc in "$pcd"/*.pc; do
             sed -e "s|^prefix=$I\$|prefix=$A|" -e "s|=$I/include/|=$A/include/|g" -e "s|=$I/lib\$|=$A/lib|" \
                 "$pc" > "$root$A/lib/pkgconfig/${pc##*/}" || return 1
         done
