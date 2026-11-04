@@ -3,8 +3,8 @@ name: az-menu.sh release
 # Publishes tools/az-menu.sh with its version as the file of the release az-menu
 # (https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh): the
 # lines AZ_MENU_REV (the revision: the number of commits that changed it,
-# php-menu.sh before it), AZ_MENU_COMMIT (the last of them) and AZ_MENU_DATE (its
-# date) filled in, so that the top line of every screen of the menu and
+# php-menu.sh before it), AZ_MENU_COMMIT (the last of them) and AZ_MENU_TIME (its
+# time, in seconds since 1970) filled in, so that the top line of every screen of the menu and
 # "sh az-menu.sh --version" show which version it is. tools/config-check.sh of the
 # commit of the run goes with it (az-menu.sh fetches it from there). Runs when one
 # of the two changes on master; started by hand: Actions, "az-menu.sh release",
@@ -41,13 +41,14 @@ jobs:
           rev="r$(git log --follow --format=%H -- "$f" | wc -l | tr -d ' ')"
           commit="$(git log -1 --format=%h -- "$f")"
           full="$(git log -1 --format=%H -- "$f")"
+          time="$(git log -1 --format=%ct -- "$f")"
           date="$(TZ=UTC git log -1 --date=format-local:'%d.%m.%Y %H:%M UTC' --format=%cd -- "$f")"
           mkdir -p out
           sed -e "s|^AZ_MENU_REV=\"\"\$|AZ_MENU_REV=\"$rev\"|" \
               -e "s|^AZ_MENU_COMMIT=\"\"\$|AZ_MENU_COMMIT=\"$commit\"|" \
-              -e "s|^AZ_MENU_DATE=\"\"\$|AZ_MENU_DATE=\"$date\"|" "$f" > out/az-menu.sh
+              -e "s|^AZ_MENU_TIME=\"\"\$|AZ_MENU_TIME=\"$time\"|" "$f" > out/az-menu.sh
           grep -qx "AZ_MENU_REV=\"$rev\"" out/az-menu.sh && grep -qx "AZ_MENU_COMMIT=\"$commit\"" out/az-menu.sh &&
-            grep -qx "AZ_MENU_DATE=\"$date\"" out/az-menu.sh || { echo "the version lines of $f were not filled in"; exit 1; }
+            grep -qx "AZ_MENU_TIME=\"$time\"" out/az-menu.sh || { echo "the version lines of $f were not filled in"; exit 1; }
           sh -n out/az-menu.sh
           cp tools/config-check.sh out/config-check.sh
           (cd out && sha256sum az-menu.sh config-check.sh > SHA256SUMS)
