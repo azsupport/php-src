@@ -458,6 +458,14 @@ The original PHP README follows.
 EOF
 }
 
+# "git add -u" stages changed files only: add the files a -p1 patch creates (the
+# tests of a backport), every path of its "+++ b/" lines that exists now.
+add_patch_files() {
+    sed -n 's#^+++ b/\([^	]*\).*#\1#p' "$1" | while IFS= read -r f; do
+        if [ -e "$f" ]; then git add -f -- "$f"; fi
+    done
+}
+
 # Apply patches and create the commits in worktree $wt (runs with set -e).
 make_commits() {
     cd "$wt"
@@ -490,6 +498,7 @@ make_commits() {
                 echo "sync: $target: ${p##*/} does not apply" >&2
                 return 1
             fi
+            add_patch_files "$p"
         done
         git add -u
         {
@@ -517,6 +526,7 @@ make_commits() {
             echo "sync: $target: ${p##*/} does not apply" >&2
             return 1
         fi
+        add_patch_files "$p"
         echo "$p" >> "$bp_list"
     done
     if [ -s "$bp_list" ]; then
@@ -620,6 +630,7 @@ make_commits() {
                 echo "sync: $target: ${p##*/} does not apply" >&2
                 return 1
             fi
+            add_patch_files "$p"
         done
         git add -u
         {

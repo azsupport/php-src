@@ -1,0 +1,20 @@
+Description: GHSA-453j-q27h-5p8x (CVE-2025-6491): serialize_zval() of ext/soap checks for a NULL node and a NULL node name before comparing the name with "BOGUS". libxml2 before 2.13 leaves the name NULL when it is longer than 2 GB; PHP 5 strings cannot be that long, and the upstream test needs one, so it is not carried.
+Origin: php-src commit c13a3b2a3710 (03.06.2025, Ahmed Lekssays) of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports)
+
+diff --git a/ext/soap/soap.c b/ext/soap/soap.c
+index ce38a9b74..4fcf3342b 100644
+--- a/ext/soap/soap.c
++++ b/ext/soap/soap.c
+@@ -4520,8 +4520,10 @@ static xmlNodePtr serialize_zval(zval *val, sdlParamPtr param, char *paramName,
+ 		enc = NULL;
+ 	}
+ 	xmlParam = master_to_xml(enc, val, style, parent TSRMLS_CC);
+-	if (!strcmp((char*)xmlParam->name, "BOGUS")) {
+-		xmlNodeSetName(xmlParam, BAD_CAST(paramName));
++	if (xmlParam != NULL) {
++		if (xmlParam->name == NULL || strcmp((char*)xmlParam->name, "BOGUS") == 0) {
++			xmlNodeSetName(xmlParam, BAD_CAST(paramName));
++		}
+ 	}
+ 	return xmlParam;
+ }

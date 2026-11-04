@@ -1,0 +1,222 @@
+Description: GHSA-85c2-q967-79q5 (CVE-2026-6722): while SoapServer and SoapClient decode a message, the map of the objects that an href can point to holds a reference to each of them, so that an object freed while decoding (an apache:Map item replaced by a later item with the same key) is no longer used by a later href (use after free). PHP 5 counts references on the zval itself, so the result of a SoapClient call is taken over without freeing a zval that the map still holds; an object reached through an href is no longer a PHP reference (var_dump() shows no &), as in PHP 7.
+Origin: port of php-src commit 6c4b67ca091a (03.05.2026, Ilija Tovilo) of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports), with its test; the SoapClient test is ours
+
+diff --git a/ext/soap/php_encoding.c b/ext/soap/php_encoding.c
+index d9147d244..637c82249 100644
+--- a/ext/soap/php_encoding.c
++++ b/ext/soap/php_encoding.c
+@@ -349,13 +349,33 @@ static zend_bool soap_check_zval_ref(zval *data, xmlNodePtr node TSRMLS_DC) {
+ 			}
+ 			smart_str_free(&prefix);
+ 			return 1;
+-		} else {
++		} else if (SOAP_GLOBAL(ref_map)->pDestructor != ZVAL_PTR_DTOR) {
+ 			zend_hash_index_update(SOAP_GLOBAL(ref_map), (ulong)data, (void**)&node, sizeof(xmlNodePtr), NULL);
+ 		}
+ 	}
+ 	return 0;
+ }
+ 
++/* GHSA-85c2-q967-79q5 (CVE-2026-6722): a decoded value in ref_map holds a
++ * reference of its own, so that a value freed while decoding (an item of an
++ * apache:Map replaced by a later item with the same key) cannot be found again
++ * by an href. The map then destroys its entries with ZVAL_PTR_DTOR; encoding
++ * keeps xmlNodePtr entries in it without a destructor, and the two never share
++ * one map: every call starts with encode_reset_ns() and ends with encode_finish(). */
++static int soap_ref_map_holds_zvals(TSRMLS_D)
++{
++	HashTable *ht = SOAP_GLOBAL(ref_map);
++
++	if (ht->pDestructor == ZVAL_PTR_DTOR) {
++		return 1;
++	}
++	if (zend_hash_num_elements(ht) == 0) {
++		ht->pDestructor = ZVAL_PTR_DTOR;
++		return 1;
++	}
++	return 0;
++}
++
+ static zval* soap_find_xml_ref(xmlNodePtr node TSRMLS_DC)
+ {
+ 	zval **data_ptr;
+@@ -382,7 +402,8 @@ static zend_bool soap_check_xml_ref(zval **data, xmlNodePtr node TSRMLS_DC)
+ 				Z_ADDREF_PP(data);
+ 				return 1;
+ 			}
+-		} else {
++		} else if (soap_ref_map_holds_zvals(TSRMLS_C)) {
++			Z_ADDREF_PP(data);
+ 			zend_hash_index_update(SOAP_GLOBAL(ref_map), (ulong)node, (void**)data, sizeof(zval*), NULL);
+ 		}
+ 	}
+diff --git a/ext/soap/php_packet_soap.c b/ext/soap/php_packet_soap.c
+index 2bcb042c6..e88d35206 100644
+--- a/ext/soap/php_packet_soap.c
++++ b/ext/soap/php_packet_soap.c
+@@ -387,8 +387,17 @@ int parse_packet_soap(zval *this_ptr, char *buffer, int buffer_size, sdlFunction
+ 			tmp = *(zval**)tmp;
+ 			Z_ADDREF_P(tmp);
+ 			zval_dtor(return_value);
+-			*return_value = *tmp;
+-			FREE_ZVAL(tmp);
++			if (Z_REFCOUNT_P(tmp) == 1) {
++				*return_value = *tmp;
++				FREE_ZVAL(tmp);
++			} else {
++				/* Still referenced elsewhere: by SOAP_GLOBAL(ref_map), which holds a
++				 * reference to every decoded value until encode_finish()
++				 * (GHSA-85c2-q967-79q5), or by an href inside the result itself. */
++				ZVAL_COPY_VALUE(return_value, tmp);
++				zval_copy_ctor(return_value);
++				zval_ptr_dtor(&tmp);
++			}
+ 		}
+ 	}
+ 
+diff --git a/ext/soap/tests/GHSA-85c2-q967-79q5-client.phpt b/ext/soap/tests/GHSA-85c2-q967-79q5-client.phpt
+new file mode 100644
+index 000000000..a2cdc783a
+--- /dev/null
++++ b/ext/soap/tests/GHSA-85c2-q967-79q5-client.phpt
+@@ -0,0 +1,60 @@
++--TEST--
++GHSA-85c2-q967-79q5: stale SOAP_GLOBAL(ref_map) pointer with Apache Map (SoapClient, single return value)
++--SKIPIF--
++<?php if (!extension_loaded('soap')) die('skip soap extension not available'); ?>
++--FILE--
++<?php
++class TestClient extends SoapClient {
++    public $response;
++    function __doRequest($request, $location, $action, $version, $one_way = 0) {
++        return $this->response;
++    }
++}
++$c = new TestClient(null, array('location' => 'test://', 'uri' => 'urn:a'));
++$c->response = <<<'XML'
++<?xml version="1.0" encoding="UTF-8"?>
++<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
++<SOAP-ENV:Body>
++<testResponse>
++<return>
++  <map xsi:type="apache:Map" xmlns:apache="http://xml.apache.org/xml-soap">
++    <item><key>foo</key><value id="stale"><object>bar</object></value></item>
++    <item><key>foo</key><value>baz</value></item>
++  </map>
++  <stale href="#stale"/>
++</return>
++</testResponse>
++</SOAP-ENV:Body>
++</SOAP-ENV:Envelope>
++XML;
++var_dump($c->test());
++$c->response = <<<'XML'
++<?xml version="1.0" encoding="UTF-8"?>
++<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
++<SOAP-ENV:Body>
++<testResponse>
++<return id="r"><name>a</name><self href="#r"/></return>
++</testResponse>
++</SOAP-ENV:Body>
++</SOAP-ENV:Envelope>
++XML;
++$r = $c->test();
++var_dump($r->name, $r->self === $r, $r->self->self === $r);
++echo "Done\n";
++--EXPECTF--
++object(stdClass)#%d (2) {
++  ["map"]=>
++  array(1) {
++    ["foo"]=>
++    string(3) "baz"
++  }
++  ["stale"]=>
++  object(stdClass)#%d (1) {
++    ["object"]=>
++    string(3) "bar"
++  }
++}
++string(1) "a"
++bool(true)
++bool(true)
++Done
+diff --git a/ext/soap/tests/GHSA-85c2-q967-79q5.phpt b/ext/soap/tests/GHSA-85c2-q967-79q5.phpt
+new file mode 100644
+index 000000000..c9d7bc6c2
+--- /dev/null
++++ b/ext/soap/tests/GHSA-85c2-q967-79q5.phpt
+@@ -0,0 +1,61 @@
++--TEST--
++GHSA-85c2-q967-79q5: Stale SOAP_GLOBAL(ref_map) pointer with Apache Map
++--CREDITS--
++brettgervasoni
++--SKIPIF--
++<?php if (!extension_loaded("soap")) die("skip soap extension not available"); ?>
++--FILE--
++<?php
++
++class Handler {
++    public function test(...$args) {
++        $GLOBALS['result'] = $args;
++    }
++}
++
++$envelope = <<<'XML'
++<?xml version="1.0" encoding="UTF-8"?>
++<soapenv:Envelope
++    xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
++    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++    xmlns:xsd="http://www.w3.org/2001/XMLSchema">
++
++    <soapenv:Body>
++        <test>
++            <map xsi:type="apache:Map" xmlns:apache="http://xml.apache.org/xml-soap">
++                <item>
++                    <key>foo</key>
++                    <value id="stale"><object>bar</object></value>
++                </item>
++                <item>
++                    <key>foo</key>
++                    <value>baz</value>
++                </item>
++            </map>
++            <stale href="#stale"/>
++        </test>
++    </soapenv:Body>
++</soapenv:Envelope>
++XML;
++
++$s = new SoapServer(null, ['uri' => 'urn:a']);
++$s->setClass(Handler::class);
++$s->handle($envelope);
++var_dump($result);
++
++?>
++--EXPECTF--
++<?xml version="1.0" encoding="UTF-8"?>
++<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="urn:a" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><SOAP-ENV:Body><ns1:testResponse><return xsi:nil="true"/></ns1:testResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>
++array(2) {
++  [0]=>
++  array(1) {
++    ["foo"]=>
++    string(3) "baz"
++  }
++  [1]=>
++  object(stdClass)#%d (1) {
++    ["object"]=>
++    string(3) "bar"
++  }
++}
+diff --git a/ext/soap/tests/interop/Round3/GroupE/r3_groupE_list_006w.phpt b/ext/soap/tests/interop/Round3/GroupE/r3_groupE_list_006w.phpt
+index 3549f4523..9726f848e 100644
+--- a/ext/soap/tests/interop/Round3/GroupE/r3_groupE_list_006w.phpt
++++ b/ext/soap/tests/interop/Round3/GroupE/r3_groupE_list_006w.phpt
+@@ -33,7 +33,7 @@ object(stdClass)#%d (3) {
+   ["varString"]=>
+   string(4) "arg1"
+   ["child"]=>
+-  &object(stdClass)#%d (3) {
++  object(stdClass)#%d (3) {
+     ["varInt"]=>
+     int(2)
+     ["varString"]=>

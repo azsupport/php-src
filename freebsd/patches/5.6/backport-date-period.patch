@@ -1,5 +1,5 @@
 Description: DatePeriod::__construct() called again on the same object frees the start, current, end and interval of the first call instead of leaking them (GH-22643), and refuses a DateInterval, or a start or end date, that was not initialized by its constructor (a subclass that overrides it without calling the parent) instead of reading through a NULL pointer; unlike the 7.4 version it restores the error handling mode on that path, so that later warnings do not turn into exceptions.
-Origin: php-src commit bbb027263bf9 of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports) (07.07.2026, Ilija Tovilo), adapted to the PHP 5.6 object layout; the check of the start and end dates is added here (5.6 copies the start time with memcpy())
+Origin: php-src commit bbb027263bf9 of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports) (07.07.2026, Ilija Tovilo), adapted to the PHP 5.6 object layout; the check of the start and end dates is added here (5.6 copies the start time with memcpy()); the test DatePeriod_uninitialized_interval.phpt of php-src commit 575c10c4e0c9 (25.10.2026, Jamal Tantaoui, the same fix in 7.4), with date.timezone for 5.6
 
 diff --git a/ext/date/php_date.c b/ext/date/php_date.c
 index 801208d7..e18e6b6f 100644
@@ -125,3 +125,38 @@ index 00000000..629098f1
 +
 +Notice: Undefined variable: undefined_variable in %s on line %d
 +after
+diff --git a/ext/date/tests/DatePeriod_uninitialized_interval.phpt b/ext/date/tests/DatePeriod_uninitialized_interval.phpt
+new file mode 100644
+index 000000000..3f800bbbd
+--- /dev/null
++++ b/ext/date/tests/DatePeriod_uninitialized_interval.phpt
+@@ -0,0 +1,29 @@
++--TEST--
++DatePeriod::__construct() restores error handling when the DateInterval is not initialized
++--INI--
++date.timezone=UTC
++--FILE--
++<?php
++class UninitializedInterval extends DateInterval
++{
++    public function __construct()
++    {
++    }
++}
++
++try {
++    new DatePeriod(new DateTime('2020-01-01'), new UninitializedInterval(), 1);
++} catch (Exception $e) {
++    echo get_class($e), ': ', $e->getMessage(), "\n";
++}
++
++// The constructor must have restored the error handling: this is a warning, not an exception
++var_dump(strlen());
++?>
++===DONE===
++--EXPECTF--
++Exception: %sThe DateInterval object has not been correctly initialized by its constructor
++
++Warning: strlen() expects exactly 1 parameter, 0 given in %s on line %d
++NULL
++===DONE===

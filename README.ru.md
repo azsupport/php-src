@@ -107,7 +107,6 @@
 | Исправление | Почему нет |
 |---|---|
 | GHSA-9f67-6fw4-hpfp | только Windows |
-| Исправления для пустого и односимвольного `Location` | 5.6 не затронута: по пустому она не переходит и читает его в буфер фиксированного размера |
 
 Исправлению mysqlnd понадобилось и усиление 2024 года (GHSA-h35g-vwh6-m678,
 CVE-2024-8929), которого нет ни в 5.6 у Remi Collet, ни у Ondřej Surý, поэтому
@@ -116,6 +115,35 @@ CVE-2024-8929), которого нет ни в 5.6 у Remi Collet, ни у Ond�
 5.6. Из этого alt-php56 5.6.40-135 от TuxCare (errata от 10.08.2026, например
 [CLSA-2026:1786360064](https://errata.tuxcare.com/els_alt_php/el8/CLSA-2026-1786360064.html))
 исправляет CVE-2026-9672, CVE-2026-17543 и CVE-2026-7260.
+
+**Исправления 2025 года и мая 2026 в 5.6.** В ветке 5.6 у Remi Collet нет коммитов
+с 22.11.2024 по 25.04.2026, поэтому в ней нет исправлений релизов PHP за это время и
+двух исправлений мая 2026. В `freebsd/5.6` — наши переносы (04.11.2026), с тестами:
+
+| Область (патч) | Что исправляет |
+|---|---|
+| [заголовки ответа HTTP](freebsd/patches/5.6/backport-http-response-headers.patch) | GHSA-v8xr-gpvj-cx9g (CVE-2025-1217): заголовки с переносом строки; GHSA-pcmh-g36c-qc44 (CVE-2025-1734): строки заголовков без двоеточия; GHSA-52jp-hrpf-2jff (CVE-2025-1861): `Location` обрезался до 1024 байт; GHSA-hgf5-96fm-v528 (CVE-2025-1736): терялся заголовок `Authorization` из URL; с проверками границ GH-23467 (CVE-2026-93682) и GH-23521 для относительного `Location` |
+| [getimagesize()](freebsd/patches/5.6/backport-getimagesize.patch) | GHSA-3237-qqm7-mfv7 (CVE-2025-14177): память процесса в `$imageinfo` |
+| [имена хостов](freebsd/patches/5.6/backport-hostname-nul.patch) | GHSA-3cr5-j632-f35r (CVE-2025-1220): байт NUL в имени хоста |
+| [сетевые функции](freebsd/patches/5.6/backport-network-nul.patch) | GHSA-www2-q4fc-65wf: байт NUL в аргументах `dns_get_record()`, `ip2long()` и других |
+| [экранирование pgsql](freebsd/patches/5.6/backport-pgsql-unchecked-escape.patch) | GHSA-hrwm-9436-5mv3 (CVE-2025-1735): не проверялись ошибки экранирования в pgsql и pdo_pgsql |
+| [SOAP: карта href](freebsd/patches/5.6/backport-soap-ref-map.patch) | GHSA-85c2-q967-79q5 (CVE-2026-6722): обращение к освобождённой памяти при Apache Map и href |
+| [SOAP: имена](freebsd/patches/5.6/backport-soap-qname.patch) | GHSA-453j-q27h-5p8x (CVE-2025-6491): пустое (NULL) имя узла при libxml2 версий ниже 2.13 (на серверах 2.15: для полноты) |
+| [ctype](freebsd/patches/5.6/backport-unsigned-char-ctype.patch) | GHSA-m8rr-4c36-8gq4 (CVE-2026-7258): отрицательные значения в функциях ctype.h (libc FreeBSD их проверяет: для полноты) |
+| [XML: тест](freebsd/patches/5.6/backport-xml-toffset-test.patch) | GHSA-wg4p-4hqh-c3g9: только тест, 5.6 не затронута |
+
+Что меняется для скриптов:
+
+| Где | Было | Стало |
+|---|---|---|
+| `file_get_contents()` и другие по `http://` | неправильная строка заголовка принималась как есть, заголовок с переносом обрезался | запрос завершается ошибкой (`HTTP invalid response format ...`), заголовок с переносом склеивается |
+| `pg_escape_string()`, `pg_insert()` и родственные, `PDO::quote()` в pdo_pgsql | строка, недопустимая в кодировке клиента, уходила в запрос экранированной лишь частично | исключение, notice и `false`, `false` |
+| `dns_get_record()`, `ip2long()` и другие сетевые функции | байт NUL обрезал аргумент | предупреждение и `NULL`; при аргументе не того типа в предупреждении «a valid path» вместо «string», как в 7.4 |
+| `var_dump()` данных SOAP с href | объект, полученный по href, показывался с `&` | без `&`, как в PHP 7 |
+
+Не затронуты, переносить нечего: GHSA-p3x9-6h7p-cgfc (CVE-2025-1219: 5.6 не берёт
+кодировку из Content-Type потока libxml) и GHSA-h96m-rvf9-jgm2 (CVE-2025-14178:
+`array_merge()` в 5.6 не складывает размеры заранее).
 
 **Коммиты.** Каждая ветка — это апстрим плюс такие коммиты, в таком порядке:
 

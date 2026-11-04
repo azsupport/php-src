@@ -105,7 +105,6 @@ Not ported:
 | Fix | Why not |
 |---|---|
 | GHSA-9f67-6fw4-hpfp | Windows only |
-| The fixes for an empty and a 1-character `Location` | 5.6 is not affected: it does not follow an empty one and reads it into a fixed buffer |
 
 The mysqlnd fix needed the 2024 hardening (GHSA-h35g-vwh6-m678, CVE-2024-8929) too,
 which neither Remi Collet's nor Ondřej Surý's 5.6 has, so
@@ -114,6 +113,36 @@ partial fix from PHP 7.4, with the fake-server protocol tests adapted to 5.6. Of
 TuxCare's alt-php56 5.6.40-135 (errata of 10.08.2026, for example
 [CLSA-2026:1786360064](https://errata.tuxcare.com/els_alt_php/el8/CLSA-2026-1786360064.html))
 fixes CVE-2026-9672, CVE-2026-17543 and CVE-2026-7260.
+
+**The fixes of 2025 and May 2026 in 5.6.** Remi Collet's 5.6 branch has no commit
+from 22.11.2024 to 25.04.2026, so it lacks the fixes of the PHP releases of that time,
+and two of May 2026. `freebsd/5.6` carries our ports of them (04.11.2026), with their
+tests:
+
+| Area (patch) | Fixes |
+|---|---|
+| [HTTP response headers](freebsd/patches/5.6/backport-http-response-headers.patch) | GHSA-v8xr-gpvj-cx9g (CVE-2025-1217): folded headers; GHSA-pcmh-g36c-qc44 (CVE-2025-1734): header lines without a colon; GHSA-52jp-hrpf-2jff (CVE-2025-1861): `Location` cut at 1024 bytes; GHSA-hgf5-96fm-v528 (CVE-2025-1736): the `Authorization` header from the URL left out; with the bounds checks of GH-23467 (CVE-2026-93682) and GH-23521 for a relative `Location` |
+| [getimagesize()](freebsd/patches/5.6/backport-getimagesize.patch) | GHSA-3237-qqm7-mfv7 (CVE-2025-14177): process memory in `$imageinfo` |
+| [host names](freebsd/patches/5.6/backport-hostname-nul.patch) | GHSA-3cr5-j632-f35r (CVE-2025-1220): a NUL byte in a host name |
+| [network functions](freebsd/patches/5.6/backport-network-nul.patch) | GHSA-www2-q4fc-65wf: a NUL byte in the arguments of `dns_get_record()`, `ip2long()` and others |
+| [pgsql escaping](freebsd/patches/5.6/backport-pgsql-unchecked-escape.patch) | GHSA-hrwm-9436-5mv3 (CVE-2025-1735): escaping errors not checked in pgsql and pdo_pgsql |
+| [SOAP: href map](freebsd/patches/5.6/backport-soap-ref-map.patch) | GHSA-85c2-q967-79q5 (CVE-2026-6722): use after free with an Apache Map and an href |
+| [SOAP: names](freebsd/patches/5.6/backport-soap-qname.patch) | GHSA-453j-q27h-5p8x (CVE-2025-6491): a NULL node name with libxml2 older than 2.13 (the servers have 2.15: for completeness) |
+| [ctype](freebsd/patches/5.6/backport-unsigned-char-ctype.patch) | GHSA-m8rr-4c36-8gq4 (CVE-2026-7258): negative values handed to the ctype.h functions (the libc of FreeBSD checks them: for completeness) |
+| [XML: test](freebsd/patches/5.6/backport-xml-toffset-test.patch) | GHSA-wg4p-4hqh-c3g9: the test only, 5.6 is not affected |
+
+What changes for scripts:
+
+| Where | Before | Now |
+|---|---|---|
+| `file_get_contents()` and co. over `http://` | a malformed header line was taken as it was, a folded header was cut | the request fails (`HTTP invalid response format ...`), a folded header is joined |
+| `pg_escape_string()`, `pg_insert()` and co., `PDO::quote()` of pdo_pgsql | a string that is invalid in the client encoding went into the query escaped only in part | an exception, a notice and `false`, `false` |
+| `dns_get_record()`, `ip2long()` and the other network functions | a NUL byte cut the argument | a warning and `NULL`; for an argument of a wrong type the warning says "a valid path" instead of "string", as in 7.4 |
+| `var_dump()` of SOAP data with an href | an object reached through the href showed `&` | no `&`, as in PHP 7 |
+
+Not affected, nothing to port: GHSA-p3x9-6h7p-cgfc (CVE-2025-1219: 5.6 takes no
+charset from the Content-Type of a libxml stream) and GHSA-h96m-rvf9-jgm2
+(CVE-2025-14178: `array_merge()` of 5.6 does not add up the sizes beforehand).
 
 **The commits.** Every branch is upstream plus these commits, in this order:
 
