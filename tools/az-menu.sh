@@ -96,6 +96,8 @@ mk_conf="${MAKE_CONF:-/etc/make.conf}"
 TAB="$(printf '\t')"
 
 die() { echo "az-menu: $*" >&2; exit 2; }
+# js <string>: the string as a string of JSON
+js() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$TAB/\\\\t/g")"; }
 
 # --- data (tools/configure/menu.py of azsupport writes it) ---
 menu_data() {
@@ -1598,25 +1600,22 @@ package_php() {
     done
     opts="$(sed -n "s/^'\(--[^']*\)' \\\\\$/\1/p" "$out_abs" | tr '\n' ' ' | sed 's/ *$//')"
     stamp="${AZ_STAMP:-$(date -u +%y%m%d%H)}"
-    python3 - "$short" "$ver" "$stamp" "$branch" "$php_prefix" "$opts" "$(sed -n "s/^CFLAGS='\([^']*\)'.*/\1/p" "$out_abs")" "$AZ" $deps > "$m/+MANIFEST" <<'MEOF' || return 1
-import json, sys
-short, ver, stamp, branch, prefix, opts, cflags, az = sys.argv[1:9]
-deps = {}
-for d in sys.argv[9:]:
-    n, o, v = d.split("=", 2)
-    deps[n] = {"origin": o, "version": v}
-print(json.dumps({
-    "name": "php" + short, "origin": "lang/php" + short, "version": "%s_%s" % (ver, stamp),
-    "comment": "PHP %s of azsupport/php-src (php%s, php-fpm%s, libphp%s.so), static" % (branch, short, short, short),
-    "desc": "PHP %s of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php%s, "
-            "sbin/php-fpm%s with the rc.d script php_fpm%s, etc/php%s, the Apache module libphp%s.so, in "
-            "the place of the package of the port; linked with the static libraries of %s. configure: %s"
-            % (branch, short, short, short, short, short, az, opts),
-    "maintainer": "github@azsupport.com", "www": "https://github.com/azsupport/php-src", "prefix": prefix,
-    "licenselogic": "single", "licenses": ["PHP301"], "categories": ["lang", "az"], "deps": deps,
-    "annotations": {"configure": opts, "cflags": cflags, "built_by": "az-menu.sh"},
-}, indent=1))
-MEOF
+    cflags="$(sed -n "s/^CFLAGS='\([^']*\)'.*/\1/p" "$out_abs")"
+    # +MANIFEST (JSON, written by the shell: no python on a server needed)
+    {
+        printf '{\n "name": %s,\n "origin": %s,\n "version": %s,\n' "$(js "php$short")" "$(js "lang/php$short")" "$(js "${ver}_$stamp")"
+        printf ' "comment": %s,\n' "$(js "PHP $branch of azsupport/php-src (php$short, php-fpm$short, libphp$short.so), static")"
+        printf ' "desc": %s,\n' "$(js "PHP $branch of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php$short, sbin/php-fpm$short with the rc.d script php_fpm$short, etc/php$short, the Apache module libphp$short.so, in the place of the package of the port; linked with the static libraries of $AZ. configure: $opts")"
+        printf ' "maintainer": "github@azsupport.com",\n "www": "https://github.com/azsupport/php-src",\n "prefix": %s,\n' "$(js "$php_prefix")"
+        printf ' "licenselogic": "single",\n "licenses": ["PHP301"],\n "categories": ["lang", "az"],\n "deps": {'
+        sep=""
+        for d in $deps; do
+            dn="${d%%=*}"; dr="${d#*=}"
+            printf '%s\n  %s: {"origin": %s, "version": %s}' "$sep" "$(js "$dn")" "$(js "${dr%%=*}")" "$(js "${dr#*=}")"
+            sep=","
+        done
+        printf '\n },\n "annotations": {"configure": %s, "cflags": %s, "built_by": "az-menu.sh"}\n}\n' "$(js "$opts")" "$(js "$cflags")"
+    } > "$m/+MANIFEST" || return 1
     rm -f "$work"/php"$short"-[0-9]*.pkg
     pkg create -m "$m" -p "$pl" -r "$st" -o "$work" > "$work/create-php$short.log" 2>&1 ||
         { cat "$work/create-php$short.log"; return 1; }
