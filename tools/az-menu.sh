@@ -22,7 +22,12 @@
 # offers to install it. Inside a PHP source tree it builds that one.
 #
 # Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree or not:
-#   sh az-menu.sh                   the menu for the branch of this tree
+#   sh az-menu.sh                   outside a PHP source tree: the packages of the
+#                                   repository az (curl, ffmpeg, ImageMagick6 and 7,
+#                                   php56 ... php84; az-libs), each the ready one
+#                                   (Options: what it is built with) or, for PHP,
+#                                   built here with your options;
+#                                   inside one: the menu for the branch of this tree
 #   sh az-menu.sh 8.4               the menu for that branch (outside a tree)
 #   sh az-menu.sh --reset           start from the defaults, not the saved choices
 #   sh az-menu.sh --template=NAME   start from a template (roundcube: php-fpm for
@@ -1656,12 +1661,108 @@ fi
 # shellcheck disable=SC2069
 dlg() { "$DIALOG" --backtitle "$backtitle" "$@" 2>&1 >/dev/tty; }
 
+# --- the menu of the packages of az (outside a PHP source tree, no branch named) ----
+# Every package of the repository az: the ready one (its version; Options: what it
+# is built with, for PHP the configure options of its annotation "configure"), or
+# for PHP a build here with the menu of the branch and its own options; then pkg
+# install of the ready ones, and the menu of each build (its BUILD makes the
+# package and offers to install it).
+az_packages_menu() {
+    backtitle="az-menu: the packages of azsupport/php-src"
+    [ "$(id -u)" = 0 ] || die "the packages are installed with pkg: run it as root"
+    if [ ! -f "$AZ_REPO_CONF" ]; then
+        dlg --title "The repository az" --yesno "There is no repository az ($AZ_REPO_CONF). Write it, for this CPU (x86-64-$(cpu_level))?
+
+$(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
+        mkdir -p "$(dirname "$AZ_REPO_CONF")" && repo_conf > "$AZ_REPO_CONF" || die "cannot write $AZ_REPO_CONF"
+    fi
+    pkg update -r az > /dev/null 2>&1 || say "pkg update -r az failed: the list of the repository may be old"
+    mt="$(mktemp -d)" || exit 2
+    pkg rquery -r az '%n	%v	%c' > "$mt/ready" 2>/dev/null
+    names="az-libs curl ffmpeg ImageMagick6 ImageMagick7"
+    for b in $BRANCHES; do names="$names php$(echo "$b" | tr -d .)"; done
+    focus=""
+    while :; do
+        set --
+        for n in $names; do
+            rv="$(awk -F '	' -v n="$n" '$1 == n { print $2 }' "$mt/ready")"
+            rc_="$(awk -F '	' -v n="$n" '$1 == n { print $3 }' "$mt/ready")"
+            iv="$(pkg query '%v' "$n" 2>/dev/null)"
+            if [ -n "$rv" ]; then
+                set -- "$@" "$n" "ready $rv${iv:+, installed $iv}" off "$rc_ (Options: what it is built with)"
+            fi
+            case "$n" in
+                php*) set -- "$@" "$n.build" "build here with your options${iv:+, installed $iv}" off \
+                    "PHP ${n#php}: the menu of its options, then the package $n made here" ;;
+            esac
+        done
+        [ -n "$focus" ] || focus="$1"
+        res="$(dlg --title "The packages of az" --item-help --separate-output --default-item "$focus" \
+            --help-button --help-label Options --help-status --help-tags --checklist \
+            "Space chooses: the ready package, or for PHP a build here (one of the two). Options: what the ready one under the cursor is built with." \
+            0 0 0 "$@")"
+        rc=$?
+        case "$rc" in
+            0) ;;
+            2|4)
+                set -- $(printf '%s\n' "${res#HELP }" | tr -d "\"'")
+                ftag="${1:-}"
+                [ -n "$ftag" ] && focus="$ftag"
+                case "$ftag" in
+                    *.build) dlg --title "$ftag" --msgbox "Built here: the menu of PHP with the options of the build on this server (config.installed.sh), else those saved before, else the defaults." 0 0 ;;
+                    "") ;;
+                    *)
+                        {
+                            pkg rquery -r az '%n-%v: %c' "$ftag"
+                            echo
+                            pkg rquery -r az '%e' "$ftag" | fold -s -w 76
+                            o="$(pkg rquery -r az '%At	%Av' "$ftag" | awk -F '	' '$1 == "configure" { print $2 }')"
+                            if [ -n "$o" ]; then echo; echo "configure:"; printf '%s\n' $o | sed 's/^/    /'; fi
+                            c="$(pkg rquery -r az '%At	%Av' "$ftag" | awk -F '	' '$1 == "cflags" || $1 == "cputype" { print $1 ": " $2 }')"
+                            [ -n "$c" ] && { echo; echo "$c"; }
+                            d="$(pkg rquery -r az '%dn-%dv' "$ftag" | tr '\n' ' ')"
+                            [ -n "$d" ] && { echo; echo "depends on: $d"; }
+                        } > "$mt/opts" 2>&1
+                        dlg --title "$ftag" --textbox "$mt/opts" 0 0 ;;
+                esac
+                continue ;;
+            *) rm -rf "$mt"; command -v clear >/dev/null 2>&1 && clear; say "nothing done"; exit 1 ;;
+        esac
+        sel=" $(printf '%s' "$res" | tr -d '"' | tr '\n' ' ') "
+        both=""
+        for n in $names; do
+            case "$sel" in *" $n "*) case "$sel" in *" $n.build "*) both="$both $n" ;; esac ;; esac
+        done
+        if [ -n "$both" ]; then
+            dlg --title "One of the two" --msgbox "Ready or built here, not both:$both" 0 0
+            continue
+        fi
+        break
+    done
+    ready="" builds=""
+    for n in $names; do
+        case "$sel" in *" $n "*) ready="$ready $n" ;; esac
+        case "$sel" in *" $n.build "*) builds="$builds ${n#php}" ;; esac
+    done
+    rm -rf "$mt"
+    command -v clear >/dev/null 2>&1 && clear
+    [ -n "$ready$builds" ] || { say "nothing chosen"; exit 0; }
+    if [ -n "$ready" ]; then
+        say "pkg install -r az$ready"
+        # shellcheck disable=SC2086
+        pkg install -r az $ready || die "pkg install -r az$ready failed"
+    fi
+    for v in $builds; do
+        b="$(echo "$v" | sed 's/^\(.\)/\1./')"
+        say "PHP $b: its menu (BUILD there makes the package and offers to install it)"
+        sh "$0" "$b" || say "PHP $b: not built"
+    done
+    exit 0
+}
+
 if [ -z "$branch" ]; then
     [ -z "$batch" ] && [ -z "$list" ] || die "not in a PHP source tree: name the branch (sh az-menu.sh 8.4)"
-    backtitle="az-menu: azsupport/php-src"
-    set --
-    for b in $BRANCHES; do set -- "$@" "$b" "PHP $b"; done
-    branch="$(dlg --title "PHP branch" --menu "Not in a PHP source tree. Which branch?" 0 0 0 "$@")" || exit 1
+    az_packages_menu
 fi
 case " $BRANCHES " in
     *" $branch "*) ;;
