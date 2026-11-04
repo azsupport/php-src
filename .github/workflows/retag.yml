@@ -1,0 +1,32 @@
+name: Move tags
+
+# One-off: point tags at other commits ("tag=sha" pairs), for tags of releases
+# whose commit was rewritten. Started by hand only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pairs:
+        description: 'Space-separated tag=sha pairs'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  retag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Move the tags
+        env:
+          PAIRS: ${{ inputs.pairs }}
+        run: |
+          for p in $PAIRS; do
+            t="${p%%=*}"; s="${p#*=}"
+            git cat-file -e "$s^{commit}"
+            git tag -f "$t" "$s"
+            git push -f origin "refs/tags/$t"
+          done
