@@ -1,10 +1,11 @@
 #!/bin/sh
-# build-ffmpeg-report.sh - turn the results of tools/build-ffmpeg.sh and
-# tools/ffmpeg-test.sh (ffmpeg-results/), or of tools/build-imagemagick.sh and
-# tools/imagemagick-test.sh (imagemagick-results/), into the job log, the job
-# summary and annotations: one for the whole build (notice when it built and
-# every test passed, error when not), one per failed library with the end of its
-# log, one with the failed tests.
+# build-ffmpeg-report.sh - turn the results of a part of tools/build-az.sh into
+# the job log, the job summary and annotations: those of tools/build-ffmpeg.sh and
+# tools/ffmpeg-test.sh (ffmpeg-results/), of tools/build-imagemagick.sh and
+# tools/imagemagick-test.sh (imagemagick-results/), of the curl program and
+# tools/curl-test.sh (curl-results/), of the packages (az-results/): one for the
+# whole part (notice when it built and every test passed, error when not), one per
+# failed build with the end of its log, one with the failed tests.
 #
 # Usage: sh tools/build-ffmpeg-report.sh [results-dir [title]]
 #        (default: ffmpeg-results, "FFmpeg for the video sites")
@@ -31,7 +32,7 @@ cat "$res/report.txt"
 if [ -s "$res/tests.txt" ]; then
     echo; echo "== tests.txt"; cat "$res/tests.txt"
 fi
-if grep -q ' FAIL ' "$res/summary.txt" || ! grep -q '^tarball:' "$res/summary.txt" || [ -s "$res/bins-bad.txt" ] ||
+if grep -q ' FAIL' "$res/summary.txt" || ! grep -q -E '^(tarball|installed|repo):' "$res/summary.txt" || [ -s "$res/bins-bad.txt" ] ||
     ! tail -n 1 "$res/tests.txt" 2>/dev/null | grep -q '^tests: [0-9]* ok, 0 failed$'; then
     level=error; rc=1
 else

@@ -1,0 +1,124 @@
+name: az packages for FreeBSD
+
+# Builds /usr/local/az (tools/build-az.sh): the static libraries PHP and the
+# programs are built against (freebsd/deps.conf), the curl program, FFmpeg
+# (freebsd/ffmpeg.conf), ImageMagick 6 and 7 (freebsd/imagemagick.conf), from the
+# FreeBSD ports, with the compiler flags of the servers for an x86-64 level; tests
+# them and makes the packages az-libs, az-curl, az-ffmpeg, az-imagemagick6 and
+# az-imagemagick7 with a repository of pkg, one job per level, published as the
+# files of the release az-fbsd<major>-amd64-<level> (or, for a check on a server
+# first, az-fbsd<major>-amd64-<level>-candidate), which pkg reads as a repository:
+# its address goes into /usr/local/etc/pkg/repos/az.conf.
+# Started by hand: Actions, "az packages for FreeBSD", "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'FreeBSD release'
+        required: true
+        default: '15.1'
+      cputype:
+        description: 'x86-64 level (-march, CPUTYPE of make.conf)'
+        type: choice
+        options: [both, x86-64-v3, x86-64-v2]
+        default: both
+      cflags:
+        description: 'CFLAGS of make.conf (the protections are added)'
+        required: true
+        default: '-O3 -pipe'
+      publish:
+        description: 'Publish the repository when everything built and every test passed'
+        type: boolean
+        default: true
+      candidate:
+        description: 'Publish to az-fbsd<major>-amd64-<level>-candidate (a pre-release, for a check on a server), not to the release the servers read'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: az-${{ inputs.release }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        cputype: ${{ inputs.cputype == 'both' && fromJSON('["x86-64-v3", "x86-64-v2"]') || fromJSON(format('["{0}"]', inputs.cputype)) }}
+    name: az (${{ matrix.cputype }})
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build, test and package in FreeBSD ${{ inputs.release }}
+        uses: vmactions/freebsd-vm@v1
+        env:
+          AZ_CPUTYPE: ${{ matrix.cputype }}
+          AZ_CFLAGS: ${{ inputs.cflags }}
+        with:
+          release: ${{ inputs.release }}
+          envs: 'AZ_CPUTYPE AZ_CFLAGS'
+          prepare: |
+            sh tools/build-az.sh --tools
+          run: |
+            sh tools/build-az.sh || true
+
+      - name: Report
+        if: always()
+        run: |
+          rc=0
+          sh tools/build-deps-report.sh deps-results || rc=1
+          sh tools/build-ffmpeg-report.sh ffmpeg-results "FFmpeg" || rc=1
+          sh tools/build-ffmpeg-report.sh imagemagick-results "ImageMagick 6 and 7" || rc=1
+          sh tools/build-ffmpeg-report.sh curl-results "curl" || rc=1
+          sh tools/build-ffmpeg-report.sh az-results "the packages of /usr/local/az" || rc=1
+          exit $rc
+
+      - name: Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: az-results-${{ matrix.cputype }}
+          path: |
+            az-results/
+            deps-results/
+            ffmpeg-results/
+            imagemagick-results/
+            curl-results/
+          if-no-files-found: ignore
+
+      - name: Publish
+        if: ${{ success() && inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+          CPUTYPE: ${{ matrix.cputype }}
+          CFLAGS_IN: ${{ inputs.cflags }}
+          CANDIDATE: ${{ inputs.candidate && '1' || '' }}
+        run: |
+          major="${RELEASE%%.*}"
+          level="${CPUTYPE#x86-64-}"
+          dir="dist/az-fbsd$major-amd64-$level"
+          tag="az-fbsd$major-amd64-$level"
+          if [ -n "$CANDIDATE" ]; then tag="$tag-candidate"; fi
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+          notes="A repository of pkg for FreeBSD $major (amd64, -march=$CPUTYPE): the static packages of /usr/local/az, az-libs (the libraries PHP is built against), az-curl, az-ffmpeg, az-imagemagick6 (convert6, identify6, ...) and az-imagemagick7 (magick, and its libraries for imagick). Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, PIE, RELRO and BIND_NOW. On a server, /usr/local/etc/pkg/repos/az.conf: az: { url: \"$url\", signature_type: \"none\", enabled: yes }, then: pkg update -r az, pkg install -r az az-ffmpeg (and the others). Versions and options: share/doc/<package>/VERSIONS in /usr/local/az."
+          if [ -n "$CANDIDATE" ]; then
+            notes="A candidate, for a check on a server before the packages go to az-fbsd$major-amd64-$level. $notes"
+          fi
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --notes "$notes" --target "$GITHUB_SHA" ${CANDIDATE:+--prerelease} ||
+              gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null
+          fi
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes"
+          # the packages first, the catalog of pkg repo last, then away with what this build has not
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $(ls "$dir"/az-*.pkg)
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $(ls -d "$dir"/* | grep -v '/az-[^/]*\.pkg$')
+          for a in $(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'); do
+            [ -e "$dir/$a" ] || gh release delete-asset "$tag" "$a" --repo "$GITHUB_REPOSITORY" -y
+          done

@@ -1,14 +1,16 @@
 #!/bin/sh
-# build-deps.sh - build /usr/local/phpdeps, the libraries PHP links against,
-# static and position independent, from the FreeBSD ports listed in
-# freebsd/deps.conf. PHP built against it (php, php-fpm, php-cgi, libphp.so)
-# needs no library of /usr/local/lib: a pkg upgrade or packages of another
-# FreeBSD version cannot break it, and in Apache its copies of the libraries do
-# not mix with those of other modules (their symbols stay hidden).
+# build-deps.sh - build the libraries of /usr/local/az (lib/, include/), static
+# and position independent, from the FreeBSD ports listed in freebsd/deps.conf,
+# and the curl program (bin/curl). PHP built against them (php, php-fpm, php-cgi,
+# libphp.so) and the programs of /usr/local/az (FFmpeg, ImageMagick) need no
+# library of /usr/local/lib: a pkg upgrade or packages of another FreeBSD version
+# cannot break them, and in Apache the copies of the libraries in PHP do not mix
+# with those of other modules (their symbols stay hidden). tools/build-az.sh runs
+# this first, then the programs, the tests and the tarball.
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master):
 #   sh tools/build-deps.sh --tools     install the build tools (pkg)
-#   sh tools/build-deps.sh             build everything, then the tarball
+#   sh tools/build-deps.sh             build everything (into an empty directory)
 #   sh tools/build-deps.sh icu curl    rebuild only these (the rest must be there)
 #
 # For every library the ports framework fetches the distfiles of the port at the
@@ -21,17 +23,17 @@
 # freebsd/deps/<name>-<version>/. curl and the libraries it needs
 # ("bundle" in deps.conf) are the ones of --with-curl=bundled instead: the
 # release files of freebsd/curl.conf and freebsd/curl-deps.conf (tools/curl-sources.sh),
-# built by freebsd/curl/build-libcurl.sh. All: only static libraries, -fPIC,
-# into PHPDEPS (default /usr/local/phpdeps), in DEPS_WORK (default
-# /var/tmp/phpdeps-work). Results go to deps-results/
-# (summary.txt, one log per library), the tarball to dist/
-# (phpdeps-fbsd<major>-amd64-<level>.tar.xz, such as -v3 for -march=x86-64-v3,
-# extracted with tar -xf ... -C /usr/local).
+# built by freebsd/curl/build-libcurl.sh; the curl program of the same build goes
+# to bin/curl (the line "program curl"). All: only static libraries, -fPIC, into
+# AZ_PREFIX (default /usr/local/az), in AZ_WORK/deps (default
+# /var/tmp/az-work/deps); the licences go to LICENSES/. Results go to
+# deps-results/ (summary.txt, one log per library, VERSIONS, also installed as
+# share/doc/az-libs/VERSIONS).
 #
 # Compiler flags as on the servers: CPUTYPE and CFLAGS of /etc/make.conf (such as
 # CPUTYPE?=x86-64-v3 and CFLAGS=-O3 -pipe) with -fstack-protector-strong and
-# -fno-strict-aliasing, and -fPIC. PHPDEPS_CPUTYPE and PHPDEPS_CFLAGS (the inputs
-# of the workflow deps.yml) win over make.conf (MAKE_CONF, default /etc/make.conf);
+# -fno-strict-aliasing, and -fPIC. AZ_CPUTYPE and AZ_CFLAGS (the inputs of the
+# workflow az.yml) win over make.conf (MAKE_CONF, default /etc/make.conf);
 # without either: x86-64-v3 and -O3 -pipe. The build runs what it compiles
 # (configure tests, the data tools of ICU), so it stops at once on a CPU that
 # cannot run code of that level; PHP built against the bundle needs it too.
@@ -42,8 +44,8 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/deps.conf"
-P="${PHPDEPS:-/usr/local/phpdeps}"
-work="${DEPS_WORK:-/var/tmp/phpdeps-work}"
+P="${AZ_PREFIX:-/usr/local/az}"
+work="${AZ_WORK:-/var/tmp/az-work}/deps"
 res="$top/deps-results"
 dist="$top/dist"
 ports="${PORTSDIR:-$work/ports}"
@@ -53,7 +55,7 @@ major="$(uname -r | cut -d. -f1)"
 if [ "${1:-}" = "--tools" ]; then
     # Build tools only; none of their libraries is linked into the bundle (the
     # compiler does not search /usr/local, pkg-config only the bundle and base).
-    tools="git cmake ninja meson python3 gmake nasm perl5 pkgconf lzip bison autoconf automake libtool gettext-tools m4"
+    tools="git cmake ninja meson python3 gmake nasm perl5 pkgconf lzip bison autoconf automake libtool gettext-tools m4 gperf"
     # shellcheck disable=SC2086
     env ASSUME_ALWAYS_YES=yes pkg install -y $tools
     rc=$?
@@ -81,9 +83,9 @@ mc_get() {
 # two protections, position independent so that they can go into libphp.so, and
 # nothing from /usr/local: the base compiler does not search it, pkg-config only
 # sees the bundle and the base system. A -march in CFLAGS gives way to CPUTYPE.
-cputype="${PHPDEPS_CPUTYPE:-$(mc_get CPUTYPE)}"
+cputype="${AZ_CPUTYPE:-$(mc_get CPUTYPE)}"
 cputype="${cputype:-x86-64-v3}"
-opt="${PHPDEPS_CFLAGS:-$(mc_get CFLAGS)}"
+opt="${AZ_CFLAGS:-$(mc_get CFLAGS)}"
 # shellcheck disable=SC2086
 opt="$(printf '%s\n' ${opt:--O3 -pipe} | grep -v -e '^-march=' -e '^-fPIC$' | tr '\n' ' ' | sed 's/ *$//')"
 level="${cputype#x86-64-}"
@@ -101,6 +103,12 @@ export PKG_CONFIG="$work/bin/pkg-config-static"
 export PKG_CONFIG_LIBDIR="$P/lib/pkgconfig:$P/libdata/pkgconfig:/usr/libdata/pkgconfig"
 unset PKG_CONFIG_PATH
 export PATH="$P/bin:$PATH"
+# LTO (x264, as its port) puts LLVM bitcode into static archives: their index
+# needs the ar of LLVM, taken by name when ar of the base system is another one.
+unset AR RANLIB NM
+if ! ar --version 2>/dev/null | grep -q LLVM && command -v llvm-ar >/dev/null 2>&1; then
+    export AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm
+fi
 
 ports_commit="$(awk '$1 == "ports" { print $2 }' "$conf")"
 libs_all="$(awk '$1 == "lib" { print $2 }' "$conf")"
@@ -110,8 +118,8 @@ take_of() { awk -v n="$1" '$1 == "take" && $2 == n { print $3, $4, $5, $6 }' "$c
 
 # A sparse checkout of freebsd-ports at the commit of deps.conf: the framework
 # (Mk, Templates, Keywords) and the ports of deps.conf, with what they include
-# (devel/gettext; lang/perl5.* and lang/python3* for the version files that
-# USES=perl5 and USES=python read).
+# (devel/gettext; multimedia/x264, the master port of libx264; lang/perl5.* and
+# lang/python3* for the version files that USES=perl5 and USES=python read).
 ports_checkout() {
     if [ "$(git -C "$ports" rev-parse HEAD 2>/dev/null)" = "$ports_commit" ]; then return 0; fi
     say "freebsd-ports at $ports_commit into $ports"
@@ -123,7 +131,7 @@ ports_checkout() {
         git -C "$ports" fetch -q --depth 1 --filter=blob:none origin "$ports_commit" &&
         git -C "$ports" sparse-checkout set --no-cone /Mk/ /Templates/ /Keywords/ \
             $(awk '$1 == "lib" && $3 != "bundle" { printf "/%s/ ", $3 }' "$conf") /devel/gettext/ \
-            '/lang/perl5*/' '/lang/python3*/' &&
+            /multimedia/x264/ '/lang/perl5*/' '/lang/python3*/' &&
         git -C "$ports" checkout -q FETCH_HEAD
 }
 pmake() {
@@ -148,11 +156,19 @@ at() {
 }
 cm() {
     src="$1"; shift
-    cmake -S "$src" -B "$src/_phpdeps" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    cmake -S "$src" -B "$src/_az" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$P" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_PREFIX_PATH="$P" \
         -DCMAKE_IGNORE_PREFIX_PATH=/usr/local -DBUILD_SHARED_LIBS=OFF \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" "$@" &&
-        cmake --build "$src/_phpdeps" -j "$ncpu" && cmake --install "$src/_phpdeps"
+        cmake --build "$src/_az" -j "$ncpu" && cmake --install "$src/_az"
+}
+# meson as USES=meson of the ports (release, the optimization of CFLAGS), static
+# and position independent
+ms() {
+    src="$1"; shift
+    (cd "$src" && meson setup _az --prefix="$P" --libdir=lib --buildtype=release -Doptimization=plain \
+        --default-library=static -Db_staticpic=true --wrap-mode=nodownload "$@" &&
+        ninja -C _az -j "$ncpu" && ninja -C _az install)
 }
 
 b_openssl() {
@@ -237,6 +253,56 @@ b_gettext() {
     at "$1" --disable-csharp --disable-java --disable-libasprintf --disable-threads --disable-openmp \
         --disable-acl --with-libiconv-prefix="$P" --without-emacs ac_cv_lib_rt_sched_yield=no
 }
+# For ImageMagick and FFmpeg:
+b_expat() { at "$1" --without-docbook --without-examples --without-tests --without-xmlwf; }
+# fontconfig with the paths of the port, so that it reads the configuration, fonts
+# and cache of the system; installed through a stage directory (nothing into
+# /usr/local outside the tree)
+b_fontconfig() {
+    st="$work/stage-fontconfig"
+    rm -rf "$st"
+    (cd "$1" && meson setup _az --prefix="$P" --libdir=lib --sysconfdir=/usr/local/etc --localstatedir=/var \
+        --buildtype=release -Doptimization=plain --default-library=static -Db_staticpic=true \
+        --wrap-mode=nodownload -Ddoc=disabled -Dtests=disabled -Dtools=disabled -Dnls=disabled \
+        -Dcache-build=disabled -Dcache-dir=/var/db/fontconfig -Ddefault-fonts-dirs=/usr/local/share/fonts \
+        -Dadditional-fonts-dirs=/usr/local/lib/X11/fonts -Dtemplate-dir=/usr/local/etc/fonts/conf.avail \
+        -Dxml-dir=/usr/local/etc/fonts &&
+        ninja -C _az -j "$ncpu" && DESTDIR="$st" ninja -C _az install) &&
+        cp -R "$st$P/." "$P/"
+}
+# lcms2 as the port (fast float and threaded plugins), without its tools
+b_lcms2() { at "$1" --with-fastfloat --with-threaded --without-jpeg --without-tiff; }
+# x264 as the port (options ASM, LTO and OPTIMIZED_CFLAGS on), the library only
+b_x264() { ms "$1" -Dcli=false -Dasm=enabled -Db_lto=true; }
+# dav1d as the port, without its tools, tests and examples
+b_dav1d() { ms "$1" -Denable_tools=false -Denable_tests=false -Denable_examples=false; }
+# the HEVC decoder of libheif (HEIC), no encoder, no tools
+b_libde265() {
+    cm "$1" -DENABLE_ENCODER=OFF -DENABLE_DECODER=OFF -DENABLE_SDL=OFF -DENABLE_INTERNAL_DEVELOPMENT_TOOLS=OFF
+}
+# libheif: reading HEIC (libde265) and AVIF (dav1d), built in (no plugins); no
+# encoders, JPEG 2000, VVC or uncompressed codecs, no tools
+b_libheif() {
+    cm "$1" -DBUILD_TESTING=OFF -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON \
+        -DBUILD_DOCUMENTATION=OFF -DWITH_EXAMPLES=OFF -DWITH_GDK_PIXBUF=OFF -DENABLE_PLUGIN_LOADING=OFF \
+        -DWITH_LIBSHARPYUV=OFF -DWITH_FUZZERS=OFF -DBUILD_DEVELOPMENT_TOOLS=OFF \
+        -DWITH_LIBDE265=ON -DWITH_LIBDE265_PLUGIN=OFF -DWITH_DAV1D=ON -DWITH_DAV1D_PLUGIN=OFF \
+        -DWITH_AOM_DECODER=OFF -DWITH_AOM_ENCODER=OFF -DWITH_X265=OFF -DWITH_X264=OFF -DWITH_RAV1E=OFF \
+        -DWITH_SvtEnc=OFF -DWITH_FFMPEG_DECODER=OFF -DWITH_OpenH264_DECODER=OFF -DWITH_OpenH264_ENCODER=OFF \
+        -DWITH_JPEG_DECODER=OFF -DWITH_JPEG_ENCODER=OFF -DWITH_OpenJPEG_DECODER=OFF -DWITH_OpenJPEG_ENCODER=OFF \
+        -DWITH_OPENJPH_DECODER=OFF -DWITH_OPENJPH_ENCODER=OFF -DWITH_KVAZAAR=OFF -DWITH_UVG266=OFF \
+        -DWITH_VVDEC=OFF -DWITH_VVENC=OFF -DWITH_UNCOMPRESSED_CODEC=OFF
+}
+
+# lic <name> <source>: the licence files of a library into LICENSES/ (libpng
+# 1.6.59 has a directory LICENSES too)
+lic() {
+    mkdir -p "$P/LICENSES"
+    for f in "$2"/COPYING* "$2"/LICENSE* "$2"/LICENCE* "$2"/PATENTS* "$2"/COPYRIGHT*; do
+        [ -e "$f" ] && cp -R "$f" "$P/LICENSES/$1-${f##*/}"
+    done
+    return 0
+}
 
 # take_args <name> <port>: the make arguments that build the release of the take
 # line of <name> instead of the port's distfiles, after fetching the file into
@@ -299,6 +365,7 @@ build_one() {
         echo "== source: $src"
         : > "$work/stamp-$n"
         "b_$n" "$src" || exit 1
+        lic "$n" "$src"
         # every library leaves a static archive of its own in lib/ (mozjpeg did not)
         if [ -z "$(find "$P/lib" -maxdepth 1 -name '*.a' -newer "$work/stamp-$n" | head -n 1)" ]; then
             echo "== no new static library of $n in $P/lib"; exit 1
@@ -353,6 +420,7 @@ build_bundle() {
         if [ -z "$(find "$P/lib" -maxdepth 1 -name '*.a' -newer "$work/stamp-$n" | head -n 1)" ]; then
             echo "== no new static library of $n in $P/lib"; exit 1
         fi
+        if [ "$n" = curl ]; then lic curl "$work/curl-src/libcurl"; else lic "$n" "$work/curl-src/deps/$n"; fi
     ) > "$log" 2>&1
     rc=$?
     ver="$(bundle_ver "$n")"
@@ -412,14 +480,15 @@ finish() {
     if [ -f "$P/bin/curl-config" ] && [ ! -f "$P/bin/curl-config.orig" ]; then
         libs="$(pkgconf --static --libs libcurl)"
         mv "$P/bin/curl-config" "$P/bin/curl-config.orig"
-        printf '%s\n' '#!/bin/sh' '# curl-config of /usr/local/phpdeps: --libs gives the static link line.' \
+        printf '%s\n' '#!/bin/sh' "# curl-config of $P: --libs gives the static link line." \
             'case "$1" in' "    --libs|--static-libs) echo \"$libs\" ;;" "    *) exec \"$P/bin/curl-config.orig\" \"\$@\" ;;" \
             'esac' > "$P/bin/curl-config"
         chmod +x "$P/bin/curl-config"
     fi
-    # pkg-config for PHP builds against the bundle (config-check.sh writes PKG_CONFIG
-    # with it): the bundle first, then the base system and the packages (for what the
-    # bundle has not, such as ImageMagick), and static link lines.
+    # pkg-config for PHP builds against the tree (config-check.sh writes PKG_CONFIG
+    # with it): the tree first (with ImageMagick 7 for imagick), then the base system
+    # and the packages (for what the tree has not, such as GraphicsMagick), and
+    # static link lines.
     mkdir -p "$P/bin"
     printf '%s\n' '#!/bin/sh' "# pkg-config of $P: the bundle first, static link lines." \
         "PKG_CONFIG_LIBDIR='$P/lib/pkgconfig:/usr/libdata/pkgconfig:/usr/local/libdata/pkgconfig:/usr/local/share/pkgconfig'" \
@@ -439,8 +508,10 @@ finish() {
             fi
         fi
     done
-    # Nothing may point to /usr/local outside the bundle (the libraries of pkg).
-    grep -rn '/usr/local/' "$P/lib/pkgconfig" "$P/bin" 2>/dev/null | sed 's#/usr/local/phpdeps##g' |
+    # Nothing may point to /usr/local outside the tree (the libraries of pkg); the
+    # configuration and fonts of the system that fontconfig reads are meant.
+    grep -rn '/usr/local/' "$P/lib/pkgconfig" "$P/bin" 2>/dev/null | sed "s#$P##g" |
+        sed -e 's#/usr/local/etc/fonts##g' -e 's#/usr/local/share/fonts##g' -e 's#/usr/local/lib/X11/fonts##g' |
         grep '/usr/local/' > "$res/localbase.txt" || true
     # Every .pc names the archives of the bundle that its archives need (a short one
     # fails the PHP builds at the link only); a finding stops the tarball.
@@ -452,7 +523,7 @@ finish() {
 
 manifest() {
     {
-        echo "phpdeps for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
+        echo "az libraries for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
         echo "freebsd-ports $ports_commit; static libraries, CFLAGS: $CFLAGS"
         echo
         while read -r n pkgname port; do
@@ -483,14 +554,67 @@ manifest() {
             np="$(ls "$ports/$port/files" 2>/dev/null | grep -c '^patch-')"
             [ "$np" -gt 0 ] && echo "    $np patches of the port"
         done < "$res/built.txt"
-    } > "$P/VERSIONS"
+        if [ -x "$P/bin/curl" ]; then
+            echo
+            echo "curl program: bin/curl, of the bundled curl above (the same options and libraries as libcurl)"
+        fi
+    } > "$res/VERSIONS"
+    mkdir -p "$P/share/doc/az-libs"
+    cp "$res/VERSIONS" "$P/share/doc/az-libs/VERSIONS"
 }
 
-mkdir -p "$res" "$work" "$dist"
+# The curl program (deps.conf: "program curl"): curl of the build of libcurl above
+# (freebsd/curl/build-libcurl.sh configured the whole tree in $work/obj-curl/curl,
+# built lib/), linked with the libraries of the tree; PIE, RELRO, BIND_NOW,
+# stripped.
+build_curl_program() {
+    o="$work/obj-curl/curl"
+    log="$res/curl-program.log"
+    start=$(date +%s)
+    (
+        [ -f "$o/src/Makefile" ] || { echo "== no build of curl in $o (build curl first)"; exit 1; }
+        rm -f "$o/src/curl"
+        cd "$o/src" && gmake -j"$ncpu" ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=: MAKEINFO=: \
+            LDFLAGS="-L$P/lib -pie -Wl,-z,relro,-z,now" curl || exit 1
+        mkdir -p "$P/bin"
+        install -s -m 755 "$o/src/curl" "$P/bin/curl" || exit 1
+    ) > "$log" 2>&1
+    rc=$?
+    : > "$res/curl-bins.txt"
+    if [ "$rc" = 0 ]; then
+        f="$P/bin/curl"
+        type="$(readelf -h "$f" | awk '/Type:/ { print $2 }')"
+        relro="$(readelf -l "$f" | grep -c GNU_RELRO)"
+        now="$(readelf -d "$f" | grep -c -E 'BIND_NOW|FLAGS_1.*NOW')"
+        libs="$(ldd "$f" | awk 'NR > 1 { print $3 }' | tr '\n' ' ' | sed 's/ *$//')"
+        printf 'curl: %s KB, ELF type %s, RELRO %s, BIND_NOW %s; libraries: %s\n' \
+            "$(du -k "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/curl-bins.txt"
+        case "$libs" in *"/usr/local/"*) echo "curl: links a library of /usr/local" >> "$res/bins-bad.txt" ;; esac
+        [ "$type" = DYN ] || echo "curl: not a PIE (ELF type $type)" >> "$res/bins-bad.txt"
+        [ "$relro" -gt 0 ] || echo "curl: no RELRO" >> "$res/bins-bad.txt"
+        [ "$now" -gt 0 ] || echo "curl: no BIND_NOW" >> "$res/bins-bad.txt"
+        "$f" --version > "$res/curl-version.txt" 2>&1
+        printf '%-14s OK    %-22s %-24s %4ss\n' "curl program" "$(bundle_ver curl)" "bin/curl" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
+    else
+        printf '%-14s FAIL  %-22s %-24s %4ss (deps-results/curl-program.log)\n' "curl program" "$(bundle_ver curl)" "bin/curl" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
+        tail -n 25 "$log" > "$res/curl-program.tail"
+    fi
+    say "curl program: $(tail -n 1 "$res/summary.txt" | awk '{ print $3 }')"
+    return "$rc"
+}
+
+mkdir -p "$res" "$work"
 cpu_model="$(sysctl -n hw.model 2>/dev/null)"
 if [ $# -eq 0 ]; then
     set -- $libs_all
+    # a full build starts from an empty tree; the PHP builds of a server in it
+    # (phpXY directories, bin/phpXY) are never removed
+    if [ -n "$(ls -d "$P"/php* "$P"/bin/php* "$P"/etc/php* 2>/dev/null | head -n 1)" ]; then
+        echo "build-deps: $P has PHP builds in it; build into an empty directory (AZ_PREFIX=...)" >&2
+        exit 2
+    fi
     rm -rf "$P"
+    rm -f "$res"/*.tail "$res/bins-bad.txt"
     : > "$res/summary.txt"; : > "$res/built.txt"
     printf 'flags:    %s\ncpu:      %s\n' "$CFLAGS" "${cpu_model:-?}" >> "$res/summary.txt"
 fi
@@ -508,7 +632,7 @@ if [ ! -s "$work/cpu-need" ] || [ -n "$lacks" ]; then
     why="${lacks:+lacks $lacks of}"
     printf '%-14s FAIL  this CPU (%s) %s -march=%s: code built for it cannot run here\n' \
         cpu "${cpu_model:-?}" "${why:-cannot tell the features of}" "$cputype" >> "$res/summary.txt"
-    echo "build-deps: this CPU ${why:-cannot tell the features of} -march=$cputype; build on a CPU that has them, or set PHPDEPS_CPUTYPE to a lower level" >&2
+    echo "build-deps: this CPU ${why:-cannot tell the features of} -march=$cputype; build on a CPU that has them, or set AZ_CPUTYPE to a lower level" >&2
     exit 1
 fi
 for n in "$@"; do
@@ -522,14 +646,15 @@ for n in "$@"; do
     build_one "$n" || rc=1
 done
 finish
+if grep -q '^program curl' "$conf" && grep -q '^curl ' "$res/built.txt" 2>/dev/null; then
+    build_curl_program || rc=1
+fi
 manifest
 # Known vulnerabilities of these versions (FreeBSD VuXML), for the report.
 pkg audit -F -q $(awk '{ print $2 }' "$res/built.txt") > "$res/audit.txt" 2>&1 || true
-if [ "$rc" = 0 ] && [ ! -s "$res/pic.txt" ] && [ ! -s "$res/links.txt" ]; then
-    tarball="$dist/phpdeps-fbsd$major-amd64-$level.tar.xz"
-    tar -cJf "$tarball" -C "$(dirname "$P")" "$(basename "$P")"
-    sha256 -q "$tarball" > "$tarball.sha256"
-    cp "$P/VERSIONS" "$dist/phpdeps-fbsd$major-amd64-$level.VERSIONS.txt"
-    echo "tarball: ${tarball##*/} ($(du -k "$tarball" | cut -f1) KB, $(du -sk "$P" | cut -f1) KB unpacked)" >> "$res/summary.txt"
+if [ "$rc" = 0 ] && [ ! -s "$res/pic.txt" ] && [ ! -s "$res/links.txt" ] && [ ! -s "$res/bins-bad.txt" ]; then
+    echo "installed: $P ($(du -sk "$P" | cut -f1) KB)" >> "$res/summary.txt"
+else
+    rc=1
 fi
 exit "$rc"
