@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""menu-screenshots.py - the pictures of tools/php-menu.sh for the README.
+"""menu-screenshots.py - the pictures of tools/az-menu.sh for the README.
 
 Runs sessions of the menu in an 80x25 terminal (pyte), as the FreeBSD console
 shows it: bsddialog, the Terminus font (10x20) and the 16 VGA colors of vt(4).
@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 COLS, ROWS = 80, 25
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MENU = os.path.join(HERE, 'tools', 'php-menu.sh')
+MENU = os.path.join(HERE, 'tools', 'az-menu.sh')
 
 # the palette of vt(4) (the VGA one): normal, then bright
 VGA = {
@@ -183,13 +183,13 @@ def main():
     env = {
         'PATH': fake + ':' + os.environ.get('PATH', '/usr/bin:/bin'), 'TERM': 'xterm', 'LANG': 'C.UTF-8',
         'LC_ALL': 'C.UTF-8', 'HOME': work, 'DIALOG': args.dialog, 'MAKE_CONF': mkconf,
-        'PHP_MENU_DB': '/var/db/php-menu', 'OUT': './config.menu.sh', 'INSTALLED': './config.installed.sh',
+        'AZ_MENU_DB': '/var/db/az-menu', 'OUT': './config.menu.sh', 'INSTALLED': './config.installed.sh',
         'LINES': str(ROWS), 'COLUMNS': str(COLS), 'TZ': 'Europe/Prague',
     }
     menu = ['sh', MENU, '8.4']
 
     def fresh():
-        shutil.rmtree('/var/db/php-menu', ignore_errors=True)
+        shutil.rmtree('/var/db/az-menu', ignore_errors=True)
         for f in ('config.menu.sh', 'config.installed.sh'):
             try:
                 os.unlink(os.path.join(work, f))

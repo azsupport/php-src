@@ -1,5 +1,6 @@
 #!/bin/sh
-# php-menu.sh - choose what goes into a PHP build of this fork with dialogs, the
+# az-menu.sh - build PHP of this fork as a package of pkg (phpXY, in the place of
+# that of the ports), and choose what goes into it with dialogs, the
 # way the FreeBSD ports do it with "make config": the options of lang/phpXY and
 # mod_phpXY, the extensions of phpXY-extensions plus the PECL extensions this
 # fork bundles, and the options of single extensions. Unlike the ports, all of it
@@ -10,18 +11,32 @@
 # follows the list when it is on, and the button Options of the list opens the
 # screen of the item under the cursor at once.
 #
-# Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree:
-#   sh php-menu.sh                  the menu for the branch of this tree
-#   sh php-menu.sh 8.4              the menu for that branch (outside a tree)
-#   sh php-menu.sh --reset          start from the defaults, not the saved choices
-#   sh php-menu.sh --template=NAME  start from a template (roundcube: php-fpm for
+# The script stands alone: fetched by itself onto a server (fetch
+# https://raw.githubusercontent.com/azsupport/php-src/master/tools/az-menu.sh), it
+# takes the source of the branch from the release freebsd-X.Y-latest of the fork
+# (its SHA-256 checked), and the static libraries PHP is linked with (az-libs, and
+# curl and ImageMagick7 for curl and imagick: their static libraries in
+# /usr/local/az) from the repository of pkg of the fork
+# (/usr/local/etc/pkg/repos/az.conf: --repo writes it), builds PHP with the
+# choices, makes the package phpXY of it (which depends on those packages) and
+# offers to install it. Inside a PHP source tree it builds that one.
+#
+# Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree or not:
+#   sh az-menu.sh                   the menu for the branch of this tree
+#   sh az-menu.sh 8.4               the menu for that branch (outside a tree)
+#   sh az-menu.sh --reset           start from the defaults, not the saved choices
+#   sh az-menu.sh --template=NAME   start from a template (roundcube: php-fpm for
 #                                   Roundcube), not from the saved choices
-#   sh php-menu.sh --batch [+ID -ID ID=value ...]
+#   sh az-menu.sh --batch [+ID -ID ID=value ...]
 #                                   no dialogs: the saved choices (or the defaults),
 #                                   items turned on (+GD, +REDIS.LZ4) or off (-CGI),
-#                                   values typed in (PREFIX=/usr/local/php84,
+#                                   values typed in (PREFIX=/usr/local,
 #                                   MYSQL_SOCK=/tmp/mysql.sock, MYSQL_SOCK= for none)
-#   sh php-menu.sh --list           the items of the branch, with their state, the
+#   sh az-menu.sh --batch --build [--install] ...
+#                                   also build the package phpXY (and install it)
+#   sh az-menu.sh --repo            write /usr/local/etc/pkg/repos/az.conf (the
+#                                   repository of the x86-64 level of this CPU)
+#   sh az-menu.sh --list            the items of the branch, with their state, the
 #                                   values and the templates
 #
 # The menu first asks where to start: what it found (below) or a template, a set
@@ -35,29 +50,47 @@
 # (INSTALLED=/path to change), the menu starts from what that build has, and its
 # environment and its other options (layout, php.ini paths, --build) are kept;
 # the menu decides the SAPI, the build options, the extensions and the values
-# typed in: the install directory (PREFIX: --prefix, the man pages in it; the
-# other paths of that build inside the old directory move along) and the MySQL
-# socket (MYSQL_SOCK, with a MySQL extension). Without it: our base build
-# (/usr/local/phpXY, --disable-all, CLI and OPcache, nothing else) and the
-# compiler flags of every build (-march of /etc/make.conf). Two options of this
-# fork are on by default, also for a config.installed.sh of a build made before
-# them: OPcache built into PHP (--enable-opcache-static) and no extensions
-# loaded at run time (--disable-extension-loading).
+# typed in: the directory to install into (PREFIX, /usr/local as the ports; the
+# other paths of that build inside its old directory move along, a build in
+# /usr/local/phpXY moves to /usr/local) and the MySQL socket (MYSQL_SOCK, with a
+# MySQL extension). Without it: our base build (--disable-all, CLI and OPcache, nothing
+# else) and the compiler flags of every build (-march of /etc/make.conf). Two
+# options of this fork are on by default, also for a config.installed.sh of a
+# build made before them: OPcache built into PHP (--enable-opcache-static) and no
+# extensions loaded at run time (--disable-extension-loading).
+#
+# PHP goes into /usr/local next to the other versions, as ImageMagick 6 and 7 do
+# there: the programs with the version at the end (bin/php84, bin/phpize84,
+# bin/php-config84, bin/php-cgi84, sbin/php-fpm84; --program-suffix=84), its own
+# directories with the version (etc/php84: php.ini, php-fpm.conf, php-fpm.d/;
+# lib/php84, include/php84, share/php84), the Apache module as
+# libexec/apache24/libphp84.so of Apache. With az-libs installed, the libraries
+# are the static ones of /usr/local/az (tools/config-check.sh, as for a
+# config.installed.sh of it), so php, php-fpm and libphp84.so need no library of
+# /usr/local/lib. The package phpXY (the name and origin of the port) has, with
+# FPM, the rc.d script /usr/local/etc/rc.d/php_fpm84 (that of lang/php84, for this
+# version: php_fpm84_enable, /var/run/php-fpm84.pid), php-fpm.conf and
+# php-fpm.d/www.conf (the pool on /var/run/php-fpm84.sock), so that several
+# versions of php-fpm run at once; php.ini (php.ini-production) and the config
+# files are kept when changed (@config); with the Apache module,
+# modules.d/280_mod_php84.conf.sample (each Apache instance loads the module of
+# one version).
 #
 # The choices are saved as the ports save theirs, in
-# /var/db/php-menu/phpXY.options (PHP_MENU_DB to change), and are the start of the
-# next run. Dialogs: bsddialog (FreeBSD 14 and later), else dialog (FreeBSD 13);
+# /var/db/az-menu/phpXY.options (AZ_MENU_DB to change; those of php-menu.sh in
+# /var/db/php-menu are read when there are none), and are the start of the next
+# run. Dialogs: bsddialog (FreeBSD 14 and later), else dialog (FreeBSD 13);
 # DIALOG=/path/to/one to choose.
 
 set -u
 BRANCHES="5.6 7.4 8.1 8.2 8.3 8.4"
 out="${OUT:-./config.menu.sh}"
 installed="${INSTALLED:-./config.installed.sh}"
-db="${PHP_MENU_DB:-/var/db/php-menu}"
+db="${AZ_MENU_DB:-/var/db/az-menu}"
 mk_conf="${MAKE_CONF:-/etc/make.conf}"
 TAB="$(printf '\t')"
 
-die() { echo "php-menu: $*" >&2; exit 2; }
+die() { echo "az-menu: $*" >&2; exit 2; }
 
 # --- data (tools/configure/menu.py of azsupport writes it) ---
 menu_data() {
@@ -245,6 +278,7 @@ menu_data() {
 *	E	XML
 *	E	XMLREADER
 *	E	XMLWRITER
+*	O	--datadir
 5.6	O	--disable-ODBCRouter
 *	O	--disable-adabas
 *	O	--disable-apxs2
@@ -570,10 +604,14 @@ menu_data() {
 *	O	--enable-zlib
 *	O	--enable-zlib-dir
 *	O	--enable-zts
+*	O	--includedir
 *	O	--infodir
+*	O	--libdir
 *	O	--localstatedir
 *	O	--mandir
 *	O	--prefix
+*	O	--program-suffix
+*	O	--sysconfdir
 5.6	O	--with-ODBCRouter
 *	O	--with-adabas
 *	O	--with-apxs2
@@ -888,7 +926,7 @@ menu_data() {
 *	N	OPCACHE_STATIC
 *	N	NODL
 5.6	N	ZSIGNALS
-*	V	PREFIX	/usr/local/php%S	-	Install directory	--prefix=%V --mandir=%V/man	bin, sbin, lib, include, etc (php.ini with --with-layout=GNU) and man go there
+*	V	PREFIX	/usr/local	-	Install directory	--prefix=%V --program-suffix=%S --sysconfdir=%V/etc/php%S --libdir=%V/lib/php%S --includedir=%V/include/php%S --datadir=%V/share/php%S --mandir=%V/share/man	as the ports, the version at the end of the names: bin/php%S, sbin/php-fpm%S, etc/php%S (php.ini with --with-layout=GNU, php-fpm.conf), lib/php%S, include/php%S, share/php%S
 5.6	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysql/mysqli/pdo_mysql.default_socket; 5.6 takes it only with the mysql extension; empty: none (mysqlnd uses /tmp/mysql.sock)
 7.4+	S	007	gdformats	check	GD	GD.EXTERNAL=0	GD: formats of the libgd of PHP
 7.4+	S	019	swoole	check	SWOOLE	-	Swoole options
@@ -1291,11 +1329,20 @@ EOF
 # --- end of data ---
 
 # --- arguments ----------------------------------------------------------------------
-branch="" batch="" reset="" list="" changes="" values="" template=""
+pkg_branch=""
+if [ "${1:-}" = "--package" ]; then
+    [ $# -eq 5 ] || die "--package <branch> <source tree> <stage> <configure script>"
+    pkg_branch="$2" pkg_src="$3" pkg_stage="$4" pkg_cfg="$5"
+    set --
+fi
+branch="" batch="" reset="" list="" changes="" values="" template="" build="" install="" repo=""
 for a in "$@"; do
     case "$a" in
         -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
         --batch) batch=1 ;;
+        --build) build=1 ;;
+        --install) install=1 ;;
+        --repo) repo=1 ;;
         --reset) reset=1 ;;
         --list) list=1 ;;
         --template=*) template="${a#--template=}" ;;
@@ -1303,10 +1350,288 @@ for a in "$@"; do
         [+-][A-Z]*) changes="$changes $a" ;;
         [A-Z]*=*) values="$values$a
 " ;;
-        *) die "unknown argument: $a (sh php-menu.sh --help)" ;;
+        *) die "unknown argument: $a (sh az-menu.sh --help)" ;;
     esac
 done
 [ -z "$changes$values" ] || [ -n "$batch" ] || die "+ID, -ID and ID=value are for --batch"
+[ -z "$build$install" ] || [ -n "$batch" ] || die "--build and --install are for --batch (the menu asks)"
+[ -z "$install" ] || [ -n "$build" ] || die "--install needs --build"
+
+# --- /usr/local/az, its repository of pkg, and the builds of the packages ----------
+AZ="${AZ_PREFIX:-/usr/local/az}"
+AZ_URL="${AZ_URL:-https://github.com/azsupport/php-src}"
+AZ_REPO_CONF="${AZ_REPO_CONF:-/usr/local/etc/pkg/repos/az.conf}"
+work="${AZ_MENU_WORK:-/var/tmp/az-menu}"
+say() { echo "az-menu: $*"; }
+# the x86-64 level this CPU runs (the packages are built for x86-64-v3 and -v2)
+cpu_level() {
+    _f="$(cc -march=native -dM -E - < /dev/null 2>/dev/null)"
+    for _x in AVX2 BMI2 FMA F16C LZCNT MOVBE; do
+        printf '%s\n' "$_f" | grep -q "^#define __${_x}__ 1" || { echo v2; return 0; }
+    done
+    echo v3
+}
+# the repository of the packages of /usr/local/az for this FreeBSD and this CPU (the
+# files of a release of the fork; AZ_CANDIDATE=1: the candidate)
+repo_conf() {
+    printf 'az: {\n    url: "%s/releases/download/az-fbsd%s-amd64-%s%s",\n    signature_type: "none",\n    priority: 100,\n    enabled: yes\n}\n' \
+        "$AZ_URL" "$(uname -r | cut -d. -f1)" "$(cpu_level)" "${AZ_CANDIDATE:+-candidate}"
+}
+if [ -n "$repo" ]; then
+    [ "$(id -u)" = 0 ] || die "--repo writes $AZ_REPO_CONF: as root"
+    mkdir -p "$(dirname "$AZ_REPO_CONF")" || exit 2
+    repo_conf > "$AZ_REPO_CONF" || exit 2
+    say "wrote $AZ_REPO_CONF:"; cat "$AZ_REPO_CONF"
+    pkg update -r az || exit 1
+    exit 0
+fi
+
+# rc_script: the rc.d script php_fpmXY, from the rc.d script php_fpm of the port
+# lang/php84 (freebsd-ports f16b6dd0f7c1c3a2e0447e192e39e72f21d85eb0,
+# lang/php84/files/php_fpm.in) with the names, the program, the configuration and
+# the pid file of this version, so that the php-fpm of several versions run at once
+rc_script() {
+    sed -e "s|@S@|$short|g" -e "s|@AZ@|$php_prefix|g" <<'RCEOF'
+#!/bin/sh
+# php-fpm of PHP @S@ (the package php@S@ of az-menu.sh of
+# https://github.com/azsupport/php-src): the rc.d script php_fpm of the FreeBSD
+# port lang/php84 with names of its own, so that the php-fpm of several versions
+# of PHP run at once (php_fpm@S@_enable="YES" in /etc/rc.conf).
+
+# PROVIDE: php_fpm@S@
+# REQUIRE: LOGIN
+# KEYWORD: shutdown
+
+#
+# Add the following line to /etc/rc.conf to enable php_fpm@S@:
+# php_fpm@S@_enable (bool):        Set to "NO" by default.
+#                               Set it to "YES" to enable php_fpm@S@
+# php_fpm@S@_profiles (str):       Set to "" by default.
+#                               Define your profiles here.
+# php_fpm@S@_pid_prefix (str):     Set to "" by default.
+#                               When using profiles manually assign value to "php_fpm@S@_"
+#                               for prevent collision with other PIDs names.
+
+. /etc/rc.subr
+
+name="php_fpm@S@"
+rcvar=php_fpm@S@_enable
+
+start_precmd="php_fpm@S@_prestart"
+restart_precmd="php_fpm@S@_checkconfig"
+reload_precmd="php_fpm@S@_checkconfig"
+command="@AZ@/sbin/php-fpm@S@"
+configtest_cmd="php_fpm@S@_checkconfig"
+_pidprefix="/var/run"
+pidfile="${_pidprefix}/php-fpm@S@.pid"
+required_files="@AZ@/etc/php@S@/php-fpm.conf"
+
+load_rc_config "${name}"
+
+: ${php_fpm@S@_enable="NO"}
+: ${php_fpm@S@_umask=""}
+: ${php_fpm@S@_svcj_options:="net_basic"}
+
+if [ -n "$2" ]; then
+        profile="$2"
+        if [ "x${php_fpm@S@_profiles}" != "x" ]; then
+                pidfile="${_pidprefix}/${php_fpm@S@_pid_prefix}php-fpm@S@-${profile}.pid"
+                eval php_fpm@S@_configfile="\${php_fpm@S@_${profile}_configfile:-}"
+                if [ "x${php_fpm@S@_configfile}" = "x" ]; then
+                        echo "You must define a configuration file (php_fpm@S@_${profile}_configfile)"
+                        exit 1
+                fi
+                required_files="${php_fpm@S@_configfile}"
+                eval php_fpm@S@_enable="\${php_fpm@S@_${profile}_enable:-${php_fpm@S@_enable}}"
+                php_fpm@S@_flags="-y ${php_fpm@S@_configfile} -g ${pidfile}"
+        else
+                echo "$0: extra argument ignored"
+        fi
+else
+        if [ "x${php_fpm@S@_profiles}" != "x" -a "x$1" != "x" ]; then
+                for profile in ${php_fpm@S@_profiles}; do
+                        echo "===> php_fpm@S@ profile: ${profile}"
+                        /usr/local/etc/rc.d/php_fpm@S@ $1 ${profile}
+                        retcode="$?"
+                        if [ "0${retcode}" -ne 0 ]; then
+                                failed="${profile} (${retcode}) ${failed:-}"
+                        else
+                                success="${profile} ${success:-}"
+                        fi
+                done
+                exit 0
+        fi
+fi
+
+extra_commands="reload configtest logrotate"
+sig_stop="QUIT"
+sig_reload="USR2"
+logrotate_cmd="php_fpm@S@_logrotate"
+
+php_fpm@S@_logrotate() {
+        if [ -z "$rc_pid" ]; then
+                _run_rc_notrunning
+                return 1
+        fi
+        echo "Rotating logs $name."
+        kill -USR1 $rc_pid
+}
+
+php_fpm@S@_checkconfig()
+{
+        echo "Performing sanity check on php-fpm configuration:"
+        eval ${command} ${php_fpm@S@_flags} -t
+}
+
+php_fpm@S@_prestart()
+{
+	php_fpm@S@_checkconfig
+	checkconfig=$?
+	if [ $checkconfig -ne 0  ]; then
+		return $checkconfig
+	fi
+
+	if [ ! -z "$php_fpm@S@_umask"  ]; then
+		echo "Setting umask to: ${php_fpm@S@_umask}"
+		umask $php_fpm@S@_umask
+	fi
+}
+
+run_rc_command "$1"
+RCEOF
+}
+
+# the Apache module of the branch in modules.d of an Apache instance, not on by itself
+mod_sample() {
+    case "$branch" in 5.*) mn=php5_module ;; 7.*) mn=php7_module ;; *) mn=php_module ;; esac
+    cat <<EOF
+# PHP $branch as an Apache module (php$short of az-menu.sh): copy this file to
+# 280_mod_php$short.conf in modules.d of the Apache instance that is to load it
+# (one PHP module per instance), then restart that instance.
+LoadModule $mn libexec/apache24/libphp$short.so
+<IfModule $mn>
+    <FilesMatch "\.php\$">
+        SetHandler application/x-httpd-php
+    </FilesMatch>
+    <FilesMatch "\.phps\$">
+        SetHandler application/x-httpd-php-source
+    </FilesMatch>
+    DirectoryIndex index.php index.html
+</IfModule>
+EOF
+}
+
+# fetch_source: the source of the branch from the release freebsd-X.Y-latest of
+# the fork, its SHA-256 checked, unpacked in $work; prints the tree
+fetch_source() {
+    mkdir -p "$work" || return 1
+    f="php-$branch-fbsd-latest.tar.xz"
+    u="$AZ_URL/releases/download/freebsd-$branch-latest/$f"
+    echo "az-menu: fetching $u" >&2
+    rm -f "$work/$f" "$work/$f.sha256"
+    fetch -q -o "$work/$f" "$u" && fetch -q -o "$work/$f.sha256" "$u.sha256" || return 1
+    want="$(awk '{ print $1; exit }' "$work/$f.sha256")"
+    got="$(sha256 -q "$work/$f")"
+    [ -n "$want" ] && [ "$got" = "$want" ] || { echo "az-menu: $f: SHA-256 $got, not $want of $f.sha256" >&2; return 1; }
+    top="$(tar -tf "$work/$f" | head -n 1 | sed 's#/.*##')"
+    [ -n "$top" ] || return 1
+    rm -rf "${work:?}/$top"
+    tar -xf "$work/$f" -C "$work" || return 1
+    echo "$work/$top"
+}
+
+# package_php <source tree> <stage>: the package phpXY of what make install put
+# into the stage, with the files of the package added (see the head); the
+# prefix and the options are those of the configure script $out_abs
+package_php() {
+    php_prefix="$(sed -n "s/^'--prefix=\([^']*\)' \\\\\$/\1/p" "$out_abs" | tail -n 1)"
+    [ -n "$php_prefix" ] || { say "no --prefix in $out_abs"; return 1; }
+    src="$1"; st="$2"; pt="$2$php_prefix"; etc="$2$php_prefix/etc/php$short"
+    ver="$(sed -n 's/^#define PHP_VERSION "\([^"]*\)".*/\1/p' "$src/main/php_version.h")"
+    [ -n "$ver" ] || { say "no PHP version in $src/main/php_version.h"; return 1; }
+    mkdir -p "$etc" || return 1
+    cp "$src/php.ini-production" "$src/php.ini-development" "$etc/" && cp "$src/php.ini-production" "$etc/php.ini" || return 1
+    configs="$php_prefix/etc/php$short/php.ini"
+    if [ -x "$pt/sbin/php-fpm$short" ]; then
+        # php-fpm.conf and the pool www of this version: their own pid file, log and socket
+        sed -e "s|^;*pid = .*|pid = /var/run/php-fpm$short.pid|" -e "s|^;*error_log = .*|error_log = /var/log/php-fpm$short.log|" \
+            "$etc/php-fpm.conf.default" > "$etc/php-fpm.conf" || return 1
+        pool="$etc/php-fpm.conf"
+        if [ -f "$etc/php-fpm.d/www.conf.default" ]; then
+            cp "$etc/php-fpm.d/www.conf.default" "$etc/php-fpm.d/www.conf" || return 1
+            pool="$etc/php-fpm.d/www.conf"
+            configs="$configs $php_prefix/etc/php$short/php-fpm.d/www.conf"
+        fi
+        sed -i '' -e "s|^listen = .*|listen = /var/run/php-fpm$short.sock|" -e "s|^;*listen.owner = .*|listen.owner = www|" \
+            -e "s|^;*listen.group = .*|listen.group = www|" -e "s|^;*listen.mode = .*|listen.mode = 0660|" "$pool" || return 1
+        configs="$configs $php_prefix/etc/php$short/php-fpm.conf"
+        mkdir -p "$st/usr/local/etc/rc.d" && rc_script > "$st/usr/local/etc/rc.d/php_fpm$short" &&
+            chmod 755 "$st/usr/local/etc/rc.d/php_fpm$short" || return 1
+    fi
+    if [ -f "$st/usr/local/libexec/apache24/libphp$short.so" ]; then
+        mkdir -p "$st/usr/local/etc/apache24/modules.d" &&
+            mod_sample > "$st/usr/local/etc/apache24/modules.d/280_mod_php$short.conf.sample" || return 1
+    fi
+    # what the build left in the stage outside the package: the run and log
+    # directories of FPM (/var), an httpd.conf of apxs
+    rm -rf "$st/var" "$st/usr/local/etc/apache24/httpd.conf"*
+    m="$work/meta-php$short"; pl="$work/plist-php$short"
+    rm -rf "$m"; mkdir -p "$m" || return 1
+    (cd "$st" && find . ! -type d | sed 's#^\.##' | LC_ALL=C sort) > "$pl.files" || return 1
+    for c in $configs; do grep -qx -- "$c" "$pl.files" || { say "no $c in the stage"; return 1; }; done
+    awk -v c=" $configs " 'index(c, " " $0 " ") { print "@config " $0; next } { print }' "$pl.files" > "$pl"
+    # the packages of /usr/local/az it is built with, and the options
+    deps=""
+    for d in az-libs curl ImageMagick7; do
+        pkg info -e "$d" || continue
+        case "$d" in
+            az-libs) grep -q -- "^PKG_CONFIG='$AZ/bin/pkg-config'" "$out_abs" || continue ;;
+            curl) grep -q -- "^'--with-curl=$AZ'" "$out_abs" || continue ;;
+            ImageMagick7) grep -q -- "^'--with-imagick=$AZ'" "$out_abs" || continue ;;
+        esac
+        deps="$deps $d=$(pkg query %o "$d")=$(pkg query %v "$d")"
+    done
+    opts="$(sed -n "s/^'\(--[^']*\)' \\\\\$/\1/p" "$out_abs" | tr '\n' ' ' | sed 's/ *$//')"
+    stamp="${AZ_STAMP:-$(date -u +%y%m%d%H)}"
+    python3 - "$short" "$ver" "$stamp" "$branch" "$php_prefix" "$opts" "$(sed -n "s/^CFLAGS='\([^']*\)'.*/\1/p" "$out_abs")" "$AZ" $deps > "$m/+MANIFEST" <<'MEOF' || return 1
+import json, sys
+short, ver, stamp, branch, prefix, opts, cflags, az = sys.argv[1:9]
+deps = {}
+for d in sys.argv[9:]:
+    n, o, v = d.split("=", 2)
+    deps[n] = {"origin": o, "version": v}
+print(json.dumps({
+    "name": "php" + short, "origin": "lang/php" + short, "version": "%s_%s" % (ver, stamp),
+    "comment": "PHP %s of azsupport/php-src (php%s, php-fpm%s, libphp%s.so), static" % (branch, short, short, short),
+    "desc": "PHP %s of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php%s, "
+            "sbin/php-fpm%s with the rc.d script php_fpm%s, etc/php%s, the Apache module libphp%s.so, in "
+            "the place of the package of the port; linked with the static libraries of %s. configure: %s"
+            % (branch, short, short, short, short, short, az, opts),
+    "maintainer": "github@azsupport.com", "www": "https://github.com/azsupport/php-src", "prefix": prefix,
+    "licenselogic": "single", "licenses": ["PHP301"], "categories": ["lang", "az"], "deps": deps,
+    "annotations": {"configure": opts, "cflags": cflags, "built_by": "az-menu.sh"},
+}, indent=1))
+MEOF
+    rm -f "$work"/php"$short"-[0-9]*.pkg
+    pkg create -m "$m" -p "$pl" -r "$st" -o "$work" > "$work/create-php$short.log" 2>&1 ||
+        { cat "$work/create-php$short.log"; return 1; }
+    pkgfile="$(ls "$work"/php"$short"-[0-9]*.pkg | head -n 1)"
+    [ -f "$pkgfile" ]
+}
+
+
+# --package <branch> <source tree> <stage> <configure script>: the package
+# phpXY of a build that make install put into the stage (tools/build-test.sh
+# for the packages of the repository az); the script has the options and the
+# environment of the build, as the one this menu writes. Into AZ_MENU_WORK; the
+# package file goes to stdout.
+if [ -n "$pkg_branch" ]; then
+    branch="$pkg_branch"; short="$(echo "$pkg_branch" | tr -d .)"; out_abs="$pkg_cfg"; batch=1
+    mkdir -p "$work" || exit 2
+    package_php "$pkg_src" "$pkg_stage" >&2 || die "no package of $pkg_stage"
+    echo "$pkgfile"
+    exit 0
+fi
 
 if [ -z "$branch" ] && [ -f main/php_version.h ]; then
     branch="$(awk '$2 == "PHP_MAJOR_VERSION" { a = $3 } $2 == "PHP_MINOR_VERSION" { b = $3 }
@@ -1332,8 +1657,8 @@ fi
 dlg() { "$DIALOG" --backtitle "$backtitle" "$@" 2>&1 >/dev/tty; }
 
 if [ -z "$branch" ]; then
-    [ -z "$batch" ] && [ -z "$list" ] || die "not in a PHP source tree: name the branch (sh php-menu.sh 8.4)"
-    backtitle="php-menu: azsupport/php-src"
+    [ -z "$batch" ] && [ -z "$list" ] || die "not in a PHP source tree: name the branch (sh az-menu.sh 8.4)"
+    backtitle="az-menu: azsupport/php-src"
     set --
     for b in $BRANCHES; do set -- "$@" "$b" "PHP $b"; done
     branch="$(dlg --title "PHP branch" --menu "Not in a PHP source tree. Which branch?" 0 0 0 "$@")" || exit 1
@@ -1343,7 +1668,10 @@ case " $BRANCHES " in
     *) die "PHP $branch is no branch of this fork ($BRANCHES)" ;;
 esac
 short="$(echo "$branch" | tr -d .)"
-backtitle="php-menu: PHP $branch (azsupport/php-src), choices: $db/php$short.options"
+backtitle="az-menu: PHP $branch (azsupport/php-src), choices: $db/php$short.options"
+# choices of php-menu.sh, the name of this script before
+olddb=""
+[ -f "$db/php$short.options" ] || [ ! -f "/var/db/php-menu/php$short.options" ] || olddb=/var/db/php-menu
 
 tmp="$(mktemp -d)" || exit 2
 trap 'rm -rf "$tmp"' EXIT
@@ -1561,7 +1889,7 @@ val_options() {
         val_used "$vid" || continue
         v="$(val_get "$vid")"
         [ -n "$v" ] || continue
-        for w in $vargs; do printf '%s\n' "$w" | sed "s|%V|$v|g"; done
+        for w in $vargs; do printf '%s\n' "$w" | sed "s|%V|$v|g; s|%S|$short|g"; done
     done < "$tmp/vals_def"
 }
 while IFS="$TAB" read -r vid vdef _; do
@@ -1674,8 +2002,17 @@ if [ -z "$reset" ] && [ -f "$installed" ]; then
         [ -n "$v" ] && v="$(val_clean "$vid" "$v")" && val_set "$vid" "$v"
     done < "$tmp/vals_def"
 fi
+# a build in a directory of its own (/usr/local/php84, /usr/local/php5640) moves
+# to /usr/local/az (the paths inside its old directory move along, compose)
+moved=""
+move_prefix() {
+    case "$(val_get PREFIX)" in
+        /usr/local/php[0-9]*) moved="$(val_get PREFIX)"; val_set PREFIX /usr/local ;;
+    esac
+}
+move_prefix
 
-if [ -z "$reset" ] && [ -f "$db/php$short.options" ]; then
+if [ -z "$reset" ] && { [ -f "$db/php$short.options" ] || [ -n "$olddb" ]; }; then
     while IFS= read -r l; do
         case "$l" in
             OPTIONS_FILE_SET+=*) set_on "${l#OPTIONS_FILE_SET+=}" ;;
@@ -1684,8 +2021,9 @@ if [ -z "$reset" ] && [ -f "$db/php$short.options" ]; then
                 vid="${l#VALUE_}"; vid="${vid%%=*}"
                 val_known "$vid" && v="$(val_clean "$vid" "${l#*=}")" && val_set "$vid" "$v" ;;
         esac
-    done < "$db/php$short.options"
-    start="the choices saved in $db/php$short.options"
+    done < "${olddb:-$db}/php$short.options"
+    move_prefix
+    start="the choices saved in ${olddb:-$db}/php$short.options"
 elif [ -z "$reset" ] && [ -f "$installed" ]; then
     from_installed > "$tmp/inst_state"
     while IFS="$TAB" read -r id st; do
@@ -1840,15 +2178,26 @@ compose() {
     if [ -f "$installed" ]; then
         cp "$tmp/inst_env" "$tmp/env"
         # its options the menu does not decide; the ones with a path inside its
-        # install directory move to the new one (php.ini paths)
+        # install directory move to the new one (php.ini paths): bin and sbin to
+        # those of the tree, man to share/man, the others (etc, lib, share...) to
+        # the directories of this version in the tree (etc/phpXY)
         old="$(sed -n 's/^--prefix=//p' "$tmp/inst_opts" | tail -n 1)"
-        awk -v owned="$tmp/owned" -v old="$old" -v new="$(val_get PREFIX)" '
+        awk -v owned="$tmp/owned" -v old="$old" -v new="$(val_get PREFIX)" -v s="$short" '
             BEGIN { while ((getline o < owned) > 0) own[o] = 1 }
+            function moved(v,   t, c, r) {
+                t = substr(v, length(old) + 1)
+                if (t == "") return new
+                c = substr(t, 2); r = ""
+                if (index(c, "/")) { r = substr(c, index(c, "/")); c = substr(c, 1, index(c, "/") - 1) }
+                if (c == "bin" || c == "sbin") return new "/" c r
+                if (c == "man") return new "/share/man" r
+                return new "/" c "/php" s r
+            }
             { n = $0; sub(/=.*/, "", n) }
             n in own { next }
             old != "" && new != "" && old != new && index($0, "=") {
                 v = substr($0, index($0, "=") + 1)
-                if (v == old || substr(v, 1, length(old) + 1) == old "/") $0 = n "=" new substr(v, length(old) + 1)
+                if (v == old || substr(v, 1, length(old) + 1) == old "/") $0 = n "=" moved(v)
             }
             { print }' "$tmp/inst_opts" > "$tmp/opts"
         base="the other options and the environment of $installed"
@@ -1872,10 +2221,23 @@ compose() {
     chosen_options >> "$tmp/opts"
     val_options rest >> "$tmp/opts"
     awk '!seen[$0]++' "$tmp/opts" > "$tmp/opts.u"
+    # with the libraries of /usr/local/az installed (az-libs): the options and the
+    # environment of a build against them (tools/config-check.sh --deps-rewrite)
+    deps_note=""
+    if [ -f "$AZ/share/doc/az-libs/VERSIONS" ] && [ -x "$AZ/bin/pkg-config" ]; then
+        if cc_script="$(config_check)"; then
+            deps_note="$(PHPDEPS="$AZ" DEPS_PHP_MAJOR="${branch%%.*}" sh "$cc_script" --deps-rewrite "$tmp/opts.u" "$tmp/env" 2>&1)" ||
+                deps_note="the rewrite for $AZ failed: $deps_note"
+        else
+            deps_note="no tools/config-check.sh for the libraries of $AZ: the build takes those of /usr/local/lib"
+        fi
+    fi
     {
         echo "#!/bin/sh"
-        echo "# Written by php-menu.sh on $(date '+%d.%m.%Y %H:%M'): PHP $branch, the choices of the menu"
+        echo "# Written by az-menu.sh on $(date '+%d.%m.%Y %H:%M'): PHP $branch, the choices of the menu"
         echo "# ($db/php$short.options) on $base."
+        [ -n "$moved" ] && echo "# The build was in $moved; it goes to $(val_get PREFIX) now."
+        [ -n "$deps_note" ] && printf '%s\n' "$deps_note" | fold -s -w 78 | sed 's/^/# /'
         echo "# Run from inside the new PHP source tree: sh $out"
         echo
         sed 's/$/ \\/' "$tmp/env"
@@ -1884,6 +2246,17 @@ compose() {
         echo '"$@"'
     } > "$tmp/script"
 }
+# config_check: tools/config-check.sh next to this script, else that of the fork
+# (fetched once into $work), for the rewrite of the options for /usr/local/az
+config_check() {
+    _d="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+    if [ -f "$_d/config-check.sh" ]; then echo "$_d/config-check.sh"; return 0; fi
+    if [ ! -f "$work/config-check.sh" ]; then
+        mkdir -p "$work" && fetch -q -o "$work/config-check.sh" \
+            "https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh" || return 1
+    fi
+    echo "$work/config-check.sh"
+}
 write_config() {
     compose
     cp "$tmp/script" "$out" || die "cannot write $out"
@@ -1891,15 +2264,15 @@ write_config() {
 }
 
 save_choices() {
-    mkdir -p "$db" 2>/dev/null || { echo "php-menu: cannot create $db, choices not saved" >&2; return 0; }
+    mkdir -p "$db" 2>/dev/null || { echo "az-menu: cannot create $db, choices not saved" >&2; return 0; }
     {
-        echo "# Options of PHP $branch for php-menu.sh, written $(date '+%d.%m.%Y %H:%M')"
+        echo "# Options of PHP $branch for az-menu.sh, written $(date '+%d.%m.%Y %H:%M')"
         echo "_OPTIONS_READ=php$short"
         while IFS="$TAB" read -r _ _ _ id _; do
             if is_on "$id"; then echo "OPTIONS_FILE_SET+=$id"; else echo "OPTIONS_FILE_UNSET+=$id"; fi
         done < "$tmp/items"
         while IFS="$TAB" read -r vid _; do echo "VALUE_$vid=$(val_get "$vid")"; done < "$tmp/vals_def"
-    } > "$db/php$short.options" 2>/dev/null || echo "php-menu: cannot write $db/php$short.options" >&2
+    } > "$db/php$short.options" 2>/dev/null || echo "az-menu: cannot write $db/php$short.options" >&2
 }
 
 # packages the chosen items name in their help ("package foo")
@@ -1907,10 +2280,12 @@ packages() { engine packages | sort | tr '\n' ' ' | sed 's/ *$//'; }
 
 report() {
     n="$(awk 'END { print NR }' "$tmp/opts.u")"
-    echo "php-menu: wrote $out (PHP $branch, $n options), choices in $db/php$short.options"
+    echo "az-menu: wrote $out (PHP $branch, $n options), choices in $db/php$short.options"
+    [ -n "$moved" ] && echo "the build was in $moved; it goes to $(val_get PREFIX) now (programs with the version at the end: bin/php$short, sbin/php-fpm$short)"
     p="$(packages)"
     [ -n "$p" ] && echo "packages the choices name: $p"
-    echo "next, in the PHP $branch source tree: sh $out && make && make install"
+    [ -n "$deps_note" ] && echo "$deps_note"
+    [ -n "$build" ] || echo "next, in the PHP $branch source tree: sh $out && make && make install; or the package: sh az-menu.sh --batch --build"
 }
 
 # an item on; in a radio screen it replaces the one that was on; the item its
@@ -1924,6 +2299,73 @@ item_on() {
     set_on "$1"
     ipar="$(awk -F '\t' -v s="$scr" '$2 == s { print $4; exit }' "$tmp/screens")"
     if [ -n "$ipar" ] && [ "$ipar" != "-" ] && ! is_on "$ipar"; then item_on "$ipar"; fi
+    return 0
+}
+
+# --- building the package phpXY here ------------------------------------------------
+# confirm <question>: yes or no (a dialog; in --batch: yes)
+confirm() {
+    [ -n "$batch" ] && return 0
+    dlg --title "az-menu" --yesno "$1" 0 0
+}
+
+# build_here: the libraries from the repository az, the source (this tree, or the
+# release of the branch), configure with the script just written, make, make
+# install into a stage, the package phpXY; then installed when asked (--install,
+# or the dialog)
+build_here() {
+    [ "$(id -u)" = 0 ] || die "building the package needs root (pkg, a stage for make install)"
+    need="az-libs"
+    is_on CURL && need="$need curl"
+    is_on IMAGICK && need="$need ImageMagick7"
+    missing=""
+    # curl and ImageMagick7 of the repository az (their static libraries are in /usr/local/az)
+    for d in $need; do
+        if [ "$d" = az-libs ]; then pkg info -e az-libs || missing="$missing az-libs"
+        elif [ ! -f "$AZ/share/doc/az-libs/VERSIONS" ]; then missing="$missing $d"
+        else
+            case "$d" in curl) f="$AZ/lib/libcurl.a" ;; *) f="$AZ/bin/MagickWand-config" ;; esac
+            [ -e "$f" ] || missing="$missing $d"
+        fi
+    done
+    if [ -n "$missing" ]; then
+        [ -f "$AZ_REPO_CONF" ] || die "PHP needs$missing and there is no repository az: sh az-menu.sh --repo writes $AZ_REPO_CONF"
+        confirm "PHP $branch is built against the static libraries of $AZ: install$missing from the repository az?" ||
+            die "not built"
+        pkg install -y -r az $missing || die "pkg install$missing failed"
+    fi
+    # the script again: with the libraries of /usr/local/az now
+    write_config
+    case "$out" in /*) out_abs="$out" ;; *) out_abs="$(pwd)/$out" ;; esac
+    if [ -f main/php_version.h ]; then src="$(pwd)"; else src="$(fetch_source)" || die "no source of PHP $branch"; fi
+    mkdir -p "$work" || die "cannot create $work"
+    log="$work/build-php$short.log"
+    say "building PHP $branch in $src (log: $log)"
+    if ! (cd "$src" && sh "$out_abs" && make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 2)") > "$log" 2>&1; then
+        tail -n 30 "$log"; die "the build failed (log: $log)"
+    fi
+    st="$work/stage-php$short"
+    rm -rf "$st"
+    if ! (cd "$src" && make install INSTALL_ROOT="$st") >> "$log" 2>&1; then
+        tail -n 30 "$log"; die "make install into $st failed (log: $log)"
+    fi
+    package_php "$src" "$st" || die "the package could not be made (log: $log)"
+    say "package: $pkgfile"
+    pp="$php_prefix"
+    if [ -n "$batch" ]; then
+        [ -n "$install" ] || return 0
+    else
+        confirm "Install ${pkgfile##*/} into the system now (pkg add)?" || { say "not installed: pkg add $pkgfile"; return 0; }
+        command -v clear >/dev/null 2>&1 && clear
+    fi
+    pkg add "$pkgfile" || die "pkg add $pkgfile failed"
+    say "installed php$short:"
+    [ -x "$pp/bin/php$short" ] && "$pp/bin/php$short" -v | head -n 1
+    [ -f "/usr/local/etc/rc.d/php_fpm$short" ] &&
+        say "php-fpm: sysrc php_fpm${short}_enable=YES && service php_fpm$short start (pool: $pp/etc/php$short/php-fpm.d/www.conf, /var/run/php-fpm$short.sock)"
+    [ -f "/usr/local/etc/apache24/modules.d/280_mod_php$short.conf.sample" ] &&
+        say "Apache module: /usr/local/etc/apache24/modules.d/280_mod_php$short.conf.sample (copy it to the modules.d of the instance that loads it)"
+    [ -n "$moved" ] && say "this build was in $moved: copy its php.ini (and php-fpm.conf, the pools) into $pp/etc/php$short/, then point the rc.d scripts, cron and the sites at $pp/bin/php$short and $pp/sbin/php-fpm$short (README: moving a build to the packages)"
     return 0
 }
 
@@ -1963,7 +2405,7 @@ start_menu() {
 engine help > "$tmp/help"
 fix_radios
 if [ -n "$template" ]; then
-    tpl_known "$template" || die "PHP $branch has no template $template (sh php-menu.sh $branch --list)"
+    tpl_known "$template" || die "PHP $branch has no template $template (sh az-menu.sh $branch --list)"
     apply_template "$template"
 fi
 if [ -n "$list" ]; then
@@ -1985,7 +2427,7 @@ if [ -n "$batch" ]; then
     while IFS= read -r c; do
         [ -n "$c" ] || continue
         vid="${c%%=*}"
-        val_known "$vid" || die "PHP $branch has no value $vid (sh php-menu.sh $branch --list)"
+        val_known "$vid" || die "PHP $branch has no value $vid (sh az-menu.sh $branch --list)"
         v="$(val_clean "$vid" "${c#*=}")" || die "$vid: not a path for configure: ${c#*=}"
         val_set "$vid" "$v"
     done <<EOF
@@ -1994,7 +2436,7 @@ EOF
     for c in $changes; do
         id="${c#?}"
         scr="$(awk -F '\t' -v id="$id" '$4 == id { print $3; exit }' "$tmp/items")"
-        [ -n "$scr" ] || die "PHP $branch has no item $id (sh php-menu.sh $branch --list)"
+        [ -n "$scr" ] || die "PHP $branch has no item $id (sh az-menu.sh $branch --list)"
         case "$c" in
             +*) item_on "$id" ;;
             -*) set_off "$id" ;;
@@ -2002,12 +2444,13 @@ EOF
     done
     fix_radios
     closure
-    [ -n "$msgs" ] && printf '%s\n' "$msgs" | sed 's/^/php-menu: /' >&2
+    [ -n "$msgs" ] && printf '%s\n' "$msgs" | sed 's/^/az-menu: /' >&2
     conflicts
-    if [ -n "$bad" ]; then printf '%s\n' "$bad" | sed 's/^/php-menu: /' >&2; exit 1; fi
+    if [ -n "$bad" ]; then printf '%s\n' "$bad" | sed 's/^/az-menu: /' >&2; exit 1; fi
     write_config
     save_choices
     report
+    [ -z "$build" ] || build_here
     exit 0
 fi
 
@@ -2041,11 +2484,12 @@ An absolute path of letters, digits and . _ / + - (no spaces)." 0 0
 }
 
 if [ -z "$template" ]; then
-    start_menu "$start" || { echo "php-menu: cancelled, nothing written" >&2; exit 1; }
+    start_menu "$start" || { echo "az-menu: cancelled, nothing written" >&2; exit 1; }
 fi
-show_screen core && show_screen ext && sub_screens rest || { echo "php-menu: cancelled, nothing written" >&2; exit 1; }
+show_screen core && show_screen ext && sub_screens rest || { echo "az-menu: cancelled, nothing written" >&2; exit 1; }
 while :; do
     set -- WRITE "Write ${out##*/} and save the choices" \
+        BUILD "Write it, build the package php$short here, install it" \
         CORE "Build options" \
         EXT "Extensions" \
         OPTIONS "Options of the extensions"
@@ -2069,12 +2513,24 @@ while :; do
             command -v clear >/dev/null 2>&1 && clear
             report
             exit 0 ;;
+        BUILD)
+            fix_radios
+            closure
+            conflicts
+            if [ -n "$bad" ]; then dlg --title "Not together" --msgbox "$bad" 0 0; continue; fi
+            build=1
+            write_config
+            save_choices
+            command -v clear >/dev/null 2>&1 && clear
+            report
+            build_here
+            exit 0 ;;
         CORE) show_screen core ;;
         EXT) show_screen ext ;;
         OPTIONS) sub_screens ;;
         TEMPLATES) start_menu "the choices made so far" ;;
         SHOW) compose; dlg --title "$out" --textbox "$tmp/script" 0 0 ;;
-        QUIT) command -v clear >/dev/null 2>&1 && clear; echo "php-menu: nothing written" >&2; exit 1 ;;
+        QUIT) command -v clear >/dev/null 2>&1 && clear; echo "az-menu: nothing written" >&2; exit 1 ;;
         *) val_known "$choice" && edit_value "$choice" ;;
     esac
 done

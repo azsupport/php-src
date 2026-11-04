@@ -1,10 +1,15 @@
 #!/bin/sh
-# imagemagick-test.sh - test ImageMagick 6 and 7 of /usr/local/az (convert6,
-# identify6, composite6...; magick) of tools/build-imagemagick.sh as the video
-# sites use them, and that what
-# freebsd/imagemagick.conf and freebsd/imagemagick/policy.xml leave out is refused.
+# imagemagick-test.sh - test ImageMagick 6 and 7 of tools/build-imagemagick.sh
+# (the packages ImageMagick6 and ImageMagick7 of tools/build-az.sh, installed:
+# /usr/local/bin/convert6, identify6, composite6...; magick) as the video sites
+# use them, and that what freebsd/imagemagick.conf and
+# freebsd/imagemagick/policy.xml leave out is refused.
 #
-# Usage (FreeBSD, as root, after tools/build-imagemagick.sh): sh tools/imagemagick-test.sh
+# Usage (FreeBSD, as root):
+#   sh tools/imagemagick-test.sh --samples   only make the samples (before our
+#                                            ImageMagick 7 is installed in the
+#                                            place of the package's)
+#   sh tools/imagemagick-test.sh             the tests (with the samples made before, if any)
 #
 # The samples are made with the ImageMagick7 package (installed here, with its
 # libheif for HEIC and AVIF) and the fonts of the dejavu package: JPEG (also a
@@ -26,10 +31,14 @@ conf="$top/freebsd/imagemagick.conf"
 res="$top/imagemagick-results"
 T="${IM_TEST_WORK:-/var/tmp/imagemagick-test}"
 ref=/usr/local/bin/magick
+samples_only=""; [ "${1:-}" = --samples ] && samples_only=1
 mkdir -p "$res"
-rm -rf "$T"; mkdir -p "$T"
+have_samples=""
+if [ -z "$samples_only" ] && [ -f "$T/.samples" ]; then have_samples=1; else rm -rf "$T"; mkdir -p "$T"; fi
 out="$res/tests.txt"
+[ -n "$samples_only" ] && out="$res/samples.txt"
 : > "$out"
+[ -n "$have_samples" ] && [ -f "$res/samples.txt" ] && grep -v '^samples: ' "$res/samples.txt" >> "$out"
 ok=0; bad=0
 pass() { echo "ok    $*" >> "$out"; ok=$((ok + 1)); }
 fail() { echo "FAIL  $*" >> "$out"; bad=$((bad + 1)); }
@@ -43,6 +52,7 @@ finish() {
 last() { tail -n 2 "$1" | tr '\n' ' ' | sed "s#$T/##g"; }
 
 # --- the samples --------------------------------------------------------------
+if [ -z "$have_samples" ]; then
 if [ ! -x "$ref" ]; then
     env ASSUME_ALWAYS_YES=yes pkg install -y ImageMagick7-nox11 dejavu > "$res/pkg-imagemagick.log" 2>&1 ||
         env ASSUME_ALWAYS_YES=yes pkg install -y ImageMagick7 dejavu >> "$res/pkg-imagemagick.log" 2>&1
@@ -80,10 +90,17 @@ printf '%%!PS-Adobe-3.0 EPSF-3.0\n%%%%BoundingBox: 0 0 10 10\nnewpath 0 0 moveto
 printf '%%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\ntrailer << /Root 1 0 R >>\n%%%%EOF\n' > "$T/no.pdf"
 echo "a secret line" > "$T/secret.txt"
 echo "$T/photo.jpg" > "$T/list.txt"
+fi
+if [ -n "$samples_only" ]; then
+    touch "$T/.samples"
+    echo "samples: $(wc -l < "$T/samples" | tr -d ' ') in $T" >> "$out"
+    cat "$out"
+    exit 0
+fi
 
 # --- each ImageMagick ----------------------------------------------------------
 for im in $(awk '$1 == "im" { print $2 }' "$conf"); do
-    pfx="${AZ_PREFIX:-/usr/local/az}"
+    pfx="${IM_PREFIX:-/usr/local}"
     v="${im#imagemagick}"
     if [ "$v" = 6 ]; then
         cv="$pfx/bin/convert6"; idf="$pfx/bin/identify6"; cps="$pfx/bin/composite6"

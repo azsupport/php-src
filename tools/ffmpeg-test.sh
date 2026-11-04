@@ -1,8 +1,12 @@
 #!/bin/sh
-# ffmpeg-test.sh - test ffmpeg and ffprobe of /usr/local/az (tools/build-ffmpeg.sh) as the video
-# sites use it, and that what freebsd/ffmpeg.conf leaves out is refused.
+# ffmpeg-test.sh - test ffmpeg and ffprobe of tools/build-ffmpeg.sh (the package
+# ffmpeg of tools/build-az.sh, installed: /usr/local/bin) as the video sites use
+# it, and that what freebsd/ffmpeg.conf leaves out is refused.
 #
-# Usage (FreeBSD, as root, after tools/build-ffmpeg.sh): sh tools/ffmpeg-test.sh
+# Usage (FreeBSD, as root):
+#   sh tools/ffmpeg-test.sh --samples   only make the samples (before our ffmpeg
+#                                       is installed in the place of the package's)
+#   sh tools/ffmpeg-test.sh             the tests (with the samples made before, if any)
 #
 # The samples are made with the ffmpeg package (installed here; it has all the
 # encoders): every container the sites take (mp4, m4v, mov, mkv, webm) with
@@ -25,16 +29,20 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/ffmpeg.conf"
-F="${AZ_PREFIX:-/usr/local/az}"
+F="${FFMPEG_PREFIX:-/usr/local}"
 res="$top/ffmpeg-results"
 T="${FFMPEG_TEST_WORK:-/var/tmp/ffmpeg-test}"
 ff="$F/bin/ffmpeg"
 fp="$F/bin/ffprobe"
 ref=/usr/local/bin/ffmpeg
+samples_only=""; [ "${1:-}" = --samples ] && samples_only=1
 mkdir -p "$res"
-rm -rf "$T"; mkdir -p "$T"
+have_samples=""
+if [ -z "$samples_only" ] && [ -f "$T/.samples" ]; then have_samples=1; else rm -rf "$T"; mkdir -p "$T"; fi
 out="$res/tests.txt"
+[ -n "$samples_only" ] && out="$res/samples.txt"
 : > "$out"
+[ -n "$have_samples" ] && [ -f "$res/samples.txt" ] && grep -v '^samples: ' "$res/samples.txt" >> "$out"
 ok=0; bad=0
 pass() { echo "ok    $*" >> "$out"; ok=$((ok + 1)); }
 fail() { echo "FAIL  $*" >> "$out"; bad=$((bad + 1)); }
@@ -46,6 +54,7 @@ finish() {
     exit $?
 }
 
+if [ -z "$samples_only" ]; then
 [ -x "$ff" ] && [ -x "$fp" ] || { fail "no $ff or $fp (tools/build-ffmpeg.sh first)"; finish; }
 
 # --- the lists of components: those of ffmpeg.conf ---------------------------
@@ -87,8 +96,12 @@ for k in encoders muxers bsfs; do
     "$ff" -hide_banner "-$k" > "$res/$k.txt" 2>&1
 done
 note "filters: $("$ff" -hide_banner -filters 2>/dev/null | grep -c -- '->') (all of FFmpeg that need no other library)"
+fi
 
 # --- the samples --------------------------------------------------------------
+av="-f lavfi -i testsrc2=size=640x360:rate=30:duration=3 -f lavfi -i sine=frequency=440:sample_rate=48000:duration=3"
+x264="-c:v libx264 -preset veryfast -pix_fmt yuv420p"
+if [ -z "$have_samples" ]; then
 if [ ! -x "$ref" ]; then
     env ASSUME_ALWAYS_YES=yes pkg install -y ffmpeg-nox11 > "$res/pkg-ffmpeg.log" 2>&1 ||
         env ASSUME_ALWAYS_YES=yes pkg install -y ffmpeg >> "$res/pkg-ffmpeg.log" 2>&1
@@ -96,7 +109,6 @@ fi
 [ -x "$ref" ] || { fail "the ffmpeg package (for the samples) could not be installed: $(tail -n 2 "$res/pkg-ffmpeg.log" | tr '\n' ' ')"; finish; }
 note "samples made with $("$ref" -hide_banner -version | head -n 1)"
 
-av="-f lavfi -i testsrc2=size=640x360:rate=30:duration=3 -f lavfi -i sine=frequency=440:sample_rate=48000:duration=3"
 : > "$T/samples"
 # mk <file> <options of the package's ffmpeg>: one sample, into the list when it could be made
 mk() {
@@ -108,7 +120,6 @@ mk() {
         note "sample $f: the package's ffmpeg cannot make it: $(tail -n 1 "$T/$f.log")"
     fi
 }
-x264="-c:v libx264 -preset veryfast -pix_fmt yuv420p"
 x265="-c:v libx265 -preset ultrafast"
 vp9="-c:v libvpx-vp9 -deadline realtime -cpu-used 8"
 vp8="-c:v libvpx -deadline realtime -cpu-used 8"
@@ -155,6 +166,28 @@ for p in "logo.png" "shot.jpg" "shot.webp"; do
     "$ref" -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=160x90:duration=1 -frames:v 1 "$T/$p" > "$T/$p.log" 2>&1 ||
         note "picture $p: $(tail -n 1 "$T/$p.log")"
 done
+# made only to be refused: other formats named .mp4, playlists
+# shellcheck disable=SC2086
+{
+    "$ref" -hide_banner -loglevel error -y $av -c:v mpeg4 -c:a pcm_s16le -f avi "$T/no_avi.mp4"
+    "$ref" -hide_banner -loglevel error -y $av $x264 -c:a aac -f flv "$T/no_flv.mp4"
+    "$ref" -hide_banner -loglevel error -y $av $x264 -c:a aac -f mpegts "$T/no_ts.mp4"
+    "$ref" -hide_banner -loglevel error -y $av -c:v mpeg2video -c:a mp2 -f mpeg "$T/no_ps.mp4"
+    "$ref" -hide_banner -loglevel error -y $av -vn -c:a libvorbis -f ogg "$T/no_ogg.mp4"
+    "$ref" -hide_banner -loglevel error -y $av -vn -c:a libmp3lame -f mp3 "$T/no_mp3.mp4"
+    "$ref" -hide_banner -loglevel error -y $av -vn -f wav "$T/no_wav.mp4"
+    "$ref" -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=160x90:duration=1 -f gif "$T/no_gif.mp4"
+} > "$T/no.log" 2>&1
+cp "$T/sub.srt" "$T/no_srt.mp4"
+printf '#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXTINF:3.0,\nh264_aac.mp4\n#EXT-X-ENDLIST\n' > "$T/no_hls.mp4"
+printf 'ffconcat version 1.0\nfile h264_aac.mp4\n' > "$T/no_ffconcat.mp4"
+fi
+if [ -n "$samples_only" ]; then
+    touch "$T/.samples"
+    echo "samples: $(wc -l < "$T/samples" | tr -d ' ') in $T" >> "$out"
+    cat "$out"
+    exit 0
+fi
 
 # --- what the sites do with them -----------------------------------------------
 # probe <file>: "format codec,codec..." as ffprobe of this build sees them
@@ -288,20 +321,6 @@ if [ -f "$T/shot.jpg" ]; then
 fi
 
 # --- refused: other formats named .mp4, playlists, protocols ---------------------
-# shellcheck disable=SC2086
-{
-    "$ref" -hide_banner -loglevel error -y $av -c:v mpeg4 -c:a pcm_s16le -f avi "$T/no_avi.mp4"
-    "$ref" -hide_banner -loglevel error -y $av $x264 -c:a aac -f flv "$T/no_flv.mp4"
-    "$ref" -hide_banner -loglevel error -y $av $x264 -c:a aac -f mpegts "$T/no_ts.mp4"
-    "$ref" -hide_banner -loglevel error -y $av -c:v mpeg2video -c:a mp2 -f mpeg "$T/no_ps.mp4"
-    "$ref" -hide_banner -loglevel error -y $av -vn -c:a libvorbis -f ogg "$T/no_ogg.mp4"
-    "$ref" -hide_banner -loglevel error -y $av -vn -c:a libmp3lame -f mp3 "$T/no_mp3.mp4"
-    "$ref" -hide_banner -loglevel error -y $av -vn -f wav "$T/no_wav.mp4"
-    "$ref" -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=160x90:duration=1 -f gif "$T/no_gif.mp4"
-} > "$T/no.log" 2>&1
-cp "$T/sub.srt" "$T/no_srt.mp4"
-printf '#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXTINF:3.0,\nh264_aac.mp4\n#EXT-X-ENDLIST\n' > "$T/no_hls.mp4"
-printf 'ffconcat version 1.0\nfile h264_aac.mp4\n' > "$T/no_ffconcat.mp4"
 for f in "$T"/no_*.mp4; do
     s="${f##*/}"
     [ -s "$f" ] || { note "$s: the package's ffmpeg could not make it"; continue; }
