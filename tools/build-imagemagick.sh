@@ -293,9 +293,12 @@ build_one() {
             b_im "$n" "$src" || exit 1
         else
             "b_$n" "$src" || exit 1
-            lic="$(ls "$src" | grep -E '^(COPYING|LICENSE|PATENTS)' | head -n 3)"
+            # the licence files (libpng 1.6.59 has a directory LICENSES too)
             mkdir -p "$work/licenses"
-            for f in $lic; do cp "$src/$f" "$work/licenses/$n-$f"; done
+            for f in "$src"/COPYING* "$src"/LICENSE* "$src"/PATENTS*; do
+                [ -e "$f" ] && cp -R "$f" "$work/licenses/$n-${f##*/}"
+            done
+            :
         fi
     ) > "$log" 2>&1
     rc=$?
