@@ -56,6 +56,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: The PHP packages of the release (az-php.yml), kept in its repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+          CPUTYPE: ${{ matrix.cputype }}
+          CANDIDATE: ${{ inputs.candidate && '1' || '' }}
+        run: |
+          major="${RELEASE%%.*}"
+          tag="az-fbsd$major-amd64-${CPUTYPE#x86-64-}${CANDIDATE:+-candidate}"
+          mkdir -p php-keep
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir php-keep --pattern 'php[0-9]*.pkg' 2>/dev/null || true
+          ls php-keep
+
       - name: Build, test and package in FreeBSD ${{ inputs.release }}
         uses: vmactions/freebsd-vm@v1
         env:
@@ -68,6 +81,10 @@ jobs:
             sh tools/build-az.sh --tools
           run: |
             sh tools/build-az.sh || true
+            r="dist/az-fbsd$(uname -r | cut -d. -f1)-amd64-${AZ_CPUTYPE#x86-64-}"
+            if [ -f "$r/meta.conf" ] && ls php-keep/php*.pkg > /dev/null 2>&1; then
+              cp php-keep/php*.pkg "$r/" && pkg repo "$r" > az-results/repo-php.log 2>&1
+            fi
 
       - name: Report
         if: always()

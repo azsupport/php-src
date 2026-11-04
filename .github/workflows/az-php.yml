@@ -1,0 +1,148 @@
+name: az PHP packages for FreeBSD
+
+# Builds the ready PHP packages php56 ... php84 of the repository az: the release
+# tarballs of the fork with the presets of the build test (tools/build-test.sh: the
+# configure options of our servers) in the layout of the packages of
+# tools/az-menu.sh (/usr/local, bin/php84, sbin/php-fpm84, etc/php84...), against
+# the static libraries of the packages az-libs, curl and ImageMagick7 of the same
+# repository (AZ_BUNDLE=1), with the compiler flags of the servers for an x86-64
+# level; the smoke checks of the build test, then the package of each version
+# (AZ_PACKAGE=1: tools/az-menu.sh --package) installed, all versions side by side,
+# with php-fpm started by its rc.d script php_fpmXY. The packages then go into the
+# repository of pkg of the release az-fbsd<major>-amd64-<level> (or -candidate),
+# next to those of az.yml: pkg install php84 takes the ready one; its options are
+# in its annotation "configure" (pkg rquery -r az '%At %Av' php84), az-menu.sh
+# shows them. Run it after az.yml (which keeps the PHP packages of the release).
+# Started by hand: Actions, "az PHP packages for FreeBSD", "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'FreeBSD release'
+        required: true
+        default: '15.1'
+      cputype:
+        description: 'x86-64 level (-march, CPUTYPE of make.conf)'
+        type: choice
+        options: [both, x86-64-v3, x86-64-v2]
+        default: both
+      targets:
+        description: 'Versions, separated by spaces'
+        required: true
+        default: '5.6 7.4 8.1 8.2 8.3 8.4'
+      swoole:
+        description: 'For 7.4 and newer: swoole or OpenSwoole (one of the two)'
+        type: choice
+        options: [swoole, openswoole]
+        default: swoole
+      magick:
+        description: 'imagick (with ImageMagick 7 of az) or gmagick (GraphicsMagick of pkg), or none'
+        type: choice
+        options: [imagick, gmagick, none]
+        default: imagick
+      publish:
+        description: 'Add the packages to the repository when every version built'
+        type: boolean
+        default: true
+      candidate:
+        description: 'The repository of az-fbsd<major>-amd64-<level>-candidate (a pre-release), not the one the servers read'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+# one run of az.yml or of this at a time for a release: both write its repository
+concurrency:
+  group: az-${{ inputs.release }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        cputype: ${{ inputs.cputype == 'both' && fromJSON('["x86-64-v3", "x86-64-v2"]') || fromJSON(format('["{0}"]', inputs.cputype)) }}
+    name: php (${{ matrix.cputype }})
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The repository az and the release tarballs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+          CPUTYPE: ${{ matrix.cputype }}
+          CANDIDATE: ${{ inputs.candidate && '1' || '' }}
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          major="${RELEASE%%.*}"
+          tag="az-fbsd$major-amd64-${CPUTYPE#x86-64-}${CANDIDATE:+-candidate}"
+          mkdir -p az-repo dist
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir az-repo
+          ls az-repo
+          for t in $TARGETS; do
+            gh release download "freebsd-$t-latest" --repo "$GITHUB_REPOSITORY" --dir dist \
+              --pattern "php-$t-fbsd-latest.tar.xz" --pattern "php-$t-fbsd-latest.tar.xz.sha256"
+          done
+          cd dist && sha256sum -c ./*.sha256
+
+      - name: Build, package and install in FreeBSD ${{ inputs.release }}
+        uses: vmactions/freebsd-vm@v1
+        env:
+          TARGETS: ${{ inputs.targets }}
+          SWOOLE: ${{ inputs.swoole }}
+          MAGICK: ${{ inputs.magick }}
+          AZ_CPUTYPE: ${{ matrix.cputype }}
+          AZ_BUNDLE: '1'
+          AZ_PACKAGE: '1'
+        with:
+          release: ${{ inputs.release }}
+          envs: 'TARGETS SWOOLE MAGICK AZ_CPUTYPE AZ_BUNDLE AZ_PACKAGE'
+          prepare: |
+            sh tools/build-test.sh --deps $TARGETS
+            sh tools/build-test.sh --az az-repo
+          run: |
+            sh tools/build-test.sh $TARGETS || true
+            # the new packages into the repository, in the place of those of the same versions
+            for f in dist/az-php/php*-[0-9]*.pkg; do
+              [ -f "$f" ] || continue
+              n="${f##*/}"
+              rm -f az-repo/"${n%%-[0-9]*}"-[0-9]*.pkg
+              cp "$f" az-repo/
+            done
+            pkg repo az-repo > build-test-results/pkg-repo.log 2>&1 || echo "pkg repo failed" >> build-test-results/pkg-repo.log
+
+      - name: Report
+        if: always()
+        run: sh tools/build-test-report.sh build-test-results
+
+      - name: Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: az-php-results-${{ matrix.cputype }}
+          path: build-test-results/
+          if-no-files-found: ignore
+
+      - name: Publish
+        if: ${{ success() && inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+          CPUTYPE: ${{ matrix.cputype }}
+          CANDIDATE: ${{ inputs.candidate && '1' || '' }}
+        run: |
+          major="${RELEASE%%.*}"
+          tag="az-fbsd$major-amd64-${CPUTYPE#x86-64-}${CANDIDATE:+-candidate}"
+          dir=az-repo
+          grep -q 'failed' build-test-results/pkg-repo.log 2>/dev/null && { cat build-test-results/pkg-repo.log; exit 1; }
+          # the PHP packages first, the catalog of pkg repo last, then away with the PHP packages of before
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $(ls "$dir"/php[0-9]*-[0-9]*.pkg)
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
+            $(ls -d "$dir"/* | grep -v -E '/(az-libs|curl|ffmpeg|ImageMagick[67]|php[0-9]+)-[0-9][^/]*\.pkg$')
+          for a in $(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'); do
+            case "$a" in php[0-9]*-[0-9]*.pkg) [ -e "$dir/$a" ] || gh release delete-asset "$tag" "$a" --repo "$GITHUB_REPOSITORY" -y ;; esac
+          done
