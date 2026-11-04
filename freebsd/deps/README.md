@@ -13,3 +13,6 @@ brought up to the release, and the framework takes them from here instead
 | `libiconv-1.19.1` | `converters/libiconv/files` at the ports commit of `deps.conf` (libiconv 1.18) | `patch-include-iconv.h.in`: the context line `_LIBICONV_VERSION 0x0113` of 1.19 (it was `0x0112`); the other two as they are |
 
 A directory goes with its take line, once the port has the version.
+`libiconv-1.19.1` stays while its take line is commented out in `deps.conf`
+(04.11.2026: releases are taken before their port only for a vulnerability that
+touches us, or a bug we have): ready for a security release of libiconv 1.19.x.

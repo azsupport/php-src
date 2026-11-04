@@ -657,9 +657,10 @@ The option `--with-openssl-legacy-provider`:
 ### Bundled curl
 
 Every branch carries curl in `ext/curl/libcurl` and the libraries it needs in
-`ext/curl/deps`: their upstream release files with their SHA-256, taken when they
-are out, without waiting for the FreeBSD ports, which are followed for their build
-patches and what FreeBSD needs ([`freebsd/curl.conf`](freebsd/curl.conf),
+`ext/curl/deps`: the release files of their FreeBSD ports, with the SHA-256 of their
+distinfo; a new release before its port only when it fixes a vulnerability that
+touches us, or a bug we have. The ports are followed for their build patches and
+what FreeBSD needs ([`freebsd/curl.conf`](freebsd/curl.conf),
 [`freebsd/curl-deps.conf`](freebsd/curl-deps.conf); put into the tree by
 [`tools/curl-sources.sh`](tools/curl-sources.sh)):
 
@@ -667,7 +668,7 @@ patches and what FreeBSD needs ([`freebsd/curl.conf`](freebsd/curl.conf),
 |---|---|---|---|
 | curl | 8.23.0 | `ftp/curl` | with the configure patch of that port |
 | c-ares | 1.34.9 | `dns/c-ares` | resolving names (below) |
-| nghttp2 | 1.71.0 | `www/libnghttp2` | HTTP/2 |
+| nghttp2 | 1.70.0 | `www/libnghttp2` | HTTP/2 |
 | brotli | 1.2.1 | `archivers/brotli` | `br` responses (`CURLOPT_ENCODING`); 1.2.1 fixes CVE-2026-111497, an out-of-bounds write in the decoder |
 | zstd | 1.5.7 | `archivers/zstd` | `zstd` responses (`CURLOPT_ENCODING`) |
 | libidn2 | 2.3.8 | `dns/libidn2` | international domain names (IDN) |
@@ -684,7 +685,7 @@ How it is built and used:
 | Symbols | those of curl are not exported from `php` and `libphp.so`, those of its libraries are local in `libcurl.a`, so a module that loads the libcurl of the system, or carries a copy of nghttp2 (swoole), does not mix with them |
 | The system libcurl | plain `--with-curl` still takes it |
 | OpenSSL | curl 8.18.0 and later need OpenSSL 3.0 or later. FreeBSD 13.x has OpenSSL 1.1.1 in its base system, so there `config-check.sh` keeps `--with-curl` (the curl package) and says why; on FreeBSD 14 and 15 it writes `--with-curl=bundled` |
-| Security fixes | of curl or of one of its libraries reach PHP with a rebuild: the daily [upstream check](#upstream-check) opens an issue for each new release (the tags of their repositories), for changes of their FreeBSD ports, and when a port takes a release file the bundle has not (its distinfo); a new release is taken without waiting for the port |
+| Security fixes | of curl or of one of its libraries reach PHP with a rebuild: the daily [upstream check](#upstream-check) opens an issue for each new release (the tags of their repositories), for changes of their FreeBSD ports, and when a port takes a release file the bundle has not (its distinfo). A release comes with its port; before it only for a vulnerability that touches us, or a bug we have: the release issues name the CVE and GHSA ids of the release notes |
 | `/usr/local/phpdeps` | [`tools/build-deps.sh`](tools/build-deps.sh) takes curl and these libraries from the same files, built the same way |
 
 The options are those of the FreeBSD port, with these differences:
@@ -832,12 +833,17 @@ for what the branches should take. Each finding opens one issue labelled `upstre
 ([the issues](https://github.com/azsupport/php-src/issues?q=label%3Aupstream)); nothing
 is applied on its own. What it follows is listed in
 [`freebsd/upstream.conf`](freebsd/upstream.conf) and, for the libraries of
-`/usr/local/phpdeps`, in [`freebsd/deps.conf`](freebsd/deps.conf). A new upstream
-release is taken when it is out, without waiting for its FreeBSD port; the ports are
-followed for their build patches and what FreeBSD needs (a library of phpdeps whose
-port is behind is built from the upstream release file, with the patches of the
-port: a `take` line of `deps.conf`). The same goes for FFmpeg and the libraries it
-links in: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf).
+`/usr/local/phpdeps`, in [`freebsd/deps.conf`](freebsd/deps.conf). A new release of
+curl, of its libraries, of PCRE2 and of the libraries of phpdeps and FFmpeg is taken
+when its FreeBSD port has it; before the port only when it fixes a vulnerability
+that touches us, or a bug we have (rule of 04.11.2026). Each release issue says what
+the release notes name (CVE and GHSA ids, for releases on GitHub) and stays open
+until the port has the version. Such a library of phpdeps is then built from the
+upstream release file with the patches of the port (a `take` line of `deps.conf`,
+[`tools/deps-take-check.sh`](tools/deps-take-check.sh) checks the patches). The
+ports are followed for their build patches and what FreeBSD needs. The same goes
+for FFmpeg and the libraries it links in: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf).
+A new release of a bundled extension is taken when it is out.
 
 | It looks for | Of |
 |---|---|
