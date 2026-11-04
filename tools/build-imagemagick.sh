@@ -218,15 +218,24 @@ b_im() {
         # the static libraries, headers and .pc files, for imagick of PHP: in /usr/local/az
         # (the configuration they read stays that of /usr/local/etc/ImageMagick-7)
         mkdir -p "$root$A/lib/pkgconfig" "$root$A/include" "$root$A/bin" || return 1
-        cp "$s"/lib/libMagick*-7.*.a "$root$A/lib/" && cp -R "$s/include/ImageMagick-7" "$root$A/include/" || return 1
+        # the names of the port (its post-patch strips the Q16HDRI of the names):
+        # libMagickCore-7.a, libMagickWand-7.a, MagickCore-7.pc, MagickWand-7.pc
+        cp "$s"/lib/libMagick*-7*.a "$root$A/lib/" && cp -R "$s/include/ImageMagick-7" "$root$A/include/" ||
+            { echo "== no static libraries or headers of ImageMagick 7 in $s: $(ls "$s/lib" | tr '\n' ' ')"; return 1; }
         for pc in "$s"/lib/pkgconfig/*.pc; do
             sed -e "s|^prefix=$I\$|prefix=$A|" -e "s|=$I/include/|=$A/include/|g" -e "s|=$I/lib\$|=$A/lib|" \
                 "$pc" > "$root$A/lib/pkgconfig/${pc##*/}" || return 1
         done
         # the C++ runtime and the threads of libheif and libde265, for a static link line
-        for pc in "$root$A"/lib/pkgconfig/MagickCore-7.*.pc; do pc_add "$pc" Libs.private -lc++ -lpthread -lm; done
-        config_wrap MagickCore-config MagickCore-7.Q16HDRI
-        config_wrap MagickWand-config MagickWand-7.Q16HDRI
+        for pc in "$root$A"/lib/pkgconfig/MagickCore*.pc "$root$A"/lib/pkgconfig/ImageMagick*.pc; do
+            pc_add "$pc" Libs.private -lc++ -lpthread -lm
+        done
+        mc="$(cd "$root$A/lib/pkgconfig" && ls MagickCore-7*.pc 2>/dev/null | head -n 1)"
+        mw="$(cd "$root$A/lib/pkgconfig" && ls MagickWand-7*.pc 2>/dev/null | head -n 1)"
+        [ -n "$mc" ] && [ -n "$mw" ] ||
+            { echo "== no MagickCore-7 or MagickWand-7 .pc: $(ls "$root$A/lib/pkgconfig" | tr '\n' ' ')"; return 1; }
+        config_wrap MagickCore-config "${mc%.pc}"
+        config_wrap MagickWand-config "${mw%.pc}"
     fi
     mkdir -p "$root$I/share/licenses/ImageMagick$v"
     for f in LICENSE NOTICE; do [ -f "$src/$f" ] && cp "$src/$f" "$root$I/share/licenses/ImageMagick$v/$f"; done
@@ -359,7 +368,7 @@ manifest() {
             echo "Programs: $I/bin/*6 (convert6, identify6, mogrify6, composite6, ...)."
         else
             echo "Programs: $I/bin/magick and the names linked to it (convert, identify, mogrify, composite, ...);"
-            echo "for imagick of PHP: $A/lib/libMagickCore-7.Q16HDRI.a, libMagickWand-7.Q16HDRI.a, $A/include/ImageMagick-7,"
+            echo "for imagick of PHP: $A/lib/libMagickCore-7.a, libMagickWand-7.a, $A/include/ImageMagick-7,"
             echo "$A/bin/MagickWand-config (the static link line)."
         fi
         echo "Policy: $I/etc/ImageMagick-$v/policy.xml (freebsd/imagemagick/policy.xml)."
