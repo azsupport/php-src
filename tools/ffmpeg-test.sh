@@ -56,8 +56,14 @@ want() {
         awk -v k="--enable-$k=" '$1 == "configure" { for (i = 2; i <= NF; i++) if (index($i, k) == 1) { s = substr($i, length(k) + 1); gsub(",", "\n", s); print s } }' "$conf"
     done | sed 's/^image_\(.*_pipe\)$/\1/' | LC_ALL=C sort -u
 }
-# names after the dashed line of -demuxers/-decoders (first name of "mov,mp4,..."), sorted
-listed() { "$ff" -hide_banner "-$1" 2>/dev/null | awk 'seen && NF >= 2 { split($2, n, ","); print n[1] } /^ *-+ *$/ { seen = 1 }' | LC_ALL=C sort -u; }
+# names after the dashed line of -demuxers (" D d lavfi": three flags, then the name;
+# the first name of "mov,mp4,...") and of -decoders (" V....D h264"), sorted
+listed() {
+    "$ff" -hide_banner "-$1" 2>/dev/null | awk -v k="$1" '
+        seen && k == "demuxers" { split(substr($0, 6), a, " "); split(a[1], n, ","); if (n[1] != "") print n[1] }
+        seen && k != "demuxers" && NF >= 2 { print $2 }
+        /^ *-+ *$/ { seen = 1 }' | LC_ALL=C sort -u
+}
 cmp_list() {
     case "$1" in demuxer) want demuxer indev ;; *) want "$1" ;; esac > "$T/want-$1"
     listed "$2" > "$T/have-$1"
@@ -177,7 +183,7 @@ while read -r s; do
         o="$(probe "$T/out.mp4")"
         [ "${o#* }" = h264 ] && pass "$s: KVS without sound -> $o" || fail "$s: KVS without sound -> $o"
     else
-        fail "$s: KVS without sound: $(tail -n 1 "$T/conv.log")"
+        fail "$s: KVS without sound: $(tail -n 3 "$T/conv.log" | tr '\n' ' ')"
     fi
     # shellcheck disable=SC2086
     if "$ff" -hide_banner -loglevel error -y -i "$f" $kvs -c:a aac -b:a 128k -f mp4 "$T/out.mp4" > "$T/conv.log" 2>&1; then
@@ -188,7 +194,7 @@ while read -r s; do
             hevc10*) note "$s: 10-bit input -> $("$fp" -v error -select_streams v:0 -show_entries stream=profile,pix_fmt -of csv=p=0 "$T/out.mp4") (no -pix_fmt yuv420p in the KVS line)" ;;
         esac
     else
-        fail "$s: KVS with AAC: $(tail -n 1 "$T/conv.log")"
+        fail "$s: KVS with AAC: $(tail -n 3 "$T/conv.log" | tr '\n' ' ')"
     fi
 done < "$T/samples"
 
@@ -203,7 +209,7 @@ for s in h264_aac.mp4 hevc_aac.mp4 av1_aac.mp4 vp9_opus.webm; do
                 *) fail "$s: screenshot $e -> $o" ;;
             esac
         else
-            fail "$s: screenshot $e: $(tail -n 1 "$T/shot.log")"
+            fail "$s: screenshot $e: $(tail -n 3 "$T/shot.log" | tr '\n' ' ')"
         fi
     done
 done
@@ -211,10 +217,10 @@ if [ -f "$T/h264_aac.mp4" ] && [ -f "$T/logo.png" ]; then
     # shellcheck disable=SC2086
     "$ff" -hide_banner -loglevel error -y -i "$T/h264_aac.mp4" -i "$T/logo.png" -filter_complex '[0:v][1:v]overlay=10:10' \
         $kvs -c:a aac -b:a 128k -f mp4 "$T/wm.mp4" > "$T/wm.log" 2>&1 &&
-        pass "watermark (overlay of a PNG) -> $(probe "$T/wm.mp4")" || fail "watermark: $(tail -n 1 "$T/wm.log")"
+        pass "watermark (overlay of a PNG) -> $(probe "$T/wm.mp4")" || fail "watermark: $(tail -n 3 "$T/wm.log" | tr '\n' ' ')"
     # shellcheck disable=SC2086
     "$ff" -hide_banner -loglevel error -y -i "$T/h264_aac.mp4" -vf scale=320:-2 $kvs -an -f mp4 "$T/sc.mp4" > "$T/sc.log" 2>&1 &&
-        [ "$(dims "$T/sc.mp4")" = 320x180 ] && pass "scale=320:-2 -> $(dims "$T/sc.mp4")" || fail "scale=320:-2: $(tail -n 1 "$T/sc.log")"
+        [ "$(dims "$T/sc.mp4")" = 320x180 ] && pass "scale=320:-2 -> $(dims "$T/sc.mp4")" || fail "scale=320:-2: $(tail -n 3 "$T/sc.log" | tr '\n' ' ')"
 fi
 for p in logo.png shot.jpg shot.webp; do
     [ -f "$T/$p" ] || continue
@@ -245,7 +251,7 @@ join() {
             fail "join -f concat -safe 0 -c copy -f $fmt ($*) -> $o2, ${d:-?}s"
         fi
     else
-        fail "join -f concat -safe 0 -c copy -f $fmt ($*): $(tail -n 1 "$T/join.log")"
+        fail "join -f concat -safe 0 -c copy -f $fmt ($*): $(tail -n 3 "$T/join.log" | tr '\n' ' ')"
     fi
 }
 join join1.mp4 mp4 h264_aac.mp4 h264_aac.mp4
@@ -264,7 +270,7 @@ if [ -f "$T/h264_aac.mp4" ]; then
         [ "${o#* }" = h264,aac ] && pass "-f lavfi -i anullsrc=cl=stereo:r=44100 -shortest -> $o" ||
             fail "-f lavfi -i anullsrc=cl=stereo:r=44100 -shortest -> $o"
     else
-        fail "-f lavfi -i anullsrc=cl=stereo:r=44100 -shortest: $(tail -n 1 "$T/silence.log")"
+        fail "-f lavfi -i anullsrc=cl=stereo:r=44100 -shortest: $(tail -n 3 "$T/silence.log" | tr '\n' ' ')"
     fi
 fi
 # a video from pictures (the plugin movie_from_image: task-%d.jpg, image2 by the name)
@@ -275,7 +281,7 @@ if [ -f "$T/shot.jpg" ]; then
         o="$(probe "$T/images.mp4")"
         [ "${o#* }" = h264 ] && pass "task-%d.jpg -> $o" || fail "task-%d.jpg -> $o"
     else
-        fail "task-%d.jpg: $(tail -n 1 "$T/images.log")"
+        fail "task-%d.jpg: $(tail -n 3 "$T/images.log" | tr '\n' ' ')"
     fi
 fi
 
