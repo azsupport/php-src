@@ -5,8 +5,9 @@
 # Usage: sh tools/curl-sources.sh [<target>] <dir>
 #
 # Puts curl into <dir>/libcurl and every library into <dir>/deps/<name>, from the
-# release files, checked against the SHA-256 of the conf (the same as the
-# distinfo of the FreeBSD port), without their top directory, with
+# release files, checked against the SHA-256 of the conf (of the upstream release
+# file; the distinfo of the FreeBSD port has the same once it has that version),
+# without their top directory, with
 # freebsd/curl/<name>-<version>.patch where there is one, and writes
 # <dir>/deps/VERSIONS ("name version SHA-256 distfile", ext/curl/build-libcurl.sh
 # rebuilds when it changes). Without <target>: the curl of the last line of

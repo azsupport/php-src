@@ -19,7 +19,8 @@ after the reviewed revision that change files/ (the patches) or the Makefile
 beyond its version lines, or that move the port away. For curl and the libraries
 of freebsd/curl-deps.conf also the distinfo of their port: a release file there
 that differs from the bundled one (the port took a new release, the public
-suffix list a new date).
+suffix list a new date) - not while the bundle is ahead of the port, as a new
+release is taken without waiting for the port.
 
 PHP branches. For the targets that follow the php-src release tags: the end of
 security support of the branch (php.net/releases/branches.php), from 60 days
@@ -362,11 +363,12 @@ def lib_finding(up, v, cur, port):
         "Bundled now: %s, in `freebsd/curl-deps.conf`: a library of the bundled curl "
         "(`--with-curl=bundled` of every branch, and `/usr/local/phpdeps`)." % cur,
         "",
-        "To take it: in `freebsd/curl-deps.conf` set version `%s`, the release file and its SHA-256, the same "
-        "as freebsd-ports `%s/distinfo` once the port has it (this check reports when the port moves), "
+        "To take it (now: the port `%s` is followed for its patches, not waited for): in "
+        "`freebsd/curl-deps.conf` set version `%s`, the release file and its SHA-256 (checked against a "
+        "second source: a signature, the checksums of the release or of another distribution), "
         "carry over `freebsd/curl/%s-<old version>.patch` if there is one, check that "
         "`freebsd/curl/build-libcurl.sh` still builds it (its file lists, configure options), then run the "
-        "build test. Not wanted: close this issue." % (v, port, up.name),
+        "build test. Not wanted: close this issue." % (port, v, up.name),
     ]
     return {
         "key": "release:%s:%s" % (up.name, v),
@@ -402,8 +404,8 @@ def release_finding(up, v, hits, pin):
         lines[2] = "Bundled in place of the PCRE2 of php-src (freebsd/pcre.conf)."
         lines += [
             "",
-            "To take it: in `freebsd/pcre.conf` set version `%s`, the release tarball and its SHA-256 "
-            "(the same as freebsd-ports `devel/pcre2/distinfo` once the port has it); run "
+            "To take it (now: `devel/pcre2` is followed for its patches, not waited for): in "
+            "`freebsd/pcre.conf` set version `%s`, the release tarball and its SHA-256; run "
             "`freebsd/pcre/import-pcre2.sh <tree> <unpacked release>` on a tree of each target, build it "
             "and run `ext/pcre/tests` (new messages of the library may need "
             "`freebsd/pcre/tests-<target>.patch`), then the build test. Not wanted: close this issue." % v,
@@ -418,8 +420,8 @@ def release_finding(up, v, hits, pin):
         lines[2] = "It needs OpenSSL 3.0 or later, as the bundled curl does now."
         lines += [
             "",
-            "To take it: in `freebsd/curl.conf` set version `%s`, the release tarball and its SHA-256 "
-            "(the same as freebsd-ports `ftp/curl/distinfo` once the port has it), and bring "
+            "To take it (now: `ftp/curl` is followed for its patches, not waited for): in "
+            "`freebsd/curl.conf` set version `%s`, the release tarball and its SHA-256, and bring "
             "`freebsd/curl/curl-<old version>.patch` up to date from `ftp/curl/files/patch-configure`; "
             "check that `freebsd/curl/build-libcurl.sh` passes no option the new configure has dropped, "
             "then run the build test. Not wanted: close this issue." % v,
