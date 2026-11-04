@@ -767,7 +767,7 @@ demuxers and decoders of FFmpeg are not built.
 |---|---|
 | Reads (by content) | mov (mp4, m4v, mov), matroska (mkv, webm), JPEG, PNG and WebP pictures |
 | Reads only when asked for | image2 by the name of the file (`task-%d.jpg`), concat with `-f concat` (not by content: [`concat-no-probe.patch`](freebsd/ffmpeg/concat-no-probe.patch)), the lavfi device with `-f lavfi` (`anullsrc`) |
-| Decoders | H.264, HEVC, AV1 (dav1d), VP9, VP8; AAC, MP3, Opus, Vorbis, AC3, E-AC3; JPEG, PNG, WebP. No subtitle decoders: a conversion to mp4 leaves subtitles out, `-c copy` keeps them |
+| Decoders | H.264, HEVC, AV1 (dav1d), VP9, VP8; AAC, MP3, Opus, Vorbis, AC3, E-AC3; JPEG, PNG, WebP. No subtitle decoders or encoders: a conversion and a join with `-c copy` leave subtitles out (ffmpeg maps them by itself only when it has an encoder for them) and do not fail on them |
 | Writes | H.264 (libx264), AAC; JPEG, PNG and WebP (libwebp) screenshots; mp4, mov, matroska, image2, mjpeg, null |
 | Filters | all of FFmpeg that need no other library (not drawtext, which needs HarfBuzz, as in the port without HARFBUZZ) |
 | Protocols | file and pipe: no http, https, tcp, udp, rtmp, ftp, hls, concat, subfile, data, crypto |

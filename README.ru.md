@@ -758,7 +758,7 @@ php-src несёт старую PCRE с известными ошибками б
 |---|---|
 | Читает (по содержимому) | mov (mp4, m4v, mov), matroska (mkv, webm), картинки JPEG, PNG и WebP |
 | Читает, только когда попросят | image2 по имени файла (`task-%d.jpg`), concat с `-f concat` (не по содержимому: [`concat-no-probe.patch`](freebsd/ffmpeg/concat-no-probe.patch)), устройство lavfi с `-f lavfi` (`anullsrc`) |
-| Декодеры | H.264, HEVC, AV1 (dav1d), VP9, VP8; AAC, MP3, Opus, Vorbis, AC3, E-AC3; JPEG, PNG, WebP. Декодеров субтитров нет: при конвертации в mp4 субтитры не переносятся, `-c copy` их сохраняет |
+| Декодеры | H.264, HEVC, AV1 (dav1d), VP9, VP8; AAC, MP3, Opus, Vorbis, AC3, E-AC3; JPEG, PNG, WebP. Декодеров и кодировщиков субтитров нет: конвертация и склейка с `-c copy` субтитры не переносят (сам ffmpeg берёт их, только если для них есть кодировщик) и из-за них не падают |
 | Пишет | H.264 (libx264), AAC; скриншоты JPEG, PNG и WebP (libwebp); mp4, mov, matroska, image2, mjpeg, null |
 | Фильтры | все фильтры FFmpeg, которым не нужны другие библиотеки (без drawtext: ему нужен HarfBuzz, как и в порту без HARFBUZZ) |
 | Протоколы | file и pipe: ни http, https, tcp, udp, rtmp, ftp, hls, concat, subfile, data, crypto |
