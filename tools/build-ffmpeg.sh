@@ -1,9 +1,11 @@
 #!/bin/sh
-# build-ffmpeg.sh - build ffmpeg and ffprobe of /usr/local/az for the video sites
-# from the FreeBSD port of freebsd/ffmpeg.conf, with only the formats, codecs and
-# protocols listed there (see the head of that file for why), against the static
-# libraries of /usr/local/az (tools/build-deps.sh first; tools/build-az.sh runs
-# both, the tests and the packages).
+# build-ffmpeg.sh - build ffmpeg and ffprobe for the video sites (the package
+# ffmpeg of tools/build-az.sh, in the place of that of the ports:
+# /usr/local/bin/ffmpeg, /usr/local/bin/ffprobe) from the FreeBSD port of
+# freebsd/ffmpeg.conf, with only the formats, codecs and protocols listed there
+# (see the head of that file for why), against the static libraries of
+# /usr/local/az (tools/build-deps.sh first; tools/build-az.sh runs both, the tests
+# and the packages).
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master):
 #   sh tools/build-ffmpeg.sh --tools    install the build tools (pkg)
@@ -17,9 +19,11 @@
 # those of freebsd/deps/<name>-<version>/). FFmpeg links x264, dav1d and libwebp
 # of AZ_PREFIX (default /usr/local/az) in, so that ffmpeg and ffprobe need no
 # library of /usr/local (only libc, libm, libthr and libz of the base system), and
-# goes there too: bin/ffmpeg, bin/ffprobe, LICENSES/FFmpeg-*. Its work directory
-# is AZ_WORK/ffmpeg (default /var/tmp/az-work/ffmpeg). Results go to
-# ffmpeg-results/ (summary.txt, the log, VERSIONS). tools/ffmpeg-test.sh tests it.
+# is installed (prefix /usr/local) into the stage AZ_STAGE/ffmpeg (default
+# AZ_WORK/stage/ffmpeg): usr/local/bin/ffmpeg, usr/local/bin/ffprobe,
+# usr/local/share/licenses/ffmpeg/. Its work directory is AZ_WORK/ffmpeg (default
+# /var/tmp/az-work/ffmpeg). Results go to ffmpeg-results/ (summary.txt, the log,
+# VERSIONS). tools/ffmpeg-test.sh tests it, once installed.
 #
 # Compiler flags as for PHP and the libraries: CPUTYPE and CFLAGS of
 # /etc/make.conf with -fstack-protector-strong and -fno-strict-aliasing;
@@ -34,9 +38,10 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/ffmpeg.conf"
-F="${AZ_PREFIX:-/usr/local/az}"
+L="${AZ_PREFIX:-/usr/local/az}"
 work="${AZ_WORK:-/var/tmp/az-work}/ffmpeg"
-L="$F"
+F=/usr/local
+stage="${AZ_STAGE:-${AZ_WORK:-/var/tmp/az-work}/stage}/ffmpeg"
 res="$top/ffmpeg-results"
 ports="${PORTSDIR:-$work/ports}"
 ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
@@ -125,7 +130,7 @@ fix_guess() {
 # names), then configure with the options of the script and the configure lines
 # of ffmpeg.conf
 b_ffmpeg() {
-    rm -f "$F/bin/ffmpeg" "$F/bin/ffprobe" "$F"/LICENSES/FFmpeg-*
+    rm -rf "$stage"
     for p in "$top"/freebsd/ffmpeg/*.patch; do
         [ -f "$p" ] || continue
         echo "== freebsd/ffmpeg/${p##*/}"
@@ -138,11 +143,11 @@ b_ffmpeg() {
             --extra-ldflags="-L$L/lib"
         if [ -n "${AR:-}" ]; then set -- "$@" --ar="$AR" --ranlib="$RANLIB" --nm="$NM -g"; fi
         # shellcheck disable=SC2046
-        ./configure "$@" $(conf_opts) && gmake -j"$ncpu" && gmake install-progs
+        ./configure "$@" $(conf_opts) && gmake -j"$ncpu" && gmake install-progs DESTDIR="$stage"
     ) || { cp "$1/ffbuild/config.log" "$res/ffmpeg-config.log" 2>/dev/null; return 1; }
     cp "$1/ffbuild/config.log" "$res/ffmpeg-config.log" 2>/dev/null
-    mkdir -p "$F/LICENSES"
-    for f in COPYING.GPLv2 COPYING.LGPLv2.1 LICENSE.md; do cp "$1/$f" "$F/LICENSES/FFmpeg-$f"; done
+    mkdir -p "$stage$F/share/licenses/ffmpeg"
+    for f in COPYING.GPLv2 COPYING.LGPLv2.1 LICENSE.md; do cp "$1/$f" "$stage$F/share/licenses/ffmpeg/$f"; done
 }
 
 take_args() {
@@ -232,7 +237,7 @@ manifest() {
     {
         echo "FFmpeg for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
         echo "freebsd-ports $ports_commit; CFLAGS: $ffcflags"
-        echo "x264, dav1d and libwebp: the static libraries of $F (az-libs)"
+        echo "x264, dav1d and libwebp: the static libraries of $L (az-libs)"
         echo
         while read -r n pkgname port; do
             printf '%-8s %-24s %s\n' "$n" "$pkgname" "$port"
@@ -264,7 +269,7 @@ manifest() {
         conf_opts | sed 's/^/    /'
         echo
         echo "Licence: GPL version 2 or later (FFmpeg with --enable-gpl, x264); the licences are in"
-        echo "LICENSES/ (FFmpeg-*; x264, dav1d and webp: those of az-libs)."
+        echo "share/licenses/ffmpeg/ (x264, dav1d and webp: LICENSES/ of /usr/local/az, az-libs)."
         echo "Sources: the distfiles above (their SHA-256), the patches of the port at the commit above,"
         echo "freebsd/ffmpeg/ and tools/build-ffmpeg.sh of https://github.com/azsupport/php-src (freebsd/ffmpeg.conf)."
     } > "$res/VERSIONS"
@@ -274,7 +279,7 @@ manifest() {
 check_bins() {
     : > "$res/bins.txt"
     for b in ffmpeg ffprobe; do
-        f="$F/bin/$b"
+        f="$stage$F/bin/$b"
         [ -x "$f" ] || { echo "$b: missing" >> "$res/bins.txt"; continue; }
         type="$(readelf -h "$f" | awk '/Type:/ { print $2 }')"
         relro="$(readelf -l "$f" | grep -c GNU_RELRO)"
@@ -287,7 +292,7 @@ check_bins() {
         [ "$relro" -gt 0 ] || echo "$b: no RELRO" >> "$res/bins-bad.txt"
         [ "$now" -gt 0 ] || echo "$b: no BIND_NOW" >> "$res/bins-bad.txt"
     done
-    "$F/bin/ffmpeg" -hide_banner -version > "$res/version.txt" 2>&1
+    "$stage$F/bin/ffmpeg" -hide_banner -version > "$res/version.txt" 2>&1
 }
 
 mkdir -p "$res" "$work"
@@ -327,7 +332,7 @@ if [ "$rc" = 0 ]; then
     manifest
     check_bins
     if [ ! -s "$res/bins-bad.txt" ]; then
-        echo "installed: $F/bin/ffmpeg, $F/bin/ffprobe ($(du -k "$F/bin/ffmpeg" | cut -f1) KB, $(du -k "$F/bin/ffprobe" | cut -f1) KB)" >> "$res/summary.txt"
+        echo "installed: bin/ffmpeg, bin/ffprobe of $F into the stage $stage ($(du -k "$stage$F/bin/ffmpeg" | cut -f1) KB, $(du -k "$stage$F/bin/ffprobe" | cut -f1) KB)" >> "$res/summary.txt"
     else
         rc=1
     fi

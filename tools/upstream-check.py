@@ -27,8 +27,9 @@ before the port only when it fixes a vulnerability that touches us, or a bug we
 have. So a release issue says what the release notes name (CVE and GHSA ids, on
 GitHub), and it stays open as a note until the port has the version.
 
-The libraries of /usr/local/phpdeps built from ports (freebsd/deps.conf), and
-FFmpeg with the libraries it links in (/usr/local/ffmpeg, freebsd/ffmpeg.conf):
+The static libraries of /usr/local/az built from ports (freebsd/deps.conf), and
+the packages built against them (FFmpeg, freebsd/ffmpeg.conf; ImageMagick,
+freebsd/imagemagick.conf; tools/build-az.sh):
 their upstream releases ("upstream" lines: tags or a directory listing) newer than
 the version built (taken before the port only for a security fix: "take" lines);
 the commits to their ports after the ports commit of the conf file; and a port
@@ -185,9 +186,9 @@ def tag_version(tag, name=None):
 AZ_STEPS = ("run az.yml (it builds, tests and publishes the packages to `az-fbsd<major>-amd64-<level>-candidate`), "
             "the build test of PHP against them, a check on a server, then az.yml with `candidate` off.")
 BUNDLES = [
-    ("deps.conf", "phpdeps", "/usr/local/az (az-libs, az-curl)", "az.yml", AZ_STEPS),
-    ("ffmpeg.conf", "ffmpeg", "/usr/local/az (az-ffmpeg)", "az.yml", AZ_STEPS),
-    ("imagemagick.conf", "imagemagick", "/usr/local/az (az-imagemagick6, az-imagemagick7)", "az.yml", AZ_STEPS),
+    ("deps.conf", "phpdeps", "the packages az-libs (/usr/local/az) and curl", "az.yml", AZ_STEPS),
+    ("ffmpeg.conf", "ffmpeg", "the package ffmpeg", "az.yml", AZ_STEPS),
+    ("imagemagick.conf", "imagemagick", "the packages ImageMagick6 and ImageMagick7", "az.yml", AZ_STEPS),
 ]
 # Slave ports whose patches and build are in their master port.
 MASTER_PORTS = {"multimedia/libx264": "multimedia/x264"}

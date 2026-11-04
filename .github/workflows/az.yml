@@ -1,14 +1,15 @@
 name: az packages for FreeBSD
 
-# Builds /usr/local/az (tools/build-az.sh): the static libraries PHP and the
-# programs are built against (freebsd/deps.conf), the curl program, FFmpeg
-# (freebsd/ffmpeg.conf), ImageMagick 6 and 7 (freebsd/imagemagick.conf), from the
-# FreeBSD ports, with the compiler flags of the servers for an x86-64 level; tests
-# them and makes the packages az-libs, az-curl, az-ffmpeg, az-imagemagick6 and
-# az-imagemagick7 with a repository of pkg, one job per level, published as the
-# files of the release az-fbsd<major>-amd64-<level> (or, for a check on a server
-# first, az-fbsd<major>-amd64-<level>-candidate), which pkg reads as a repository:
-# its address goes into /usr/local/etc/pkg/repos/az.conf.
+# Builds the static packages of the fork (tools/build-az.sh) from the FreeBSD
+# ports, with the compiler flags of the servers for an x86-64 level: az-libs (the
+# static libraries of /usr/local/az that PHP and the programs are built against,
+# freebsd/deps.conf), and in the place of the packages of the ports curl (bin/curl,
+# libcurl.so.4), ffmpeg (freebsd/ffmpeg.conf), ImageMagick6 (convert6, ...) and
+# ImageMagick7 (freebsd/imagemagick.conf); installs and tests them, one job per
+# level, and publishes their repository of pkg as the files of the release
+# az-fbsd<major>-amd64-<level> (or, for a check on a server first,
+# az-fbsd<major>-amd64-<level>-candidate): its address goes into
+# /usr/local/etc/pkg/repos/az.conf (sh tools/az-menu.sh --repo writes it).
 # Started by hand: Actions, "az packages for FreeBSD", "Run workflow".
 
 on:
@@ -107,7 +108,7 @@ jobs:
           tag="az-fbsd$major-amd64-$level"
           if [ -n "$CANDIDATE" ]; then tag="$tag-candidate"; fi
           url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
-          notes="A repository of pkg for FreeBSD $major (amd64, -march=$CPUTYPE): the static packages of /usr/local/az, az-libs (the libraries PHP is built against), az-curl, az-ffmpeg, az-imagemagick6 (convert6, identify6, ...) and az-imagemagick7 (magick, and its libraries for imagick). Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, PIE, RELRO and BIND_NOW. On a server, /usr/local/etc/pkg/repos/az.conf: az: { url: \"$url\", signature_type: \"none\", enabled: yes }, then: pkg update -r az, pkg install -r az az-ffmpeg (and the others). Versions and options: share/doc/<package>/VERSIONS in /usr/local/az."
+          notes="A repository of pkg for FreeBSD $major (amd64, -march=$CPUTYPE) of the static packages of azsupport/php-src: az-libs (the libraries of /usr/local/az PHP is built against), and in the place of those of the ports curl (bin/curl, libcurl.so.4), ffmpeg, ImageMagick6 (convert6, identify6, ...) and ImageMagick7 (magick, and its libraries for imagick); the PHP packages php56 ... php84 of az-menu.sh come into it too. Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, PIE, RELRO and BIND_NOW. On a server, /usr/local/etc/pkg/repos/az.conf: az: { url: \"$url\", signature_type: \"none\", priority: 100, enabled: yes } (sh tools/az-menu.sh --repo writes it), then: pkg update -r az, pkg install -r az ffmpeg ImageMagick7 (and the others). Versions and options: /usr/local/share/doc/<package>/VERSIONS (az-libs: /usr/local/az/share/doc/az-libs/VERSIONS)."
           if [ -n "$CANDIDATE" ]; then
             notes="A candidate, for a check on a server before the packages go to az-fbsd$major-amd64-$level. $notes"
           fi
@@ -117,8 +118,9 @@ jobs:
           fi
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes"
           # the packages first, the catalog of pkg repo last, then away with what this build has not
-          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $(ls "$dir"/az-*.pkg)
-          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $(ls -d "$dir"/* | grep -v '/az-[^/]*\.pkg$')
+          pk="$(ls "$dir" | grep -E '^(az-libs|curl|ffmpeg|ImageMagick[67])-[0-9].*\.pkg$' | sed "s#^#$dir/#")"
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $pk
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $(ls -d "$dir"/* | grep -v -E '/(az-libs|curl|ffmpeg|ImageMagick[67])-[0-9][^/]*\.pkg$')
           for a in $(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'); do
             [ -e "$dir/$a" ] || gh release delete-asset "$tag" "$a" --repo "$GITHUB_REPOSITORY" -y
           done

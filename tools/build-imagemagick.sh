@@ -1,7 +1,8 @@
 #!/bin/sh
-# build-imagemagick.sh - build ImageMagick 6 and 7 of /usr/local/az for the video
-# sites (the "im" lines of freebsd/imagemagick.conf): static programs side by
-# side in /usr/local/az/bin, with only the formats listed there (see the head of
+# build-imagemagick.sh - build ImageMagick 6 and 7 for the video sites (the "im"
+# lines of freebsd/imagemagick.conf; the packages ImageMagick6 and ImageMagick7 of
+# tools/build-az.sh, in the place of those of the ports): static programs side by
+# side in /usr/local/bin, with only the formats listed there (see the head of
 # that file for which and why), against the static libraries of /usr/local/az
 # (tools/build-deps.sh first; tools/build-az.sh runs both, the tests and the
 # packages).
@@ -16,20 +17,24 @@
 # patch); this script then builds the source tree with its own options. A take
 # line gives a new upstream release instead (with the port's patches, or those of
 # freebsd/deps/<name>-<version>/). Each ImageMagick links the libraries of
-# AZ_PREFIX (default /usr/local/az) in and is installed into a stage directory
-# first; what it keeps then goes to AZ_PREFIX: its programs in bin/ (ImageMagick
-# 7: magick and the usual names linked to it; ImageMagick 6: every name with a 6
-# at the end, convert6, identify6...), etc/ImageMagick-<6|7>/ (its configuration,
-# with the policy freebsd/imagemagick/policy.xml), share/ImageMagick-<6|7>/,
-# lib/ImageMagick-<version>/ (its configure.xml) and LICENSES/ImageMagick<6|7>-*.
-# ImageMagick 7 also keeps its static libraries, headers and .pc files, for
-# imagick of PHP (--with-imagick=/usr/local/az), with bin/MagickWand-config and
-# bin/MagickCore-config printing the static link line; a test program links them
-# as imagick does. fontconfig takes its configuration and fonts from the system
+# AZ_PREFIX (default /usr/local/az) in, is built with the prefix /usr/local and
+# installed into a stage directory first; what it keeps then goes to the stage of
+# its package, AZ_STAGE/ImageMagick<6|7> (default AZ_WORK/stage/...), as files of
+# /usr/local: its programs in bin/ (ImageMagick 7: magick and the usual names
+# linked to it; ImageMagick 6: every name with a 6 at the end, convert6,
+# identify6...), etc/ImageMagick-<6|7>/ (its configuration, with the policy
+# freebsd/imagemagick/policy.xml), share/ImageMagick-<6|7>/,
+# lib/ImageMagick-<version>/ (its configure.xml), share/licenses/ImageMagick<6|7>/.
+# ImageMagick 7 also keeps its static libraries, headers and .pc files, in
+# /usr/local/az, for imagick of PHP (--with-imagick=/usr/local/az), with
+# bin/MagickWand-config and bin/MagickCore-config there printing the static link
+# line (tools/build-az.sh links a test program with them as imagick does, once
+# installed). fontconfig takes its configuration and fonts from the system
 # (/usr/local/etc/fonts, /usr/local/share/fonts; its cache /var/db/fontconfig),
 # as the port does. The work directory is AZ_WORK/imagemagick (default
 # /var/tmp/az-work/imagemagick). Results go to imagemagick-results/ (summary.txt,
-# one log per ImageMagick, <name>.VERSIONS). tools/imagemagick-test.sh tests them.
+# one log per ImageMagick, <name>.VERSIONS). tools/imagemagick-test.sh tests them,
+# once installed.
 #
 # Compiler flags as for PHP, the libraries and FFmpeg: CPUTYPE and CFLAGS of
 # /etc/make.conf with -fstack-protector-strong and -fno-strict-aliasing (and
@@ -45,7 +50,9 @@ set -u
 top="$(pwd)"
 conf="$top/freebsd/imagemagick.conf"
 A="${AZ_PREFIX:-/usr/local/az}"
+I=/usr/local
 work="${AZ_WORK:-/var/tmp/az-work}/imagemagick"
+stage="${AZ_STAGE:-${AZ_WORK:-/var/tmp/az-work}/stage}"
 res="$top/imagemagick-results"
 ports="${PORTSDIR:-$work/ports}"
 ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
@@ -149,7 +156,7 @@ pc_add() {
 # link line from the .pc files of the tree (the scripts of ImageMagick give the
 # one for shared libraries); imagick of PHP runs MagickWand-config.
 config_wrap() {
-    cat > "$A/bin/$1" <<EOF
+    cat > "$root$A/bin/$1" <<EOF
 #!/bin/sh
 # $1 of ImageMagick 7 in $A (tools/build-imagemagick.sh of
 # https://github.com/azsupport/php-src): static libraries, so --libs gives the
@@ -165,7 +172,7 @@ case "\${1:-}" in
     *) echo "Usage: $1 [--cflags] [--cppflags] [--exec-prefix] [--ldflags] [--libs] [--prefix] [--version]" >&2; exit 1 ;;
 esac
 EOF
-    chmod 755 "$A/bin/$1"
+    chmod 755 "$root$A/bin/$1"
 }
 
 # One ImageMagick: after the port's patches those of freebsd/imagemagick/<name>-*.patch,
@@ -176,7 +183,8 @@ EOF
 b_im() {
     n="$1"; src="$2"; v="${n#imagemagick}"
     st="$work/stage-$n"
-    rm -rf "$st"
+    root="$stage/ImageMagick$v"
+    rm -rf "$st" "$root"
     for p in "$top"/freebsd/imagemagick/"$n"-*.patch; do
         [ -f "$p" ] || continue
         echo "== freebsd/imagemagick/${p##*/}"
@@ -186,12 +194,12 @@ b_im() {
     (
         cd "$src" || exit 1
         # shellcheck disable=SC2046
-        ./configure --prefix="$A" LDFLAGS="$LDFLAGS -pie -Wl,-z,relro,-z,now" LIBS="-lc++ -lpthread -lm" \
+        ./configure --prefix="$I" LDFLAGS="$LDFLAGS -pie -Wl,-z,relro,-z,now" LIBS="-lc++ -lpthread -lm" \
             PTHREAD_LIBS=-lpthread $(conf_opts configure) $(conf_opts "configure$v") &&
             gmake -j"$ncpu" && gmake install-strip DESTDIR="$st"
     ) || return 1
     cp "$src/config.log" "$res/$n-config.log" 2>/dev/null
-    s="$st$A"
+    s="$st$I"
     [ -d "$s/bin" ] || { echo "== nothing was installed into $s"; return 1; }
     if [ "$v" = 6 ]; then
         progs="$(cd "$s/bin" && ls | grep '6$' | grep -v -e '-config6$' -e '^conjure6$')"
@@ -200,21 +208,27 @@ b_im() {
     fi
     [ -n "$progs" ] || { echo "== no programs in $s/bin"; return 1; }
     keep="$(for p in $progs; do echo "bin/$p"; done; cd "$s" && ls -d "etc/ImageMagick-$v" "share/ImageMagick-$v" lib/ImageMagick-"$v".* 2>/dev/null)"
-    if [ "$v" = 7 ]; then
-        keep="$keep $(cd "$s" && ls -d lib/libMagick*-7.*.a lib/pkgconfig/*.pc include/ImageMagick-7 2>/dev/null)"
-    fi
-    echo "== into $A:" $keep
+    echo "== into $root$I:" $keep
+    mkdir -p "$root$I" || return 1
     # shellcheck disable=SC2086
-    (cd "$s" && tar -cf - $keep) | (cd "$A" && tar -xpf -) || return 1
-    cp "$top/freebsd/imagemagick/policy.xml" "$A/etc/ImageMagick-$v/policy.xml" || return 1
+    (cd "$s" && tar -cf - $keep) | (cd "$root$I" && tar -xpf -) || return 1
+    cp "$top/freebsd/imagemagick/policy.xml" "$root$I/etc/ImageMagick-$v/policy.xml" || return 1
     if [ "$v" = 7 ]; then
+        # the static libraries, headers and .pc files, for imagick of PHP: in /usr/local/az
+        # (the configuration they read stays that of /usr/local/etc/ImageMagick-7)
+        mkdir -p "$root$A/lib/pkgconfig" "$root$A/include" "$root$A/bin" || return 1
+        cp "$s"/lib/libMagick*-7.*.a "$root$A/lib/" && cp -R "$s/include/ImageMagick-7" "$root$A/include/" || return 1
+        for pc in "$s"/lib/pkgconfig/*.pc; do
+            sed -e "s|^prefix=$I\$|prefix=$A|" -e "s|=$I/include/|=$A/include/|g" -e "s|=$I/lib\$|=$A/lib|" \
+                "$pc" > "$root$A/lib/pkgconfig/${pc##*/}" || return 1
+        done
         # the C++ runtime and the threads of libheif and libde265, for a static link line
-        for pc in "$A"/lib/pkgconfig/MagickCore-7.*.pc; do pc_add "$pc" Libs.private -lc++ -lpthread -lm; done
+        for pc in "$root$A"/lib/pkgconfig/MagickCore-7.*.pc; do pc_add "$pc" Libs.private -lc++ -lpthread -lm; done
         config_wrap MagickCore-config MagickCore-7.Q16HDRI
         config_wrap MagickWand-config MagickWand-7.Q16HDRI
     fi
-    mkdir -p "$A/LICENSES"
-    for f in LICENSE NOTICE; do [ -f "$src/$f" ] && cp "$src/$f" "$A/LICENSES/ImageMagick$v-$f"; done
+    mkdir -p "$root$I/share/licenses/ImageMagick$v"
+    for f in LICENSE NOTICE; do [ -f "$src/$f" ] && cp "$src/$f" "$root$I/share/licenses/ImageMagick$v/$f"; done
     return 0
 }
 
@@ -332,18 +346,18 @@ manifest() {
             done
         done < "$res/built.txt"
         echo
-        echo "configure (after --prefix=$A and the flags):"
+        echo "configure (after --prefix=$I and the flags):"
         { conf_opts configure; conf_opts "configure$v"; } | sed 's/^/    /'
         echo
         if [ "$v" = 6 ]; then
-            echo "Programs: bin/*6 (convert6, identify6, mogrify6, composite6, ...)."
+            echo "Programs: $I/bin/*6 (convert6, identify6, mogrify6, composite6, ...)."
         else
-            echo "Programs: bin/magick and the names linked to it (convert, identify, mogrify, composite, ...);"
-            echo "for imagick of PHP: lib/libMagickCore-7.Q16HDRI.a, lib/libMagickWand-7.Q16HDRI.a, include/ImageMagick-7,"
-            echo "bin/MagickWand-config (the static link line)."
+            echo "Programs: $I/bin/magick and the names linked to it (convert, identify, mogrify, composite, ...);"
+            echo "for imagick of PHP: $A/lib/libMagickCore-7.Q16HDRI.a, libMagickWand-7.Q16HDRI.a, $A/include/ImageMagick-7,"
+            echo "$A/bin/MagickWand-config (the static link line)."
         fi
-        echo "Policy: etc/ImageMagick-$v/policy.xml (freebsd/imagemagick/policy.xml)."
-        echo "Licences: LICENSES/ImageMagick$v-*. Sources: the distfiles above (their SHA-256), the patches of the"
+        echo "Policy: $I/etc/ImageMagick-$v/policy.xml (freebsd/imagemagick/policy.xml)."
+        echo "Licences: $I/share/licenses/ImageMagick$v/. Sources: the distfiles above (their SHA-256), the patches of the"
         echo "port at the commit above and tools/build-imagemagick.sh of https://github.com/azsupport/php-src"
         echo "(freebsd/imagemagick.conf)."
     } > "$res/$im.VERSIONS"
@@ -351,10 +365,10 @@ manifest() {
 
 # The programs: PIE, RELRO, BIND_NOW, libraries of the base system only.
 check_bins() {
-    im="$1"
+    im="$1"; r="$stage/ImageMagick${im#imagemagick}$I"
     case "$im" in imagemagick6) progs="convert6 identify6 mogrify6 composite6" ;; *) progs="magick" ;; esac
     for b in $progs; do
-        f="$A/bin/$b"
+        f="$r/bin/$b"
         [ -x "$f" ] || { echo "$im $b: missing" >> "$res/bins-bad.txt"; continue; }
         type="$(readelf -h "$f" | awk '/Type:/ { print $2 }')"
         relro="$(readelf -l "$f" | grep -c GNU_RELRO)"
@@ -367,43 +381,7 @@ check_bins() {
         [ "$relro" -gt 0 ] || echo "$im $b: no RELRO" >> "$res/bins-bad.txt"
         [ "$now" -gt 0 ] || echo "$im $b: no BIND_NOW" >> "$res/bins-bad.txt"
     done
-    case "$im" in imagemagick6) "$A/bin/convert6" -version ;; *) "$A/bin/magick" -version ;; esac > "$res/$im-version.txt" 2>&1
-}
-
-# imagick of PHP links the static libraries of ImageMagick 7 in, with the line of
-# MagickWand-config: a program (and a shared object, as libphp.so) that does so,
-# run once; it has to find HEIC among the formats (libheif, the policy).
-imagick_link_test() {
-    t="$work/imagick-link"
-    rm -rf "$t"; mkdir -p "$t"
-    cat > "$t/t.c" <<'EOF'
-#include <stdio.h>
-#include <string.h>
-#include <MagickWand/MagickWand.h>
-int main(void)
-{
-    size_t n = 0, i, heic = 0;
-    char **f;
-    MagickWandGenesis();
-    f = MagickQueryFormats("*", &n);
-    for (i = 0; i < n; i++)
-        if (strcmp(f[i], "HEIC") == 0)
-            heic = 1;
-    printf("%s; %zu formats; HEIC %s\n", MagickGetVersion(NULL), n, heic ? "yes" : "no");
-    MagickWandTerminus();
-    return heic ? 0 : 1;
-}
-EOF
-    cf="$("$A/bin/MagickWand-config" --cflags)" && lf="$("$A/bin/MagickWand-config" --libs)" || return 1
-    {
-        echo "MagickWand-config --cflags: $cf"
-        echo "MagickWand-config --libs: $lf"
-        # shellcheck disable=SC2086
-        cc $CFLAGS $cf -o "$t/t" "$t/t.c" $lf && "$t/t" &&
-            cc -shared $CFLAGS $cf -o "$t/t.so" "$t/t.c" $lf -Wl,--no-undefined &&
-            echo "shared object: linked" &&
-            echo "libraries of the program: $(ldd "$t/t" | awk 'NR > 1 { print $3 }' | tr '\n' ' ')"
-    } > "$res/imagick-link.txt" 2>&1
+    case "$im" in imagemagick6) "$r/bin/convert6" -version ;; *) "$r/bin/magick" -version ;; esac > "$res/$im-version.txt" 2>&1
 }
 
 mkdir -p "$res" "$work"
@@ -441,7 +419,7 @@ for im in $ims_all; do
         manifest "$im"
         check_bins "$im"
         if ! grep -q "^$im " "$res/bins-bad.txt" 2>/dev/null; then
-            echo "installed: $im into $A ($(du -sk "$work/stage-$im" | cut -f1) KB staged)" >> "$res/summary.txt"
+            echo "installed: $im into the stage $stage/ImageMagick${im#imagemagick} ($(du -sk "$stage/ImageMagick${im#imagemagick}" | cut -f1) KB)" >> "$res/summary.txt"
         else
             rc=1
         fi
@@ -449,14 +427,5 @@ for im in $ims_all; do
         rc=1
     fi
 done
-if [ "$rc" = 0 ] && grep -q '^im imagemagick7 ' "$conf"; then
-    if imagick_link_test; then
-        printf '%-13s OK    %s\n' imagick "$(grep -m 1 'formats' "$res/imagick-link.txt")" >> "$res/summary.txt"
-    else
-        printf '%-13s FAIL  the static libraries of ImageMagick 7 do not link as imagick links them (imagemagick-results/imagick-link.txt)\n' imagick >> "$res/summary.txt"
-        tail -n 40 "$res/imagick-link.txt" > "$res/imagick.tail"
-        rc=1
-    fi
-fi
 rm -rf "$work/wrk"
 exit "$rc"

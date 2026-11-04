@@ -23,8 +23,9 @@
 # freebsd/deps/<name>-<version>/. curl and the libraries it needs
 # ("bundle" in deps.conf) are the ones of --with-curl=bundled instead: the
 # release files of freebsd/curl.conf and freebsd/curl-deps.conf (tools/curl-sources.sh),
-# built by freebsd/curl/build-libcurl.sh; the curl program of the same build goes
-# to bin/curl (the line "program curl"). All: only static libraries, -fPIC, into
+# built by freebsd/curl/build-libcurl.sh; the curl program and libcurl.so of the
+# same build go to a stage, for the package curl (the line "program curl", see
+# build_curl_program). All: only static libraries, -fPIC, into
 # AZ_PREFIX (default /usr/local/az), in AZ_WORK/deps (default
 # /var/tmp/az-work/deps); the licences go to LICENSES/. Results go to
 # deps-results/ (summary.txt, one log per library, VERSIONS, also installed as
@@ -499,6 +500,8 @@ finish() {
     # only noted.
     : > "$res/pic.txt"; : > "$res/pic-notes.txt"
     for a in "$P"/lib/*.a; do
+        # x264 is for FFmpeg only (a PIE program, where its assembly may be as it is)
+        case "${a##*/}" in libx264.a) echo "libx264.a: not tried (FFmpeg only)" >> "$res/pic-notes.txt"; continue ;; esac
         if ! cc -shared -o "$work/pic-test.so" -Wl,--whole-archive "$a" -Wl,--no-whole-archive \
                 -Wl,--unresolved-symbols=ignore-all > "$work/pic-test.log" 2>&1; then
             if grep -q -i 'relocation' "$work/pic-test.log"; then
@@ -510,8 +513,9 @@ finish() {
     done
     # Nothing may point to /usr/local outside the tree (the libraries of pkg); the
     # configuration and fonts of the system that fontconfig reads are meant.
-    grep -rn '/usr/local/' "$P/lib/pkgconfig" "$P/bin" 2>/dev/null | sed "s#$P##g" |
-        sed -e 's#/usr/local/etc/fonts##g' -e 's#/usr/local/share/fonts##g' -e 's#/usr/local/lib/X11/fonts##g' |
+    grep -rn '/usr/local/' "$P/lib/pkgconfig" "$P/bin" 2>/dev/null | grep -v "^$P/bin/pkg-config:" | sed "s#$P##g" |
+        sed -e 's#/usr/local/etc/fonts##g' -e 's#/usr/local/share/fonts##g' -e 's#/usr/local/lib/X11/fonts##g' \
+            -e 's#sysconfdir=/usr/local/etc$##' |
         grep '/usr/local/' > "$res/localbase.txt" || true
     # Every .pc names the archives of the bundle that its archives need (a short one
     # fails the PHP builds at the link only); a finding stops the tarball.
@@ -554,49 +558,90 @@ manifest() {
             np="$(ls "$ports/$port/files" 2>/dev/null | grep -c '^patch-')"
             [ "$np" -gt 0 ] && echo "    $np patches of the port"
         done < "$res/built.txt"
-        if [ -x "$P/bin/curl" ]; then
-            echo
-            echo "curl program: bin/curl, of the bundled curl above (the same options and libraries as libcurl)"
-        fi
+        echo
+        echo "The package curl (tools/build-az.sh): bin/curl and lib/libcurl.so.4 of /usr/local, of the bundled"
+        echo "curl above (the same options and libraries), libcurl.a in $P for the builds of PHP."
     } > "$res/VERSIONS"
     mkdir -p "$P/share/doc/az-libs"
     cp "$res/VERSIONS" "$P/share/doc/az-libs/VERSIONS"
 }
 
-# The curl program (deps.conf: "program curl"): curl of the build of libcurl above
-# (freebsd/curl/build-libcurl.sh configured the whole tree in $work/obj-curl/curl,
-# built lib/), linked with the libraries of the tree; PIE, RELRO, BIND_NOW,
-# stripped.
+# The curl program and libcurl.so (deps.conf: "program curl"), for the package curl
+# of tools/build-az.sh, which takes the place of the curl of the ports (git and the
+# other packages that link libcurl.so get this one): into the stage AZ_STAGE/curl
+# (default AZ_WORK/stage/curl) as files of /usr/local: bin/curl, the program of the
+# build of libcurl above (freebsd/curl/build-libcurl.sh configured the whole tree
+# in $work/obj-curl/curl and built lib/), static, PIE, RELRO, BIND_NOW, stripped;
+# lib/libcurl.so.4 of the libcurl.a above (curl and its libraries, only curl_*
+# global) with the static OpenSSL of the tree inside, its symbols hidden, so that it
+# needs only libz and libthr of the base system; include/curl/, libcurl.pc,
+# curl-config (--static-libs: the static libcurl of /usr/local/az, for PHP),
+# libcurl.m4, the licence.
 build_curl_program() {
     o="$work/obj-curl/curl"
+    cs="$work/curl-src/libcurl"
+    r="${AZ_STAGE:-${AZ_WORK:-/var/tmp/az-work}/stage}/curl/usr/local"
     log="$res/curl-program.log"
     start=$(date +%s)
+    cv="$(bundle_ver curl)"
     (
         [ -f "$o/src/Makefile" ] || { echo "== no build of curl in $o (build curl first)"; exit 1; }
+        rm -rf "${r%/usr/local}"
+        mkdir -p "$r/bin" "$r/lib" "$r/include" "$r/libdata/pkgconfig" "$r/share/aclocal" "$r/share/licenses/curl" || exit 1
         rm -f "$o/src/curl"
         cd "$o/src" && gmake -j"$ncpu" ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=: MAKEINFO=: \
             LDFLAGS="-L$P/lib -pie -Wl,-z,relro,-z,now" curl || exit 1
-        mkdir -p "$P/bin"
-        install -s -m 755 "$o/src/curl" "$P/bin/curl" || exit 1
+        install -s -m 755 "$o/src/curl" "$r/bin/curl" || exit 1
+        # the name of libcurl.so of curl's libtool numbers (lib/Makefile.soname):
+        # libcurl.so.<change - del>.<del>.<add>, as the port has it (libcurl.so.4.8.0)
+        eval "$(sed -n -E 's/^(VERSIONCHANGE|VERSIONADD|VERSIONDEL)=([0-9]+).*/\1=\2/p' "$cs/lib/Makefile.soname")"
+        so="libcurl.so.$((VERSIONCHANGE - VERSIONDEL))"
+        full="$so.$VERSIONDEL.$VERSIONADD"
+        echo "== $full of $P/lib/libcurl.a"
+        cc -shared -o "$r/lib/$full" -Wl,-soname,"$so" -Wl,--whole-archive "$P/lib/libcurl.a" -Wl,--no-whole-archive \
+            "$P/lib/libssl.a" "$P/lib/libcrypto.a" "$P/lib/libiconv.a" -lz -lm -lpthread \
+            -Wl,--exclude-libs,libssl.a:libcrypto.a:libiconv.a \
+            -Wl,-z,relro,-z,now -Wl,--no-undefined || exit 1
+        strip --strip-unneeded "$r/lib/$full" || exit 1
+        ln -sf "$full" "$r/lib/$so" && ln -sf "$full" "$r/lib/libcurl.so" || exit 1
+        bad="$(nm -D --defined-only "$r/lib/$full" | awk 'NF >= 3 && $3 !~ /^(curl_|_init$|_fini$|_edata$|_end$|__bss_start$)/ { print $3 }' | head -n 5 | tr '\n' ' ')"
+        [ -z "$bad" ] || { echo "== $full exports more than curl_*: $bad"; exit 1; }
+        cp -R "$P/include/curl" "$r/include/" || exit 1
+        sed -e 's|^prefix=.*|prefix=/usr/local|' -e 's|^Libs:.*|Libs: -L${libdir} -lcurl|' \
+            -e '/^Libs.private:/d' -e '/^Requires/d' "$P/lib/pkgconfig/libcurl.pc" > "$r/libdata/pkgconfig/libcurl.pc" || exit 1
+        printf '%s\n' '#!/bin/sh' \
+            '# curl-config of libcurl in /usr/local (the package curl of https://github.com/azsupport/php-src:' \
+            '# libcurl.so, the bundled curl of the fork); --static-libs: the static libcurl of /usr/local/az.' \
+            'case "${1:-}" in' \
+            '    --libs) echo "-L/usr/local/lib -lcurl" ;;' \
+            '    --cflags) echo "-I/usr/local/include" ;;' \
+            '    --prefix|--exec-prefix) echo /usr/local ;;' \
+            "    --static-libs) exec $P/bin/curl-config --static-libs ;;" \
+            "    *) exec $P/bin/curl-config.orig \"\$@\" ;;" \
+            'esac' > "$r/bin/curl-config" && chmod 755 "$r/bin/curl-config" || exit 1
+        cp "$cs/docs/libcurl/libcurl.m4" "$r/share/aclocal/" && cp "$cs/COPYING" "$r/share/licenses/curl/COPYING" || exit 1
+        # the program and libcurl.so as they are, with the libraries of the base system only
+        LD_LIBRARY_PATH="$r/lib" "$r/bin/curl" --version > "$res/curl-version.txt" 2>&1 || exit 1
     ) > "$log" 2>&1
     rc=$?
     : > "$res/curl-bins.txt"
     if [ "$rc" = 0 ]; then
-        f="$P/bin/curl"
-        type="$(readelf -h "$f" | awk '/Type:/ { print $2 }')"
-        relro="$(readelf -l "$f" | grep -c GNU_RELRO)"
-        now="$(readelf -d "$f" | grep -c -E 'BIND_NOW|FLAGS_1.*NOW')"
-        libs="$(ldd "$f" | awk 'NR > 1 { print $3 }' | tr '\n' ' ' | sed 's/ *$//')"
-        printf 'curl: %s KB, ELF type %s, RELRO %s, BIND_NOW %s; libraries: %s\n' \
-            "$(du -k "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/curl-bins.txt"
-        case "$libs" in *"/usr/local/"*) echo "curl: links a library of /usr/local" >> "$res/bins-bad.txt" ;; esac
-        [ "$type" = DYN ] || echo "curl: not a PIE (ELF type $type)" >> "$res/bins-bad.txt"
-        [ "$relro" -gt 0 ] || echo "curl: no RELRO" >> "$res/bins-bad.txt"
-        [ "$now" -gt 0 ] || echo "curl: no BIND_NOW" >> "$res/bins-bad.txt"
-        "$f" --version > "$res/curl-version.txt" 2>&1
-        printf '%-14s OK    %-22s %-24s %4ss\n' "curl program" "$(bundle_ver curl)" "bin/curl" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
+        for f in "$r/bin/curl" "$r/lib/$(cd "$r/lib" && ls libcurl.so.*.*.* | head -n 1)"; do
+            b="${f##*/}"
+            type="$(readelf -h "$f" | awk '/Type:/ { print $2 }')"
+            relro="$(readelf -l "$f" | grep -c GNU_RELRO)"
+            now="$(readelf -d "$f" | grep -c -E 'BIND_NOW|FLAGS_1.*NOW')"
+            libs="$(ldd "$f" 2>/dev/null | awk 'NF > 2 && $2 == "=>" { print $3 }' | tr '\n' ' ' | sed 's/ *$//')"
+            printf '%s: %s KB, ELF type %s, RELRO %s, BIND_NOW %s; libraries: %s\n' "$b" \
+                "$(du -k "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/curl-bins.txt"
+            case "$libs" in *"/usr/local/"*) echo "$b: links a library of /usr/local" >> "$res/bins-bad.txt" ;; esac
+            [ "$type" = DYN ] || echo "$b: not position independent (ELF type $type)" >> "$res/bins-bad.txt"
+            [ "$relro" -gt 0 ] || echo "$b: no RELRO" >> "$res/bins-bad.txt"
+            [ "$now" -gt 0 ] || echo "$b: no BIND_NOW" >> "$res/bins-bad.txt"
+        done
+        printf '%-14s OK    %-22s %-24s %4ss\n' "curl program" "$cv" "bin/curl, libcurl.so" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
     else
-        printf '%-14s FAIL  %-22s %-24s %4ss (deps-results/curl-program.log)\n' "curl program" "$(bundle_ver curl)" "bin/curl" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
+        printf '%-14s FAIL  %-22s %-24s %4ss (deps-results/curl-program.log)\n' "curl program" "$cv" "bin/curl, libcurl.so" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
         tail -n 25 "$log" > "$res/curl-program.tail"
     fi
     say "curl program: $(tail -n 1 "$res/summary.txt" | awk '{ print $3 }')"
@@ -645,10 +690,11 @@ for n in "$@"; do
     say "$n ($(port_of "$n"))"
     build_one "$n" || rc=1
 done
-finish
+# the curl program first: it links with the .la files of curl's libraries, which finish removes
 if grep -q '^program curl' "$conf" && grep -q '^curl ' "$res/built.txt" 2>/dev/null; then
     build_curl_program || rc=1
 fi
+finish
 manifest
 # Known vulnerabilities of these versions (FreeBSD VuXML), for the report.
 pkg audit -F -q $(awk '{ print $2 }' "$res/built.txt") > "$res/audit.txt" 2>&1 || true

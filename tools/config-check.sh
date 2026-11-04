@@ -15,7 +15,7 @@
 #   installed as packages (lang/phpXY, phpXY-* extensions, mod_phpXY): the port
 #   options of phpXY, one option per extension package (for the bundled PECL ones
 #   with the features "php --ri" of the package PHP shows: lz4/zstd of redis, SASL
-#   and JSON of memcached, ...), the layout of our hand builds (/usr/local/phpXY)
+#   and JSON of memcached, ...), the layout of our packages (/usr/local, bin/phpXY)
 #   and the compiler flags of every build (below; -march from /etc/make.conf).
 #   With mod_phpXY installed the build makes the Apache module; the EMBED option
 #   of phpXY (the embed library, a second SAPI module, which one build cannot make
@@ -45,7 +45,7 @@
 #   CFLAGS='-O3 -pipe -march=<of /etc/make.conf> -fstack-protector-strong -fno-strict-aliasing'
 #   CXXFLAGS=<the same; -std=c++17 first only for intl when c++ defaults to an older standard>
 #   LIBS='-lpthread'
-# and no LDFLAGS (/usr/local/phpdeps adds its own), whatever the old build had: the
+# and no LDFLAGS (the libraries of /usr/local/az add their own), whatever the old build had: the
 # CFLAGS, CXXFLAGS, LDFLAGS, LIBS, CPPFLAGS, CC, CXX, CPP of config.nice and every
 # NAME=value option of the installed build (the environment of its configure run,
 # which autoconf records: PHP 5.6 keeps CFLAGS and the like there, the ports leave
@@ -82,6 +82,23 @@
 set -u
 out="${OUT:-./config.installed.sh}"
 mk_conf="${MAKE_CONF:-/etc/make.conf}"
+
+# The static libraries PHP is built against: those of /usr/local/az (the package
+# az-libs, with libcurl of az-curl and ImageMagick 7 of az-imagemagick7: the
+# repository of pkg of the fork, tools/build-az.sh; its list of versions in
+# share/doc/az-libs/VERSIONS), else /usr/local/phpdeps of before (the release
+# phpdeps-fbsd<major>-latest; VERSIONS). PHPDEPS names another directory. When they
+# are there, the options of the libraries they have point there, pkg-config is
+# their wrapper (them first, static link lines) and LDFLAGS put them first and keep
+# their symbols hidden, so that php, php-fpm and libphp.so need no library of
+# /usr/local/lib (deps_opts).
+if [ -z "${PHPDEPS:-}" ]; then
+    PHPDEPS=/usr/local/az
+    [ -f "$PHPDEPS/share/doc/az-libs/VERSIONS" ] || [ ! -f /usr/local/phpdeps/VERSIONS ] || PHPDEPS=/usr/local/phpdeps
+fi
+DEPS_VERSIONS="$PHPDEPS/share/doc/az-libs/VERSIONS"
+[ -f "$DEPS_VERSIONS" ] || DEPS_VERSIONS="$PHPDEPS/VERSIONS"
+deps_there() { [ -f "$DEPS_VERSIONS" ] && [ -x "$PHPDEPS/bin/pkg-config" ]; }
 
 # A variable of make.conf (VAR=, ?=, := and += lines; comments dropped).
 mc_get() {
@@ -152,9 +169,9 @@ cpu_lacks() {
 # PKG_CONFIG_PATH in the environment lines of file $2 and pkg-config; else the
 # base system.
 ossl_incdir() {
-    # with /usr/local/phpdeps installed, its OpenSSL (see deps_opts)
-    if [ -f "${PHPDEPS:-/usr/local/phpdeps}/VERSIONS" ] && [ -x "${PHPDEPS:-/usr/local/phpdeps}/bin/pkg-config" ]; then
-        echo "${PHPDEPS:-/usr/local/phpdeps}/include"; return
+    # with the static libraries of /usr/local/az installed, its OpenSSL (see deps_opts)
+    if deps_there; then
+        echo "$PHPDEPS/include"; return
     fi
     if [ "${3:-}" = 5 ]; then
         case "${1:-}" in /*) echo "$1/include"; return ;; esac
@@ -217,8 +234,8 @@ ossl_opts() {
 # curl_note.
 curl_note=""
 curl_opts() {
-    # with /usr/local/phpdeps installed, its libcurl (deps_opts)
-    [ -f "${PHPDEPS:-/usr/local/phpdeps}/VERSIONS" ] && [ -x "${PHPDEPS:-/usr/local/phpdeps}/bin/pkg-config" ] && return 0
+    # with the static libraries of /usr/local/az installed, its libcurl (deps_opts)
+    deps_there && return 0
     [ -f ext/curl/build-libcurl.sh ] && [ -f ext/curl/libcurl/include/curl/curlver.h ] || return 0
     co="$(grep -E -m 1 '^--with-curl(=|$)' "$1")" || return 0
     case "$co" in *bundled*) return 0 ;; esac
@@ -387,19 +404,13 @@ pecl_feature_opts() {
     printf '%s\n' "$o"
 }
 
-# /usr/local/phpdeps (tools/build-deps.sh; the release phpdeps-fbsd<major>-latest):
-# static, position independent libraries for PHP. When it is installed, the
-# options of the libraries it has point there, pkg-config is its wrapper (the
-# bundle first, static link lines) and LDFLAGS put it first and keep its symbols
-# hidden, so that php, php-fpm and libphp.so need no library of /usr/local/lib.
-# $1: options (changed in place), $2: environment lines (changed in place).
-# Sets deps_note.
-PHPDEPS="${PHPDEPS:-/usr/local/phpdeps}"
 deps_note=""
 deps_opts() {
-    [ -f "$PHPDEPS/VERSIONS" ] && [ -x "$PHPDEPS/bin/pkg-config" ] || return 0
-    pmaj="$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)"
-    awk -v d="$PHPDEPS" -v fam="${pmaj:-8}" '
+    deps_there || return 0
+    pmaj="${DEPS_PHP_MAJOR:-$(sed -n 's/^#define PHP_MAJOR_VERSION \([0-9]*\).*/\1/p' main/php_version.h 2>/dev/null)}"
+    im=""
+    [ -x "$PHPDEPS/bin/MagickWand-config" ] && im=1
+    awk -v d="$PHPDEPS" -v fam="${pmaj:-8}" -v im="$im" '
         # the value of a --with option, with "shared," kept
         function to_deps(name, val,   sh) {
             sh = (val ~ /^shared(,|$)/) ? "shared," : ""
@@ -407,6 +418,8 @@ deps_opts() {
         }
         { name = $0; val = ""; if (index($0, "=")) { name = substr($0, 1, index($0, "=") - 1); val = substr($0, index($0, "=") + 1) } }
         name == "--with-openssl" && fam == 5 { print to_deps(name, val); next }
+        # imagick: the static ImageMagick 7 of the tree (az-imagemagick7), with its MagickWand-config
+        name == "--with-imagick" && im != "" && val != "no" { print to_deps(name, val); next }
         name == "--with-curl" || name == "--with-iconv" || name == "--with-readline" || \
         name == "--with-external-pcre" || name == "--with-pcre-regex" || name == "--with-mcrypt" || \
         name == "--with-libmemcached-dir" || name == "--with-password-argon2" || name == "--with-gettext" || \
@@ -423,25 +436,29 @@ deps_opts() {
         printf '%s\n' --disable-memcached-sasl >> "$1"
         sasl="; memcached without SASL (cyrus-sasl is not in the bundle: --enable-memcached-sasl and its pkg libraries, if a server needs it)"
     fi
-    # LDFLAGS: the bundle first, its symbols not exported (an Apache with other modules).
-    if grep -q '^LDFLAGS=' "$2" 2>/dev/null; then
+    # LDFLAGS: the tree first, its symbols not exported (an Apache with other modules);
+    # once (a config.installed.sh of a build against it has them already)
+    if grep -q "^LDFLAGS='-L$PHPDEPS/lib -Wl,--exclude-libs,ALL" "$2" 2>/dev/null; then
+        :
+    elif grep -q '^LDFLAGS=' "$2" 2>/dev/null; then
         sed -E "s#^LDFLAGS='?#LDFLAGS='-L$PHPDEPS/lib -Wl,--exclude-libs,ALL #; s#^(LDFLAGS='[^']*[^' ])\$#\1'#" "$2" > "$2.new" && mv "$2.new" "$2"
     else
         printf "LDFLAGS='-L%s/lib -Wl,--exclude-libs,ALL'\n" "$PHPDEPS" >> "$2"
     fi
+    grep -v '^PKG_CONFIG=' "$2" > "$2.new" && mv "$2.new" "$2"
     printf "PKG_CONFIG='%s/bin/pkg-config'\n" "$PHPDEPS" >> "$2"
     # what still links against pkg libraries: library options with a /usr/local value
     still="$(grep -E '^--with-[a-zA-Z0-9-]+=(shared,)?/usr/local($|/)' "$1" | grep -v -e "$PHPDEPS" |
         grep -v -E '^--with-(apxs2?|config-file-|mysql-sock|fpm-|layout)' | tr '\n' ' ' | sed 's/ *$//')"
     # the level of the bundle (first line of VERSIONS: "... (amd64, x86-64-v3), built ..."):
     # this CPU has to run it, like the -march of PHP itself
-    blevel="$(sed -n '1s/^.*(amd64, \([^)]*\)).*$/\1/p' "$PHPDEPS/VERSIONS")"
+    blevel="$(sed -n '1s/^.*(amd64, \([^)]*\)).*$/\1/p' "$DEPS_VERSIONS")"
     bwarn=""
     if [ -n "$blevel" ]; then
         blacks="$(cpu_lacks "$blevel")"
-        [ -n "$blacks" ] && bwarn="; WARNING: the bundle is built for -march=$blevel and this CPU lacks $blacks, so PHP built against it stops with \"Illegal instruction\" here: install the tarball of a lower level (phpdeps-fbsd<major>-amd64-v2.tar.xz)"
+        [ -n "$blacks" ] && bwarn="; WARNING: the libraries are built for -march=$blevel and this CPU lacks $blacks, so PHP built against them stops with \"Illegal instruction\" here: take the packages of a lower level (the repository az of x86-64-v2: sh az-menu.sh --repo)"
     fi
-    deps_note="the libraries come from $PHPDEPS ($(head -n 1 "$PHPDEPS/VERSIONS" | sed 's/, built.*//')): static, linked into PHP${sasl}${still:+; still from pkg: $still}${bwarn}; check after make install: ldd <prefix>/bin/php <prefix>/sbin/php-fpm | grep /usr/local/lib"
+    deps_note="the libraries come from $PHPDEPS ($(head -n 1 "$DEPS_VERSIONS" | sed 's/, built.*//')): static, linked into PHP${sasl}${still:+; still from pkg: $still}${bwarn}; check after make install: ldd of bin/php*, sbin/php-fpm* | grep /usr/local/lib"
 }
 
 # --deps-rewrite <options> <env> (for tools/build-test.sh): the rewrite of
@@ -449,7 +466,7 @@ deps_opts() {
 # (NAME='value' lines), run from inside the PHP source tree; prints the note.
 if [ "${1:-}" = "--deps-rewrite" ]; then
     [ $# -eq 3 ] || { echo "config-check: --deps-rewrite <options file> <env file>" >&2; exit 2; }
-    [ -f "$PHPDEPS/VERSIONS" ] || { echo "config-check: no $PHPDEPS/VERSIONS" >&2; exit 2; }
+    deps_there || { echo "config-check: no static libraries in $PHPDEPS (az-libs: share/doc/az-libs/VERSIONS, bin/pkg-config)" >&2; exit 2; }
     touch "$3"
     tmp="$(mktemp -d)" || exit 2
     deps_opts "$2" "$3"
@@ -492,7 +509,10 @@ if [ "${1:-}" = "--pkg" ]; then
         7*) fam=7 ;;
         *) fam=8 ;;
     esac
-    prefix="/usr/local/php$short"
+    # the layout of the packages of tools/az-menu.sh: /usr/local, the version at the
+    # end of the programs and in the directories of its own (bin/php84, etc/php84)
+    prefix=/usr/local
+    layout="--prefix=$prefix --program-suffix=$short --sysconfdir=$prefix/etc/php$short --libdir=$prefix/lib/php$short --includedir=$prefix/include/php$short --datadir=$prefix/share/php$short --mandir=$prefix/share/man"
 
     : > "$tmp/opts"; : > "$tmp/map"; : > "$tmp/skip"; : > "$tmp/notes"; : > "$tmp/pecl_note"
     add() { for o in "$@"; do grep -qxF -- "$o" "$tmp/opts" || printf '%s\n' "$o" >> "$tmp/opts"; done; }
@@ -573,11 +593,12 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     add "--build=$(our_build)"
     [ -n "$modphp" ] && add --with-apxs2=/usr/local/sbin/apxs
     if [ "$fam" = 5 ]; then
-        add --prefix="$prefix" --disable-all --with-layout=GNU --with-zend-vm=CALL --enable-libxml \
+        # shellcheck disable=SC2086
+        add $layout --disable-all --with-layout=GNU --with-zend-vm=CALL --enable-libxml \
             --with-libxml-dir=/usr/local --with-regex=php --enable-mysqlnd
     else
-        add --with-layout=GNU --disable-all --with-libxml --program-prefix= \
-            --prefix="$prefix" --mandir="$prefix/man"
+        # shellcheck disable=SC2086
+        add --with-layout=GNU --disable-all --with-libxml --program-prefix= $layout
     fi
     opt CLI off && add --disable-cli
     opt CGI off && add --disable-cgi
@@ -672,7 +693,7 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     [ -n "$zsig_note" ] && note "zend signals: $zsig_note"
     : > "$tmp/pkg_env"
     deps_opts "$tmp/opts" "$tmp/pkg_env"
-    [ -n "$deps_note" ] && note "phpdeps: $deps_note"
+    [ -n "$deps_note" ] && note "libraries: $deps_note"
 
     out_dir="$(cd "$(dirname "$out")" 2>/dev/null && pwd)" || { echo "config-check: no directory for $out" >&2; exit 2; }
     out="$out_dir/$(basename "$out")"
@@ -715,12 +736,12 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
     echo "notes:"
     sed 's/^/  - /' "$tmp/notes"
     echo "  - php.ini: the packages read /usr/local/etc/php.ini and /usr/local/etc/php/*.ini; the new build"
-    echo "    reads $prefix/etc/php.ini. The extensions are compiled in, the ext-*.ini files are not needed."
+    echo "    reads $prefix/etc/php$short/php.ini. The extensions are compiled in, the ext-*.ini files are not needed."
     if [ -n "$modphp" ]; then
         echo "  - make install puts the Apache module where $modphp has it: run pkg delete $modphp first,"
         echo "    or the next pkg upgrade writes the package's module over it."
     fi
-    opt FPM on && echo "  - php-fpm goes to $prefix/sbin/php-fpm; the package's rc.d script starts /usr/local/sbin/php-fpm."
+    opt FPM on && echo "  - php-fpm goes to $prefix/sbin/php-fpm$short; the rc.d script of the package php$short of az-menu.sh is php_fpm$short."
     set -- "$want"
     [ -n "$modphp" ] && set -- "$@" "$modphp"
     while IFS= read -r p; do set -- "$@" "$p"; done < "$tmp/ext_pkgs"
@@ -797,7 +818,11 @@ to_lines() {
 # Installed build.
 line="$("$php" -n -i 2>/dev/null | sed -n 's/^Configure Command =>[[:space:]]*//p' | head -1)"
 how="$php -n -i"
-pc="$(dirname "$php")/php-config"
+# php-config next to it, with the version at the end of the name for a build of
+# the packages (bin/php84: bin/php-config84; sbin/php-fpm84: ../bin/php-config84)
+sfx="${php##*/}"; sfx="${sfx#php}"; sfx="${sfx#-fpm}"; sfx="${sfx#-cgi}"
+pc="$(dirname "$php")/php-config$sfx"
+[ -x "$pc" ] || pc="$(dirname "$php")/../bin/php-config$sfx"
 if [ -z "$line" ] && [ -x "$pc" ]; then
     line="$("$pc" --configure-options 2>/dev/null)"
     how="$pc --configure-options"
@@ -1003,7 +1028,7 @@ if [ -n "$zsig_note" ]; then
 fi
 if [ -n "$deps_note" ]; then
     echo
-    echo "phpdeps: $deps_note"
+    echo "libraries: $deps_note"
 fi
 if [ -n "$pcre_note" ]; then
     echo
@@ -1040,7 +1065,7 @@ out="$out_dir/$out_name"
     [ -n "$ossl_note" ] && echo "# openssl: $ossl_note."
     [ -n "$legacy_note" ] && echo "# openssl: $legacy_note."
     [ -n "$zsig_note" ] && echo "# zend signals: $zsig_note."
-    [ -n "$deps_note" ] && echo "# phpdeps: $deps_note."
+    [ -n "$deps_note" ] && echo "# libraries: $deps_note."
     echo "# Run from inside the new PHP source tree: sh $out"
     echo
     sed 's/$/ \\/' "$tmp/env"
