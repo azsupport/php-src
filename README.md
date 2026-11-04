@@ -627,8 +627,9 @@ The option `--with-openssl-legacy-provider`:
 ### Bundled curl
 
 Every branch carries curl in `ext/curl/libcurl` and the libraries it needs in
-`ext/curl/deps`: the release files of their FreeBSD ports, with the SHA-256 of their
-distinfo ([`freebsd/curl.conf`](freebsd/curl.conf),
+`ext/curl/deps`: their upstream release files with their SHA-256, taken when they
+are out, without waiting for the FreeBSD ports, which are followed for their build
+patches and what FreeBSD needs ([`freebsd/curl.conf`](freebsd/curl.conf),
 [`freebsd/curl-deps.conf`](freebsd/curl-deps.conf); put into the tree by
 [`tools/curl-sources.sh`](tools/curl-sources.sh)):
 
@@ -636,7 +637,7 @@ distinfo ([`freebsd/curl.conf`](freebsd/curl.conf),
 |---|---|---|---|
 | curl | 8.23.0 | `ftp/curl` | with the configure patch of that port |
 | c-ares | 1.34.9 | `dns/c-ares` | resolving names (below) |
-| nghttp2 | 1.70.0 | `www/libnghttp2` | HTTP/2 |
+| nghttp2 | 1.71.0 | `www/libnghttp2` | HTTP/2 |
 | brotli | 1.2.1 | `archivers/brotli` | `br` responses (`CURLOPT_ENCODING`); 1.2.1 fixes CVE-2026-111497, an out-of-bounds write in the decoder |
 | zstd | 1.5.7 | `archivers/zstd` | `zstd` responses (`CURLOPT_ENCODING`) |
 | libidn2 | 2.3.8 | `dns/libidn2` | international domain names (IDN) |
@@ -653,7 +654,7 @@ How it is built and used:
 | Symbols | those of curl are not exported from `php` and `libphp.so`, those of its libraries are local in `libcurl.a`, so a module that loads the libcurl of the system, or carries a copy of nghttp2 (swoole), does not mix with them |
 | The system libcurl | plain `--with-curl` still takes it |
 | OpenSSL | curl 8.18.0 and later need OpenSSL 3.0 or later. FreeBSD 13.x has OpenSSL 1.1.1 in its base system, so there `config-check.sh` keeps `--with-curl` (the curl package) and says why; on FreeBSD 14 and 15 it writes `--with-curl=bundled` |
-| Security fixes | of curl or of one of its libraries reach PHP with a rebuild: the daily [upstream check](#upstream-check) opens an issue for each new release (the tags of their repositories), for changes of their FreeBSD ports, and when a port takes a release file the bundle has not (its distinfo) |
+| Security fixes | of curl or of one of its libraries reach PHP with a rebuild: the daily [upstream check](#upstream-check) opens an issue for each new release (the tags of their repositories), for changes of their FreeBSD ports, and when a port takes a release file the bundle has not (its distinfo); a new release is taken without waiting for the port |
 | `/usr/local/phpdeps` | [`tools/build-deps.sh`](tools/build-deps.sh) takes curl and these libraries from the same files, built the same way |
 
 The options are those of the FreeBSD port, with these differences:

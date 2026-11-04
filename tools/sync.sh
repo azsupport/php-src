@@ -563,14 +563,14 @@ make_commits() {
             echo "Bundle curl $v for --with-curl=bundled"
             echo
             echo "ext/curl/libcurl: the curl $v release tarball, $u"
-            echo "(SHA-256 $s, the same as in freebsd-ports ftp/curl)."
+            echo "(SHA-256 $s)."
             if [ -f "$curl_dir/curl-$v.patch" ]; then
                 echo "Patch curl-$v.patch: $(sed -n 's/^Description: //p' "$curl_dir/curl-$v.patch" | head -1)"
                 echo "  Origin: $(sed -n 's/^Origin: //p' "$curl_dir/curl-$v.patch" | head -1)"
             fi
             echo
-            echo "ext/curl/deps: the libraries curl needs, the release files of freebsd-ports"
-            echo "(freebsd/curl-deps.conf, SHA-256 as in the distinfo of the port):"
+            echo "ext/curl/deps: the libraries curl needs, their upstream release files"
+            echo "(freebsd/curl-deps.conf, with their SHA-256):"
             awk '!/^#/ && NF >= 7 { printf "  %s %s (%s): %s\n", $1, $2, $3, $7 }' "$curl_deps_conf"
             echo "libpsl/src/suffixes_dafsa.h is made from psl-list (its built-in list, no"
             echo "file looked for at run time), libpsl/fuzz is left out (tools/curl-sources.sh)."
