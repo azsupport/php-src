@@ -19,15 +19,20 @@ after the reviewed revision that change files/ (the patches) or the Makefile
 beyond its version lines, or that move the port away. For curl and the libraries
 of freebsd/curl-deps.conf also the distinfo of their port: a release file there
 that differs from the bundled one (the port took a new release, the public
-suffix list a new date) - not while the bundle is ahead of the port, as a new
-release is taken without waiting for the port.
+suffix list a new date) - not while the bundle is ahead of the port (a release
+taken before its port for a security fix).
+
+The rule (04.11.2026): a new release is taken when its FreeBSD port has it;
+before the port only when it fixes a vulnerability that touches us, or a bug we
+have. So a release issue says what the release notes name (CVE and GHSA ids, on
+GitHub), and it stays open as a note until the port has the version.
 
 The libraries of /usr/local/phpdeps built from ports (freebsd/deps.conf), and
 FFmpeg with the libraries it links in (/usr/local/ffmpeg, freebsd/ffmpeg.conf):
 their upstream releases ("upstream" lines: tags or a directory listing) newer than
-the version built, which is taken without waiting for the port ("take" lines); the
-commits to their ports after the ports commit of the conf file; and a port that
-has caught up with a take line, which can go then.
+the version built (taken before the port only for a security fix: "take" lines);
+the commits to their ports after the ports commit of the conf file; and a port
+that has caught up with a take line, which can go then.
 
 PHP branches. For the targets that follow the php-src release tags: the end of
 security support of the branch (php.net/releases/branches.php), from 60 days
@@ -102,6 +107,32 @@ def conf(name):
     with open(os.path.join(ROOT, "freebsd", name)) as f:
         rows = (line.split("#", 1)[0].split() for line in f)
         return [r for r in rows if r]
+
+
+def notes_line(url, tag):
+    """What the release notes of tag say about security, for a release issue: the CVE
+    and GHSA ids they name, or that they name none. GitHub releases only (the API, with
+    GH_TOKEN where there is one); None for other hosts or without a tag."""
+    m = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", url or "")
+    if not m or not tag:
+        return None
+    api = "https://api.github.com/repos/%s/%s/releases/tags/%s" % (m.group(1), m.group(2), tag)
+    headers = {"User-Agent": "upstream-check (azsupport/php-src)", "Accept": "application/vnd.github+json"}
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    try:
+        with urllib.request.urlopen(urllib.request.Request(api, headers=headers), timeout=30) as r:
+            body = json.loads(r.read().decode("utf-8", "replace")).get("body") or ""
+    except Exception:
+        return "Release notes: no GitHub release for the tag `%s` (or it could not be read); look at the changes." % tag
+    ids = sorted(set(i.upper() if i[:3].upper() == "CVE" else "GHSA" + i[4:].lower()
+                     for i in re.findall(r"CVE-\d{4}-\d{4,}|GHSA(?:-[0-9a-z]{4}){3}", body, re.I)))
+    if ids:
+        return "Release notes: they name **%s**. If one of them touches us, take the release before the port." % ", ".join(ids)
+    if re.search(r"secur|vulnerab", body, re.I):
+        return "Release notes: they speak of security without a CVE id: read them; if it touches us, take the release before the port."
+    return "Release notes: no CVE or GHSA id, nothing on security: wait for the port."
 
 
 def http(url):
@@ -255,18 +286,21 @@ def check_bundle_releases(cfile, bundle, prefix, steps):
             continue
         port = ports.get(name, "?")
         where = "listing" if source.endswith("/") else "tag `%s`" % found[newest]
+        notes = None if source.endswith("/") else notes_line(source, found[newest])
         lines = [
             "**%s %s** is out (%s of %s)." % (name, newest, where, source),
             "",
             "Built now in `%s`: %s (`%s`, `freebsd/%s`)%s." % (
                 prefix, built, port, cfile, ", the release of its take line" if name in takes else ", the version of the port"),
             "",
-            "To take it (now: the port `%s` is followed for its patches, not waited for): in `freebsd/%s` "
-            "add or update the take line of %s (the release file, its SHA-256 checked against a second source "
-            "such as a signature or the checksums of another distribution, the source directory inside it) and "
-            "the version of its upstream line; check that the patches of the port still apply (or put ones "
-            "brought up to %s into `freebsd/deps/%s-%s/`); %s "
-            "Not wanted: close this issue." % (port, cfile, name, newest, name, newest, steps),
+        ] + ([notes, ""] if notes else []) + [
+            "By the rule it comes with the port `%s`: when the port has it, move the ports commit of "
+            "`freebsd/%s` and the version of the upstream line, then %s This issue closes then. Before the "
+            "port only when it fixes a vulnerability that touches us or a bug we have: then a take line in "
+            "`freebsd/%s` (the release file, its SHA-256 checked against a second source such as a signature "
+            "or the checksums of another distribution, the source directory inside it), the patches of the port "
+            "checked against it (`tools/deps-take-check.sh`; ones brought up to %s into `freebsd/deps/%s-%s/`), "
+            "and the same steps." % (port, cfile, steps, cfile, newest, name, newest),
         ]
         findings.append({
             "key": "release:%s:%s:%s" % (kb, name, newest),
@@ -522,18 +556,21 @@ def lib_finding(up, v, cur, port):
         links.append("[tag `%s`](%s/releases/tag/%s)" % (tag, base, tag))
         if cur in up.tags:
             links.append("[changes since %s](%s/compare/%s...%s)" % (cur, base, up.tags[cur], tag))
+    notes = notes_line(up.url, tag)
     lines = [
         "**%s %s** is out: %s." % (up.name, v, ", ".join(links) or up.url),
         "",
         "Bundled now: %s, in `freebsd/curl-deps.conf`: a library of the bundled curl "
         "(`--with-curl=bundled` of every branch, and `/usr/local/phpdeps`)." % cur,
         "",
-        "To take it (now: the port `%s` is followed for its patches, not waited for): in "
-        "`freebsd/curl-deps.conf` set version `%s`, the release file and its SHA-256 (checked against a "
-        "second source: a signature, the checksums of the release or of another distribution), "
-        "carry over `freebsd/curl/%s-<old version>.patch` if there is one, check that "
-        "`freebsd/curl/build-libcurl.sh` still builds it (its file lists, configure options), then run the "
-        "build test. Not wanted: close this issue." % (port, v, up.name),
+    ] + ([notes, ""] if notes else []) + [
+        "By the rule it comes with the port `%s` (this check reports when its distinfo has a release file "
+        "the bundle has not): then in `freebsd/curl-deps.conf` set version `%s`, the release file and the "
+        "SHA-256 of the distinfo of the port, carry over `freebsd/curl/%s-<old version>.patch` if there is "
+        "one, check that `freebsd/curl/build-libcurl.sh` still builds it (its file lists, configure options), "
+        "then run the build test. Before the port only when it fixes a vulnerability that touches us or a bug "
+        "we have (the SHA-256 then checked against a second source: a signature, the checksums of the release "
+        "or of another distribution). Not wanted: close this issue." % (port, v, up.name),
     ]
     return {
         "key": "release:%s:%s" % (up.name, v),
@@ -565,12 +602,16 @@ def release_finding(up, v, hits, pin):
         "|---|---|",
     ]
     lines += ["| %s | %s |" % (t, c) for t, c in hits]
+    notes = notes_line(up.url, tag)
+    if notes:
+        lines += ["", notes]
     if up.name == "pcre2":
         lines[2] = "Bundled in place of the PCRE2 of php-src (freebsd/pcre.conf)."
         lines += [
             "",
-            "To take it (now: `devel/pcre2` is followed for its patches, not waited for): in "
-            "`freebsd/pcre.conf` set version `%s`, the release tarball and its SHA-256; run "
+            "By the rule it comes with `devel/pcre2` (before the port only when it fixes a vulnerability that "
+            "touches us or a bug we have): in `freebsd/pcre.conf` set version `%s`, the release tarball and its "
+            "SHA-256 (that of the distinfo of the port); run "
             "`freebsd/pcre/import-pcre2.sh <tree> <unpacked release>` on a tree of each target, build it "
             "and run `ext/pcre/tests` (new messages of the library may need "
             "`freebsd/pcre/tests-<target>.patch`), then the build test. Not wanted: close this issue." % v,
@@ -585,7 +626,8 @@ def release_finding(up, v, hits, pin):
         lines[2] = "It needs OpenSSL 3.0 or later, as the bundled curl does now."
         lines += [
             "",
-            "To take it (now: `ftp/curl` is followed for its patches, not waited for): in "
+            "By the rule it comes with `ftp/curl` (before the port only when it fixes a vulnerability that "
+            "touches us or a bug we have; curl names the CVEs it fixes): in "
             "`freebsd/curl.conf` set version `%s`, the release tarball and its SHA-256, and bring "
             "`freebsd/curl/curl-<old version>.patch` up to date from `ftp/curl/files/patch-configure`; "
             "check that `freebsd/curl/build-libcurl.sh` passes no option the new configure has dropped, "
