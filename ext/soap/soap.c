@@ -584,6 +584,7 @@ static void php_soap_init_globals(zend_soap_globals *soap_globals TSRMLS_DC)
 	soap_globals->soap_version = SOAP_1_1;
 	soap_globals->mem_cache = NULL;
 	soap_globals->ref_map = NULL;
+	soap_globals->decode_depth = 0;
 }
 
 PHP_MSHUTDOWN_FUNCTION(soap)
@@ -4519,8 +4520,10 @@ static xmlNodePtr serialize_zval(zval *val, sdlParamPtr param, char *paramName, 
 		enc = NULL;
 	}
 	xmlParam = master_to_xml(enc, val, style, parent TSRMLS_CC);
-	if (!strcmp((char*)xmlParam->name, "BOGUS")) {
-		xmlNodeSetName(xmlParam, BAD_CAST(paramName));
+	if (xmlParam != NULL) {
+		if (xmlParam->name == NULL || strcmp((char*)xmlParam->name, "BOGUS") == 0) {
+			xmlNodeSetName(xmlParam, BAD_CAST(paramName));
+		}
 	}
 	return xmlParam;
 }

@@ -307,6 +307,12 @@ void shutdown_executor(TSRMLS_D) /* {{{ */
 		}
 	} zend_end_try();
 
+	/* May be used by an error in the rest of the shutdown or before the next
+	 * init_executor(): the exception object is freed above (as in the
+	 * official fix, right after the object store). */
+	EG(error_handling) = EH_NORMAL;
+	EG(exception) = NULL;
+
 	zend_try {
 		clean_non_persistent_constants(TSRMLS_C);
 	} zend_end_try();
@@ -327,6 +333,17 @@ void shutdown_executor(TSRMLS_D) /* {{{ */
 			FREE_HASHTABLE(EG(in_autoload));
 		}
 	} zend_end_try();
+
+	/* CVE-2026-109619: may be used by zend_error before init_executor */
+	EG(user_error_handler) = NULL;
+	EG(user_exception_handler) = NULL;
+	memset(&EG(user_error_handlers_error_reporting), 0, sizeof(EG(user_error_handlers_error_reporting)));
+	memset(&EG(user_error_handlers), 0, sizeof(EG(user_error_handlers)));
+	memset(&EG(user_exception_handlers), 0, sizeof(EG(user_exception_handlers)));
+	EG(error_handling) = EH_NORMAL;
+	EG(exception_class) = NULL;
+	EG(exception) = NULL;
+	EG(in_autoload) = NULL;
 
 	zend_shutdown_fpu(TSRMLS_C);
 

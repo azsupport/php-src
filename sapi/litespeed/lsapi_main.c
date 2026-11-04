@@ -1707,12 +1707,12 @@ PHP_FUNCTION(litespeed_response_headers)
             len = p - h->header;
             if (( p )&&( len > 0 )) {
                 memmove( headerBuf, h->header, len );
-                while( len > 0 && (isspace( headerBuf[len-1])) ) {
+                while( len > 0 && (isspace((unsigned char)headerBuf[len - 1])) ) {
                     --len;
                 }
                 headerBuf[len] = 0;
                 if ( len ) {
-                    while( isspace(*++p));
+                    while(isspace((unsigned char)*++p));
 #if PHP_MAJOR_VERSION < 7
                     add_assoc_string_ex(return_value, headerBuf, len+1, p, 1);
 #else
