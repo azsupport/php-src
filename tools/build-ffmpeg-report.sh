@@ -43,7 +43,8 @@ printf '::%s title=%s::%s\n' "$level" "$title" "$(head -c 3800 "$res/report.txt"
 for t in "$res"/*.tail; do
     [ -f "$t" ] || continue
     n="$(basename "$t" .tail)"
-    printf '::error title=%s %s::%s\n' "$title" "$n" "$(cut -c1-240 "$t" | head -c 3800 | escape)"
+    echo; echo "== the end of the log of $n"; cat "$t"
+    printf '::error title=%s %s::%s\n' "$title" "$n" "$(cut -c1-240 "$t" | tail -c 3800 | escape)"
     { echo "#### $n"; echo; echo '```'; cat "$t"; echo '```'; echo; } >> "$summary"
 done
 exit "$rc"

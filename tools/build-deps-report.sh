@@ -34,7 +34,8 @@ printf '::%s title=az-libs::%s\n' "$level" "$(head -c 3800 "$res/report.txt" | e
 for t in "$res"/*.tail; do
     [ -f "$t" ] || continue
     n="$(basename "$t" .tail)"
-    printf '::error title=az-libs %s::%s\n' "$n" "$(cut -c1-240 "$t" | head -c 3800 | escape)"
+    echo; echo "== the end of the log of $n"; cat "$t"
+    printf '::error title=az-libs %s::%s\n' "$n" "$(cut -c1-240 "$t" | tail -c 3800 | escape)"
     { echo "#### $n"; echo; echo '```'; cat "$t"; echo '```'; echo; } >> "$summary"
 done
 exit "$rc"

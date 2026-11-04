@@ -833,7 +833,7 @@ az: {
 | Версии | версия порта, а ревизия — время сборки (`9.0.2_26110422,1`), так что новая сборка — это обновление. С чем собран пакет: `/usr/local/share/doc/<пакет>/VERSIONS` (`az-libs`: `/usr/local/az/share/doc/az-libs/VERSIONS`) и его аннотации (`pkg info -A php84`: опции configure, `CFLAGS`, коммит портов) |
 | Лицензии | `/usr/local/share/licenses/<пакет>/` (`az-libs`: `/usr/local/az/LICENSES/`) |
 | Кандидат | по умолчанию workflow публикуют в `az-fbsd15-amd64-<уровень>-candidate` (пре-релиз) — для проверки на одном сервере (`env AZ_CANDIDATE=1 sh az-menu.sh --repo`), а с выключенным `candidate` — в релиз, который читают серверы |
-| С пакетов портов | `pkg install -r az <пакет>` ставит пакет az на место пакета порта. В `ffmpeg`, `ImageMagick6` и `ImageMagick7` из az только программы, без разделяемых библиотек портов (`libavcodec.so`, `libMagickWand-7.Q16HDRI.so`, …): если они нужны другому пакету (`pkg info -r ffmpeg`), оставьте пакет порта |
+| С пакетов портов | `pkg install -r az <пакет>` ставит пакет az на место пакета порта. В `ffmpeg`, `ImageMagick6` и `ImageMagick7` из az только программы, без разделяемых библиотек портов (`libavcodec.so`, `libMagickWand-7.so`, …): если они нужны другому пакету (`pkg info -r ffmpeg`), оставьте пакет порта |
 | С `/usr/local/phpXY` | `sh az-menu.sh` начинает с опций PHP, установленного там, и собирает пакет `phpXY` в `/usr/local`: php.ini тогда — `/usr/local/etc/phpXY/php.ini`, php-fpm — `service php_fpmXY`, а модуль Apache остаётся файлом `libexec/apache24/libphpXY.so`. Старый каталог остаётся, пока его не удалить |
 
 Пакеты собирают два workflow, запуск вручную кнопкой **Run workflow** (по умолчанию —
