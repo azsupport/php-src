@@ -12,7 +12,8 @@
 # screen of the item under the cursor at once.
 #
 # The script stands alone: fetched by itself onto a server (fetch
-# https://raw.githubusercontent.com/azsupport/php-src/master/tools/az-menu.sh), it
+# https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh, the
+# copy with its version: the top line of every screen and --version show it), it
 # takes the source of the branch from the release freebsd-X.Y-latest of the fork
 # (its SHA-256 checked), and the static libraries PHP is linked with (az-libs, and
 # curl and ImageMagick7 for curl and imagick: their static libraries in
@@ -43,6 +44,9 @@
 #                                   repository of the x86-64 level of this CPU)
 #   sh az-menu.sh --list            the items of the branch, with their state, the
 #                                   values and the templates
+#   sh az-menu.sh --version         the version of this copy (its revision: the
+#                                   number of commits that changed it, the last
+#                                   of them, its date)
 #
 # The menu first asks where to start: what it found (below) or a template, a set
 # of choices for one application; the main menu has it again ("Templates"). A
@@ -96,6 +100,35 @@ mk_conf="${MAKE_CONF:-/etc/make.conf}"
 TAB="$(printf '\t')"
 
 die() { echo "az-menu: $*" >&2; exit 2; }
+
+# The version of this file. The workflow az-menu.yml writes these lines into the
+# copy of the release az-menu: the revision (the number of commits that changed
+# this file, php-menu.sh before it), the last of those commits and its date. In a
+# checkout of the fork git gives them; a copy of master has none.
+AZ_MENU_REV=""
+AZ_MENU_COMMIT=""
+AZ_MENU_DATE=""
+if [ -z "$AZ_MENU_COMMIT" ] && command -v git >/dev/null 2>&1 &&
+    [ "$(git -C "$(dirname "$0")" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
+    _d="$(dirname "$0")"; _f="$(basename "$0")"
+    AZ_MENU_COMMIT="$(git -C "$_d" log -1 --format=%h -- "$_f" 2>/dev/null)"
+    if [ -n "$AZ_MENU_COMMIT" ]; then
+        AZ_MENU_DATE="$(TZ=UTC git -C "$_d" log -1 --date=format-local:'%d.%m.%Y %H:%M UTC' --format=%cd -- "$_f" 2>/dev/null)"
+        # a shallow clone has not all the commits to count
+        [ "$(git -C "$_d" rev-parse --is-shallow-repository 2>/dev/null)" = true ] ||
+            AZ_MENU_REV="r$(git -C "$_d" log --follow --format=%h -- "$_f" 2>/dev/null | wc -l | tr -d ' ')"
+        git -C "$_d" diff --quiet HEAD -- "$_f" 2>/dev/null || AZ_MENU_COMMIT="$AZ_MENU_COMMIT+changed"
+    fi
+fi
+# "r58 (163d3c28d, 04.11.2026 22:30 UTC)"; the short one for the top line of the screens
+if [ -n "$AZ_MENU_COMMIT" ]; then
+    AZ_MENU_VERSION="${AZ_MENU_REV:+$AZ_MENU_REV }($AZ_MENU_COMMIT, $AZ_MENU_DATE)"
+    AZ_MENU_SHORT="${AZ_MENU_REV:+$AZ_MENU_REV }$AZ_MENU_COMMIT ${AZ_MENU_DATE% UTC}"
+else
+    AZ_MENU_VERSION="(no version: not the copy of the release az-menu)"
+    AZ_MENU_SHORT="(no version)"
+fi
+AZ_MENU_SITES="azsupport.com  github.com/azsupport"
 # js <string>: the string as a string of JSON
 js() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$TAB/\\\\t/g")"; }
 
@@ -1345,7 +1378,8 @@ fi
 branch="" batch="" reset="" list="" changes="" values="" template="" build="" install="" repo=""
 for a in "$@"; do
     case "$a" in
-        -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+        -h|--help) echo "az-menu.sh $AZ_MENU_VERSION, $AZ_MENU_SITES"; echo; sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+        --version) echo "az-menu.sh $AZ_MENU_VERSION, $AZ_MENU_SITES"; exit 0 ;;
         --batch) batch=1 ;;
         --build) build=1 ;;
         --install) install=1 ;;
@@ -1614,7 +1648,7 @@ package_php() {
             printf '%s\n  %s: {"origin": %s, "version": %s}' "$sep" "$(js "$dn")" "$(js "${dr%%=*}")" "$(js "${dr#*=}")"
             sep=","
         done
-        printf '\n },\n "annotations": {"configure": %s, "cflags": %s, "built_by": "az-menu.sh"}\n}\n' "$(js "$opts")" "$(js "$cflags")"
+        printf '\n },\n "annotations": {"configure": %s, "cflags": %s, "built_by": %s}\n}\n' "$(js "$opts")" "$(js "$cflags")" "$(js "az-menu.sh $AZ_MENU_VERSION")"
     } > "$m/+MANIFEST" || return 1
     rm -f "$work"/php"$short"-[0-9]*.pkg
     pkg create -m "$m" -p "$pl" -r "$st" -o "$work" > "$work/create-php$short.log" 2>&1 ||
@@ -1667,7 +1701,7 @@ dlg() { "$DIALOG" --backtitle "$backtitle" "$@" 2>&1 >/dev/tty; }
 # install of the ready ones, and the menu of each build (its BUILD makes the
 # package and offers to install it).
 az_packages_menu() {
-    backtitle="az-menu: the packages of azsupport/php-src"
+    backtitle="az-menu $AZ_MENU_SHORT  $AZ_MENU_SITES"
     [ "$(id -u)" = 0 ] || die "the packages are installed with pkg: run it as root"
     if [ ! -f "$AZ_REPO_CONF" ]; then
         dlg --title "The repository az" --yesno "There is no repository az ($AZ_REPO_CONF). Write it, for this CPU (x86-64-$(cpu_level))?
@@ -1768,7 +1802,7 @@ case " $BRANCHES " in
     *) die "PHP $branch is no branch of this fork ($BRANCHES)" ;;
 esac
 short="$(echo "$branch" | tr -d .)"
-backtitle="az-menu: PHP $branch (azsupport/php-src), choices: $db/php$short.options"
+backtitle="az-menu $AZ_MENU_SHORT  $AZ_MENU_SITES"
 # choices of php-menu.sh, the name of this script before
 olddb=""
 [ -f "$db/php$short.options" ] || [ ! -f "/var/db/php-menu/php$short.options" ] || olddb=/var/db/php-menu
@@ -2334,7 +2368,7 @@ compose() {
     fi
     {
         echo "#!/bin/sh"
-        echo "# Written by az-menu.sh on $(date '+%d.%m.%Y %H:%M'): PHP $branch, the choices of the menu"
+        echo "# Written by az-menu.sh $AZ_MENU_VERSION on $(date '+%d.%m.%Y %H:%M'): PHP $branch, the choices of the menu"
         echo "# ($db/php$short.options) on $base."
         [ -n "$moved" ] && echo "# The build was in $moved; it goes to $(val_get PREFIX) now."
         [ -n "$deps_note" ] && printf '%s\n' "$deps_note" | fold -s -w 78 | sed 's/^/# /'
@@ -2347,13 +2381,21 @@ compose() {
     } > "$tmp/script"
 }
 # config_check: tools/config-check.sh next to this script, else that of the fork
-# (fetched once into $work), for the rewrite of the options for /usr/local/az
+# (fetched into $work at each run: with the copy of the release az-menu the one of
+# that release, else that of master), for the rewrite of the options for
+# /usr/local/az
 config_check() {
     _d="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
     if [ -f "$_d/config-check.sh" ]; then echo "$_d/config-check.sh"; return 0; fi
-    if [ ! -f "$work/config-check.sh" ]; then
-        mkdir -p "$work" && fetch -q -o "$work/config-check.sh" \
-            "https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh" || return 1
+    _u="https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh"
+    case "$AZ_MENU_COMMIT" in ""|*+changed) ;; *) [ -n "$AZ_MENU_REV" ] && _u="$AZ_URL/releases/download/az-menu/config-check.sh" ;; esac
+    mkdir -p "$work" || return 1
+    if fetch -q -o "$work/config-check.sh.new" "$_u" 2>/dev/null; then
+        mv "$work/config-check.sh.new" "$work/config-check.sh"
+    elif [ -f "$work/config-check.sh" ]; then
+        say "cannot fetch $_u: the config-check.sh fetched before is used" >&2
+    else
+        return 1
     fi
     echo "$work/config-check.sh"
 }
@@ -2380,6 +2422,7 @@ packages() { engine packages | sort | tr '\n' ' ' | sed 's/ *$//'; }
 
 report() {
     n="$(awk 'END { print NR }' "$tmp/opts.u")"
+    echo "az-menu.sh $AZ_MENU_VERSION, $AZ_MENU_SITES"
     echo "az-menu: wrote $out (PHP $branch, $n options), choices in $db/php$short.options"
     [ -n "$moved" ] && echo "the build was in $moved; it goes to $(val_get PREFIX) now (programs with the version at the end: bin/php$short, sbin/php-fpm$short)"
     p="$(packages)"
@@ -2601,7 +2644,7 @@ while :; do
     [ -s "$tmp/tpls" ] && set -- "$@" TEMPLATES "Start again from a template or the defaults"
     set -- "$@" SHOW "Show the script it writes" QUIT "Quit without writing"
     choice="$(dlg --title "PHP $branch" --default-item WRITE --menu \
-        "Write the configure script, go back to a screen, or change a path" 0 0 0 "$@")" || choice=QUIT
+        "Write the configure script, go back to a screen, or change a path (choices: $db/php$short.options)" 0 0 0 "$@")" || choice=QUIT
     case "$choice" in
         WRITE)
             fix_radios

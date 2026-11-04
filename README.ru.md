@@ -405,11 +405,15 @@ LIBS='-lpthread'
 SHA-256), а пакеты — из [репозитория az](#пакеты-репозиторий-az):
 
 ```sh
-fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/az-menu.sh
+fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
 sh az-menu.sh
 ```
 
-Запущенный так (без версии и не в дереве исходников PHP), он показывает пакеты az
+Эта копия (релиз `az-menu`, его делает [`az-menu.yml`](.github/workflows/az-menu.yml) при
+каждом изменении скрипта) показывает свою версию в верхней строке каждого экрана и по
+`sh az-menu.sh --version`: ревизию (число коммитов, которые его меняли), последний из этих
+коммитов и его дату, например `r58 163d3c28d 04.11.2026 22:30`. Запущенный так (без
+версии и не в дереве исходников PHP), он показывает пакеты az
 галочками: каждый — готовый из репозитория (кнопка **Options** показывает, с чем он
 собран: его описание, для PHP — опции configure и `CFLAGS` сборки, пакеты, от которых
 он зависит) или, для PHP, собранный здесь с вашими опциями. Готовые ставятся через
@@ -811,7 +815,7 @@ BIND_NOW), под x86-64-v3 (AVX2) и x86-64-v2. У пакета имя, origin 
 через `pkg install -r az` или через меню `sh az-menu.sh`:
 
 ```sh
-fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/az-menu.sh
+fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
 sh az-menu.sh --repo
 pkg install -r az curl ffmpeg ImageMagick6 ImageMagick7
 ```

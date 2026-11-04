@@ -406,10 +406,14 @@ it takes the sources of PHP from the release `freebsd-<version>-latest` of this 
 [repository az](#packages-the-repository-az):
 
 ```sh
-fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/az-menu.sh
+fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
 sh az-menu.sh
 ```
 
+That copy (the release `az-menu`, made by [`az-menu.yml`](.github/workflows/az-menu.yml)
+whenever the script changes) shows its version on the top line of every screen and
+with `sh az-menu.sh --version`: its revision (the number of commits that changed it),
+the last of those commits and its date, for example `r58 163d3c28d 04.11.2026 22:30`.
 Started so (no version named, not in a PHP source tree), it lists the packages of az
 with check boxes: each one ready from the repository (the button **Options** shows
 what it is built with: its description, for PHP the configure options and `CFLAGS`
@@ -823,7 +827,7 @@ On a server, `az-menu.sh --repo` writes the repository for the level of its CPU
 in with `pkg install -r az`, or through the menu of `sh az-menu.sh`:
 
 ```sh
-fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/az-menu.sh
+fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
 sh az-menu.sh --repo
 pkg install -r az curl ffmpeg ImageMagick6 ImageMagick7
 ```
