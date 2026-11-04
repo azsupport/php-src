@@ -14,8 +14,9 @@
 | Исправления безопасности | для каждой версии PHP, которая ещё работает на сервере, — в тот же день и без ожидания портов: официальные релизы php-src для 8.2–8.4, бэкпорты Remi Collet для 5.6, 7.4 и 8.1, у которых закончилась поддержка, и наши переносы для 5.6 |
 | Тарболы релизов | каждое обновление, с уже сгенерированными `configure` и парсерами bison/re2c: на сервере нужны только компилятор C и `make` — как с тарболами с php.net |
 | Один PHP, в который встроено всё | расширения, [встроенные расширения PECL](#встроенные-расширения-pecl), [curl](#встроенный-curl) с его библиотеками, [PCRE](#встроенная-pcre), а при желании и [OPcache](#встроенный-opcache-и-запрет-загрузки-расширений), без загрузки расширений во время работы |
-| Несколько версий рядом | PHP 5.6, 7.4, 8.1, 8.2, 8.3 и 8.4, каждая в своём `/usr/local/phpXY` и со своим файлом модуля Apache (`libphp84.so`, …, `libphp56.so`) |
-| Скрипты | [`config-check.sh`](tools/config-check.sh) записывает опции configure того PHP, что стоит на сервере; [`php-menu.sh`](tools/php-menu.sh) выбирает, что войдёт в сборку, диалогами — как `make config` портов |
+| Несколько версий рядом | PHP 5.6, 7.4, 8.1, 8.2, 8.3 и 8.4: пакетами `php56` … `php84` все в `/usr/local`, с версией в именах (`bin/php84`, `sbin/php-fpm84` со своим rc.d-скриптом `php_fpm84`, `etc/php84`), или каждая в своём `/usr/local/phpXY`; у каждой свой файл модуля Apache (`libphp84.so`, …, `libphp56.so`) |
+| Скрипты | [`config-check.sh`](tools/config-check.sh) записывает опции configure того PHP, что стоит на сервере; [`az-menu.sh`](tools/az-menu.sh) ставит пакеты az или выбирает, что войдёт в PHP, диалогами — как `make config` портов, — и собирает его пакет |
+| Пакеты | репозиторий pkg [az](#пакеты-репозиторий-az) для FreeBSD 15 (x86-64-v3 и v2), собранный из портов FreeBSD в GitHub Actions: вместо пакетов портов `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7` и `php56` … `php84`, статические (их библиотеки — пакет `az-libs` в `/usr/local/az`) |
 | Проверки | [тестовая сборка](#тестовая-сборка-на-freebsd) в виртуальной машине FreeBSD; ежедневная [проверка апстрима](#проверка-апстрима): встроенный код, порты FreeBSD и конец поддержки PHP |
 
 Не связано с PHP Group, Remi Collet и проектом FreeBSD.
@@ -28,13 +29,14 @@
 - [Сборка на FreeBSD из тарбола релиза](#сборка-на-freebsd-из-тарбола-релиза)
   (файл модуля Apache, `LoadModule`)
   - [PHP 8.4](#php-84), [8.3](#php-83), [8.2](#php-82), [8.1](#php-81), [7.4](#php-74), [5.6](#php-56)
-  - [Что войдёт в сборку: php-menu.sh](#что-войдёт-в-сборку-php-menush)
+  - [az-menu.sh: пакеты и что войдёт в PHP](#az-menush-пакеты-и-что-войдёт-в-php)
   - [Встроенный OPcache и запрет загрузки расширений](#встроенный-opcache-и-запрет-загрузки-расширений)
   - [Тестовая сборка на FreeBSD](#тестовая-сборка-на-freebsd)
   - [Встроенные расширения PECL](#встроенные-расширения-pecl)
   - [OpenSSL](#openssl)
   - [Встроенный curl](#встроенный-curl)
   - [Встроенная PCRE](#встроенная-pcre)
+- [Пакеты: репозиторий az](#пакеты-репозиторий-az)
 - [FFmpeg для видеосайтов](#ffmpeg-для-видеосайтов)
 - [ImageMagick 6 и 7 для видеосайтов](#imagemagick-6-и-7-для-видеосайтов)
 - [Как приходят обновления](#как-приходят-обновления)
@@ -223,7 +225,10 @@ Id сборки:
 Каждый блок ниже пересобирает одну версию с опциями PHP, установленного в
 `/usr/local/phpXY`: скачивает и проверяет новейший тарбол, распаковывает его в `/root`,
 пишет `config.installed.sh` скриптом [`tools/config-check.sh`](tools/config-check.sh),
-затем конфигурирует, собирает и ставит.
+затем конфигурирует, собирает и ставит. Пакеты `php56` … `php84` ставятся вместо этого
+в `/usr/local`, как пакеты портов: готовые — из [репозитория az](#пакеты-репозиторий-az),
+или собранные с опциями установленного PHP скриптом
+[`az-menu.sh`](#az-menush-пакеты-и-что-войдёт-в-php).
 
 - Вставляйте блок как есть: команды работают и в `sh`, и в `csh`, а комментариев в них
   нет нарочно — интерактивный csh не считает `#` комментарием.
@@ -353,7 +358,7 @@ make install
 [Встроенная PCRE](#встроенная-pcre)); FreeType находится через `pkg-config` (в пакете
 `freetype2` больше нет `freetype-config`).
 
-Для 5.6 `config-check.sh` и `php-menu.sh` добавляют ещё `--enable-zend-signals`
+Для 5.6 `config-check.sh` и `az-menu.sh` добавляют ещё `--enable-zend-signals`
 (с PHP 7.1 включено по умолчанию, в 5.6 было выключено): сигнал, например таймаут
 `max_execution_time`, тогда ждёт, пока менеджер памяти выйдет из критического участка,
 а не врывается в него с фатальной ошибкой. Тесты PHP 5.6 дают с ней тот же результат,
@@ -369,7 +374,7 @@ make install
 | Старый `config.nice` | сравнивается с этими опциями. Скрипт находит его сам: `/root/php-<установленная версия>/config.nice` или новейший `/root/php-<установленная версия>-fbsd-*/config.nice` от прошлой сборки этого форка; другой можно указать вторым аргументом (`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`) |
 | Кавычки PHP 5.6 | 5.6 записывает опции с пробелами в сломанных кавычках (`'CFLAGS=-O3 '-pipe' ...''`): скрипт читает их так, как прочитал бы shell, — одной опцией |
 | Бинарник не запускается | опции берутся из `php-config --configure-options`, а он печатает их совсем без кавычек, так что `CFLAGS=-O3 -pipe ...` распадается на отдельные слова: скрипт возвращает слова после `ИМЯ=значение` в его значение |
-| PHP из пакетов | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (или `--pkg php74`, если пакетами стоит несколько версий PHP) пишет `config.installed.sh` для ручной сборки в `/usr/local/phpXY`: по опции на каждый установленный пакет расширения плюс опции порта `phpXY`, `CFLAGS` и `CPUTYPE` из `/etc/make.conf`. Он перечисляет то, что не переносит (пакеты PECL, утилиты), и печатает строку `pkg set -A 0`, которая сохранит библиотеки, когда пакеты потом удалят |
+| PHP из пакетов | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (или `--pkg php74`, если пакетами стоит несколько версий PHP) пишет `config.installed.sh` для сборки в раскладке пакетов `az-menu.sh` (`/usr/local`, `bin/php74`, `etc/php74`): по опции на каждый установленный пакет расширения плюс опции порта `phpXY`, `CFLAGS` и `CPUTYPE` из `/etc/make.conf`. Он перечисляет то, что не переносит (пакеты PECL, утилиты), и печатает строку `pkg set -A 0`, которая сохранит библиотеки, когда пакеты потом удалят |
 | Пакеты встроенных расширений PECL | сохраняют то, с чем были собраны, — как показывает `php --ri` PHP из пакетов: lz4 и zstd для redis (в `databases/php-redis` включены по умолчанию), SASL, сериализатор JSON и `MemcachedServer` для memcached (умолчания `databases/pecl-memcached`), igbinary, хуки swoole |
 | Стоит `mod_phpXY` | одна сборка делает только один модуль SAPI (`./configure`: «You can build only one SAPI module»), а порты собирают модуль Apache (`mod_phpXY`) и embed-библиотеку (опция `EMBED` у `phpXY`, `libphp7.so` в `/usr/local/lib`) отдельно: скрипт оставляет модуль Apache, опускает `--enable-embed` и говорит, линкуется ли с embed-библиотекой какой-нибудь пакет (`pkg shlib -R libphp7.so`) |
 
@@ -383,7 +388,7 @@ LIBS='-lpthread'
 
 | Переменная или опция | Правило |
 |---|---|
-| `LDFLAGS` | нет: clang не нужен `-fstack-protector` при линковке; `/usr/local/phpdeps` добавляет свои |
+| `LDFLAGS` | нет: clang не нужен `-fstack-protector` при линковке; статические библиотеки `/usr/local/az` (`az-libs`) добавляют свои |
 | `-std=c++17` | в `CXXFLAGS` только для intl в PHP 7.4 и новее, когда `c++` по умолчанию берёт более старый стандарт: clang 16 и новее (FreeBSD 13.3 и новее) и так берёт C++17, а PHP 8.1 и новее сам выбирает его для ICU 74 и новее |
 | `-march` | всегда из `/etc/make.conf` сервера, на котором работает скрипт (`CPUTYPE` или `-march=` в его `CFLAGS`; без них — никакого): `-march` из `config.nice`, скопированного с сервера с другим процессором, не переносится. Если процессору не хватает того, что нужно этому `-march` (`x86-64-v4` нужен AVX-512, `x86-64-v3` — AVX2), скрипт предупреждает: PHP с ним остановился бы там с `Illegal instruction` |
 | `--build` | называет нашу сборку и систему, на которой она собрана, по образцу портов `amd64-portbld-freebsd15.1`: `amd64-srcbld-freebsd15.1`; `build_alias` убирается |
@@ -393,11 +398,26 @@ LIBS='-lpthread'
 Собрать прямо из ветки тоже можно, но тогда нужны autoconf, bison и re2c (сначала
 `./buildconf --force`).
 
-### Что войдёт в сборку: php-menu.sh
+### az-menu.sh: пакеты и что войдёт в PHP
 
-[`tools/php-menu.sh`](tools/php-menu.sh) — это `make config` портов для этого форка:
-диалоги (bsddialog на FreeBSD 14 и новее, dialog на 13) с описаниями из портов. В
-отличие от портов, всё встраивается в один PHP.
+[`tools/az-menu.sh`](tools/az-menu.sh) самостоятелен: скачанный на сервер сам по себе,
+он берёт исходники PHP из релиза `freebsd-<версия>-latest` этого форка (с проверкой
+SHA-256), а пакеты — из [репозитория az](#пакеты-репозиторий-az):
+
+```sh
+fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/az-menu.sh
+sh az-menu.sh
+```
+
+Запущенный так (без версии и не в дереве исходников PHP), он показывает пакеты az
+галочками: каждый — готовый из репозитория (кнопка **Options** показывает, с чем он
+собран: его описание, для PHP — опции configure и `CFLAGS` сборки, пакеты, от которых
+он зависит) или, для PHP, собранный здесь с вашими опциями. Готовые ставятся через
+`pkg install -r az`; для каждого PHP, который надо собрать, дальше идёт меню его версии.
+
+Меню версии (`sh az-menu.sh 8.4` или `sh az-menu.sh` внутри дерева исходников) — это
+`make config` портов для этого форка: диалоги (bsddialog на FreeBSD 14 и новее, dialog
+на 13) с описаниями из портов. В отличие от портов, всё встраивается в один PHP.
 
 | Экран | Пункты |
 |---|---|
@@ -420,34 +440,54 @@ C каждой ветки:
 | Расширение, которое нужно другому, включается с пояснением | XSL включает DOM, сериализатор igbinary у redis включает igbinary |
 | То, что не может быть вместе, не пропускается | модуль Apache и embed-библиотека, imagick и gmagick, swoole и openswoole, ZTS и Argon2 из OpenSSL |
 
-Запускайте его внутри дерева исходников, после `config-check.sh`, и собирайте скриптом,
-который он пишет, вместо `config.installed.sh`:
+**BUILD** в главном меню собирает PHP с выбранным, делает из него пакет `phpXY` и
+предлагает его поставить (`pkg add`). Ему нужны пакеты az, с которыми линкуется
+выбранное (`az-libs`; `curl` для curl из az, `ImageMagick7` для imagick), — их он ставит
+сначала; вне дерева исходников он скачивает тарбол версии. Вручную, внутри дерева
+исходников после `config-check.sh`, собирайте скриптом, который пишет меню, вместо
+`config.installed.sh`:
 
 ```sh
-fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/php-menu.sh
-sh php-menu.sh
+sh az-menu.sh
 sh config.menu.sh
 ```
 
 | Что | Как |
 |---|---|
-| Начинает с | того, что есть в установленной сборке (`config.installed.sh` от `config-check.sh`), сохраняя её окружение и прочие опции (layout, пути php.ini, `--build`). Без `config.installed.sh` — только с нашей базовой сборки (`/usr/local/phpXY`, `--disable-all`, CLI и OPcache; SAPI и расширения выбираются) с флагами компилятора, общими для всех сборок |
+| Начинает с | того, что есть в установленной сборке (`config.installed.sh` от `config-check.sh`), сохраняя её окружение и прочие опции (layout, пути php.ini, `--build`). Без `config.installed.sh` — только с нашей базовой сборки (`--disable-all`, CLI и OPcache; SAPI и расширения выбираются) с флагами компилятора, общими для всех сборок |
 | Пишет | `config.menu.sh` — скрипт того же вида, с SAPI, опциями сборки и расширениями, выбранными в меню |
 | Включено по умолчанию | OPcache внутри PHP и запрет загрузки расширений (опции этого форка, [ниже](#встроенный-opcache-и-запрет-загрузки-расширений)); встроенный curl там, где в базовой системе OpenSSL 3 (FreeBSD 14 и новее); Argon2 из OpenSSL — где 3.2 (FreeBSD 15) |
 | Выключено, пока не выбрать | phpdbg: в 7.4 и новее меню пишет `--disable-phpdbg`, потому что `--disable-all` не трогает SAPI |
-| Вводится на последнем экране | каталог установки (по умолчанию `/usr/local/phpXY` или каталог установленной сборки): из него получаются `--prefix` и `--mandir=<каталог>/man`, а прочие пути установленной сборки внутри её старого каталога переезжают вместе с ним. С mysqli или pdo_mysql (5.6: с расширением mysql) — сокет MySQL (`/tmp/mysql.sock`): один `--with-mysql-sock` задаёт значение по умолчанию и `mysqli.default_socket`, и `pdo_mysql.default_socket` |
+| Вводится на последнем экране | каталог установки (по умолчанию `/usr/local`, как у портов): PHP ставится туда в раскладке пакетов (ниже: `--prefix`, `--program-suffix=84`, `--sysconfdir=<каталог>/etc/php84`, `--libdir`, `--includedir` и `--datadir` с `php84`, `--mandir=<каталог>/share/man`); сборка из `/usr/local/phpXY` переезжает в `/usr/local` вместе с прочими путями внутри её старого каталога. С mysqli или pdo_mysql (5.6: с расширением mysql) — сокет MySQL (`/tmp/mysql.sock`): один `--with-mysql-sock` задаёт значение по умолчанию и `mysqli.default_socket`, и `pdo_mysql.default_socket` |
+| Библиотеки | при установленном `az-libs` — статические библиотеки `/usr/local/az` (через `config-check.sh`), так что `php`, `php-fpm` и `libphp84.so` не требуют ничего из `/usr/local/lib` |
 | Не пишется | `--infodir` (PHP не ставит info-страниц); `--localstatedir=/var` — только вместе с FPM (его читает один php-fpm) |
-| Выбор | сохраняется так же, как его сохраняют порты, — в `/var/db/php-menu/phpXY.options` — и становится началом следующего запуска (`--reset` начинает заново) |
+| Выбор | сохраняется так же, как его сохраняют порты, — в `/var/db/az-menu/phpXY.options` (выбор `php-menu.sh`, как скрипт назывался до 04.11.2026, читается из `/var/db/php-menu`, если своего нет) — и становится началом следующего запуска (`--reset` начинает заново) |
 | В конце | пакеты, которые нужны выбору |
-| Без диалогов | `sh php-menu.sh --batch +GD -CGI PREFIX=/usr/local/php84` пишет скрипт; пункт со своего экрана включает и своё расширение (`+PDO_MYSQL` — PDO) |
-| `--list` | `sh php-menu.sh --list` показывает пункты, пути, их состояние и шаблоны |
+| Без диалогов | `sh az-menu.sh --batch +GD -CGI` пишет скрипт; пункт со своего экрана включает и своё расширение (`+PDO_MYSQL` — PDO); `--batch --build` ещё и собирает пакет, `--batch --build --install` и ставит его |
+| `--repo` | `sh az-menu.sh --repo` пишет `/usr/local/etc/pkg/repos/az.conf` под уровень x86-64 процессора и обновляет каталог az |
+| `--list` | `sh az-menu.sh --list` показывает пункты, пути, их состояние и шаблоны |
 
 **Шаблоны.** Сначала меню спрашивает, с чего начать: с того, что оно нашло (сохранённый
 выбор, установленная сборка или значения по умолчанию), или с шаблона — набора выборов
 под одно приложение; в главном меню это есть ещё раз («Templates»). Шаблон включает свои
 пункты и выключает остальные SAPI и расширения, которые в нём названы; прочее остаётся
 по умолчанию, то, что нужно его пунктам, включается тоже, а на экранах после этого можно
-поменять что угодно. Без диалогов: `sh php-menu.sh --batch --template=roundcube`.
+поменять что угодно. Без диалогов: `sh az-menu.sh --batch --template=roundcube`.
+
+**Пакет `phpXY`** (имя и origin порта, `lang/php84`), для 8.4:
+
+| Файлы | Что это |
+|---|---|
+| `bin/php84`, `bin/php-cgi84`, `bin/phpize84`, `bin/php-config84`, `sbin/php-fpm84` | программы, с версией в конце имени (`--program-suffix`) |
+| `etc/php84/php.ini` | php.ini, который читает PHP (`php.ini-production`; оба `php.ini-*` лежат рядом) |
+| `etc/php84/php-fpm.conf`, `etc/php84/php-fpm.d/www.conf` | FPM: pid-файл `/var/run/php-fpm84.pid`, лог `/var/log/php-fpm84.log`, пул `www` на `/var/run/php-fpm84.sock` (пользователь и группа `www`, права 0660) |
+| `etc/rc.d/php_fpm84` | rc.d-скрипт порта под эту версию: `sysrc php_fpm84_enable=YES`, `service php_fpm84 start`; php-fpm нескольких версий работают одновременно |
+| `libexec/apache24/libphp84.so`, `etc/apache24/modules.d/280_mod_php84.conf.sample` | модуль Apache и образец его строк (`LoadModule`, обработчик `.php`, `DirectoryIndex`): инстанс Apache грузит модуль одной версии |
+| `lib/php84`, `include/php84`, `share/php84` | остальное от PHP (их берут `phpize84` и `php-config84`) |
+
+Файлы из `etc` сохраняются, если их поменяли (`@config`). Пакет зависит от пакетов az,
+с которыми слинкован (`az-libs`, `curl`, `ImageMagick7`), а в его аннотациях — опции
+configure и `CFLAGS` (`pkg info -A php84`).
 
 | Шаблон | PHP | Для чего |
 |---|---|---|
@@ -467,7 +507,7 @@ sh config.menu.sh
 начать, опции сборки, расширения, драйверы PDO через кнопку Options, опции curl, GD,
 mbstring и OpenSSL, главное меню и скрипт, который оно пишет:
 
-<p><img src="docs/images/menu-roundcube.gif" alt="php-menu.sh с шаблоном roundcube" width="800"></p>
+<p><img src="docs/images/menu-roundcube.gif" alt="az-menu.sh с шаблоном roundcube" width="800"></p>
 
 Кнопка Options на PDO и экран, который она открывает:
 
@@ -489,7 +529,7 @@ mbstring и OpenSSL, главное меню и скрипт, который о�
 <p><img src="docs/images/menu-roundcube-script.png" alt="Скрипт шаблона roundcube" width="800"></p>
 <p><img src="docs/images/menu-bare-core.png" alt="Опции голой сборки" width="800"></p>
 <p><img src="docs/images/menu-bare-script.png" alt="Скрипт голой сборки" width="800"></p>
-<p><img src="docs/images/menu-bare.gif" alt="php-menu.sh по умолчанию" width="800"></p>
+<p><img src="docs/images/menu-bare.gif" alt="az-menu.sh по умолчанию" width="800"></p>
 
 </details>
 
@@ -500,7 +540,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 
 Две опции configure этого форка, во всех ветках (патчи
 `freebsd/patches/<версия>/feature-*.patch`). Обе выключены, пока их не задать;
-`php-menu.sh` включает обе по умолчанию — в том числе когда начинает с
+`az-menu.sh` включает обе по умолчанию — в том числе когда начинает с
 `config.installed.sh` сборки, сделанной до них.
 
 | Что | `--enable-opcache-static` | `--disable-extension-loading` |
@@ -522,6 +562,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | Собирает | тарболы `-latest` с опциями configure наших серверов, встроенным curl (`--with-curl=bundled`) и `--with-openssl-legacy-provider` |
 | Проверяет | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (ошибки разбора, DNS и IPv6, `tls://`, `ssl://` и `https://`, legacy-шифры OpenSSL, `openssl_seal()`, GD с FreeType, XML, сессии, встроенный curl, фикс php2shell при превышении `memory_limit` и другое) и часть тестов PHP |
 | Результат | по каждой версии, на странице запуска |
+| С пакетами az | вход `az`: со статическими библиотеками пакетов `az-libs`, `curl` и `ImageMagick7` из репозитория az (`az_release` — его релиз, по умолчанию `az-fbsd<major>-amd64-v3`), в раскладке пакетов |
 | На машине с FreeBSD | тот же скрипт, из checkout этой ветки с тарболами в `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` ставит пакеты, `sh tools/build-test.sh --tests 5.6 7.4` собирает и проверяет; наборы опций — в [`tools/build-test.sh`](tools/build-test.sh) |
 
 ### Встроенные расширения PECL
@@ -674,13 +715,13 @@ PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведё�
 | Что | Как |
 |---|---|
 | Сборка | `--with-curl=bundled` собирает всё это во время `configure` (две-три минуты, лог в `ext/curl/libcurl-build.log`) одними cc и make и линкует в PHP статически, с тем OpenSSL, который берёт сам PHP |
-| Пакеты | не нужны: PHP не зависит ни от пакета curl, ни от его библиотек, а его curl так же свеж, как тарбол |
+| Пакеты | не нужны: с `--with-curl=bundled` PHP не зависит ни от пакета curl, ни от его библиотек, а его curl так же свеж, как тарбол |
 | Чего среди них нет | libunistring (libidn2 собирает ту её часть, которая ему нужна) и IDN-библиотеки для libpsl (curl отдаёт ей имена хостов уже в punycode, и встроенного списка хватает) |
 | Символы | символы curl не экспортируются из `php` и `libphp.so`, символы его библиотек локальны в `libcurl.a`, так что модуль, который грузит libcurl системы или несёт свою копию nghttp2 (swoole), с ними не смешивается |
 | Системный libcurl | его по-прежнему берёт простой `--with-curl` |
 | OpenSSL | curl 8.18.0 и новее нужен OpenSSL 3.0 или новее. Во FreeBSD 13.x в базовой системе OpenSSL 1.1.1, поэтому там `config-check.sh` оставляет `--with-curl` (пакет curl) и объясняет почему; на FreeBSD 14 и 15 он пишет `--with-curl=bundled` |
 | Исправления безопасности | curl или одной из его библиотек попадают в PHP с пересборкой: ежедневная [проверка апстрима](#проверка-апстрима) открывает issue на каждый новый релиз (теги их репозиториев), на изменения их портов FreeBSD и когда порт взял файл релиза, которого нет в бандле (его distinfo). Релиз приходит вместе с портом; раньше — только ради уязвимости, которая нас касается, или нашей ошибки: issue о релизе называет CVE и GHSA из его заметок |
-| `/usr/local/phpdeps` | [`tools/build-deps.sh`](tools/build-deps.sh) берёт curl и эти библиотеки из тех же файлов и собирает так же |
+| Пакеты az | [`tools/build-deps.sh`](tools/build-deps.sh) собирает curl и эти библиотеки из тех же файлов так же, статически, в `/usr/local/az`: с ними линкуются PHP-пакеты az (`--with-curl=/usr/local/az`), а в пакете `curl` из них `bin/curl` и `lib/libcurl.so.4` — вместо тех, что из порта ([Пакеты](#пакеты-репозиторий-az)) |
 
 Опции — как в порту FreeBSD, с такими отличиями:
 
@@ -746,64 +787,118 @@ php-src несёт старую PCRE с известными ошибками б
 | Системная PCRE | её по-прежнему берёт `--with-external-pcre` (5.6: `--with-pcre-regex=DIR`). `config-check.sh` не пишет эти опции, если PCRE дерева не старее системной, так что сборке не нужен пакет `pcre2` или `pcre`, и говорит об этом; если в системе библиотека новее, опция остаётся |
 | Новые релизы | ежедневная [проверка апстрима](#проверка-апстрима) открывает issue на каждый новый релиз PCRE2 |
 
+## Пакеты: репозиторий az
+
+Программы видеосайтов и PHP — пакетами pkg для FreeBSD 15 (amd64), собранными в GitHub
+Actions из портов FreeBSD с флагами компилятора наших серверов (`-O3 -pipe
+-march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO,
+BIND_NOW), под x86-64-v3 (AVX2) и x86-64-v2. У пакета имя, origin и epoch того порта,
+чей пакет он заменяет, и файлы там же, куда их ставит порт; в программы их библиотеки
+вшиты (из `az-libs`), так что ни одной из них не нужны библиотеки из `/usr/local/lib`.
+Репозиторий — это файлы релиза `az-fbsd15-amd64-v3` (или `-v2`) этого форка.
+
+| Пакет | Origin | Что в нём |
+|---|---|---|
+| `curl` | `ftp/curl` | `bin/curl` и `lib/libcurl.so.4` (git и другие программы, которые берут libcurl, продолжают работать): curl из PHP с его библиотеками ([Встроенный curl](#встроенный-curl)), без IMAP, POP3, SMTP, LDAP и NTLM |
+| `ffmpeg` | `multimedia/ffmpeg` | `bin/ffmpeg`, `bin/ffprobe`: [FFmpeg для видеосайтов](#ffmpeg-для-видеосайтов) |
+| `ImageMagick6` | `graphics/ImageMagick6` | `bin/convert6`, `bin/identify6`, `bin/mogrify6`, `bin/composite6`, …: [ImageMagick 6 и 7](#imagemagick-6-и-7-для-видеосайтов) |
+| `ImageMagick7` | `graphics/ImageMagick7` | `bin/magick` и имена-ссылки на него (`convert`, `identify`, …); в `/usr/local/az` его статические библиотеки — для imagick |
+| `php56` … `php84` | `lang/php56` … `lang/php84` | PHP этого форка в раскладке [`az-menu.sh`](#az-menush-пакеты-и-что-войдёт-в-php) (`bin/php84`, `sbin/php-fpm84`, rc.d `php_fpm84`, `etc/php84`, `libphp84.so`): готовые — с опциями [тестовой сборки](#тестовая-сборка-на-freebsd), или собранные на сервере с его собственными |
+| `az-libs` | `az/libs` | статические библиотеки `/usr/local/az` (OpenSSL, библиотеки curl, libxml2, ICU, GD и её форматы, x264, dav1d, libheif и остальные из [`freebsd/deps.conf`](freebsd/deps.conf)), с которыми собраны остальные: для сборки PHP на сервере; из него ничего не запускается |
+
+На сервере `az-menu.sh --repo` записывает репозиторий под уровень его процессора
+(`/usr/local/etc/pkg/repos/az.conf`) и обновляет его каталог; дальше пакеты ставятся
+через `pkg install -r az` или через меню `sh az-menu.sh`:
+
+```sh
+fetch https://raw.githubusercontent.com/azsupport/php-src/master/tools/az-menu.sh
+sh az-menu.sh --repo
+pkg install -r az curl ffmpeg ImageMagick6 ImageMagick7
+```
+
+`az.conf` на процессоре с AVX2 (без него — `v2`):
+
+```
+az: {
+    url: "https://github.com/azsupport/php-src/releases/download/az-fbsd15-amd64-v3",
+    signature_type: "none",
+    priority: 100,
+    enabled: yes
+}
+```
+
+| | |
+|---|---|
+| `priority: 100` | для пакета, который есть в обоих, pkg предпочитает az репозиторию FreeBSD (приоритет 0) |
+| Версии | версия порта, а ревизия — время сборки (`9.0.2_26110422,1`), так что новая сборка — это обновление. С чем собран пакет: `/usr/local/share/doc/<пакет>/VERSIONS` (`az-libs`: `/usr/local/az/share/doc/az-libs/VERSIONS`) и его аннотации (`pkg info -A php84`: опции configure, `CFLAGS`, коммит портов) |
+| Лицензии | `/usr/local/share/licenses/<пакет>/` (`az-libs`: `/usr/local/az/LICENSES/`) |
+| Кандидат | по умолчанию workflow публикуют в `az-fbsd15-amd64-<уровень>-candidate` (пре-релиз) — для проверки на одном сервере (`env AZ_CANDIDATE=1 sh az-menu.sh --repo`), а с выключенным `candidate` — в релиз, который читают серверы |
+| С пакетов портов | `pkg install -r az <пакет>` ставит пакет az на место пакета порта. В `ffmpeg`, `ImageMagick6` и `ImageMagick7` из az только программы, без разделяемых библиотек портов (`libavcodec.so`, `libMagickWand-7.Q16HDRI.so`, …): если они нужны другому пакету (`pkg info -r ffmpeg`), оставьте пакет порта |
+| С `/usr/local/phpXY` | `sh az-menu.sh` начинает с опций PHP, установленного там, и собирает пакет `phpXY` в `/usr/local`: php.ini тогда — `/usr/local/etc/phpXY/php.ini`, php-fpm — `service php_fpmXY`, а модуль Apache остаётся файлом `libexec/apache24/libphpXY.so`. Старый каталог остаётся, пока его не удалить |
+
+Пакеты собирают два workflow, запуск вручную кнопкой **Run workflow** (по умолчанию —
+для FreeBSD 15.1, оба уровня, кандидатом):
+
+| Workflow | Что делает |
+|---|---|
+| [`az.yml`](.github/workflows/az.yml) («az packages for FreeBSD»: https://github.com/azsupport/php-src/actions/workflows/az.yml) | собирает `az-libs`, `curl`, `ffmpeg`, `ImageMagick6` и `ImageMagick7` ([`tools/build-az.sh`](tools/build-az.sh)), ставит их в пустой корень и на сборочную машину, проверяет ([`curl-test.sh`](tools/curl-test.sh), [`ffmpeg-test.sh`](tools/ffmpeg-test.sh), [`imagemagick-test.sh`](tools/imagemagick-test.sh)) и линкует программу с ImageMagick 7 так же, как imagick; если все проверки прошли, публикует репозиторий (PHP-пакеты в нём сохраняются) |
+| [`az-php.yml`](.github/workflows/az-php.yml) («az PHP packages for FreeBSD»: https://github.com/azsupport/php-src/actions/workflows/az-php.yml) | после `az.yml`: `php56` … `php84` из тарболов релизов с наборами опций тестовой сборки, с пакетами az; проверки тестовой сборки, затем пакеты ставятся — все версии рядом, php-fpm запускается своим rc.d-скриптом; затем в репозиторий |
+
 ## FFmpeg для видеосайтов
 
-`ffmpeg` и `ffprobe` для видеосайтов (KVS) на FreeBSD 15, в `/usr/local/ffmpeg`,
-только с тем, что сайтам нужно: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf). FFmpeg
-определяет формат файла по содержимому, а не по имени, поэтому любой собранный
-демультиплексор доступен загруженному файлу: плейлист с именем `video.mp4` попадёт в
-демультиплексор HLS, а тот читает перечисленные в нём файлы и адреса. В этой сборке
-нет сети и плейлистов; остальные демультиплексоры и декодеры FFmpeg не собраны.
+Пакет `ffmpeg` из [репозитория az](#пакеты-репозиторий-az) вместо пакета порта:
+`ffmpeg` и `ffprobe` для видеосайтов (KVS) на FreeBSD 15, только с тем, что сайтам
+нужно: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf). FFmpeg определяет формат файла по
+содержимому, а не по имени, поэтому любой собранный демультиплексор доступен
+загруженному файлу: плейлист с именем `video.mp4` попадёт в демультиплексор HLS, а тот
+читает перечисленные в нём файлы и адреса. В этой сборке нет сети и плейлистов;
+остальные демультиплексоры и декодеры FFmpeg не собраны.
 
 | | |
 |---|---|
 | Читает (по содержимому) | mov (mp4, m4v, mov), matroska (mkv, webm), картинки JPEG, PNG и WebP |
 | Читает, только когда попросят | image2 по имени файла (`task-%d.jpg`), concat с `-f concat` (не по содержимому: [`concat-no-probe.patch`](freebsd/ffmpeg/concat-no-probe.patch)), устройство lavfi с `-f lavfi` (`anullsrc`) |
-| Декодеры | H.264, HEVC, AV1 (dav1d), VP9, VP8; AAC, MP3, Opus, Vorbis, AC3, E-AC3; JPEG, PNG, WebP. Декодеров и кодировщиков субтитров нет: конвертация и склейка с `-c copy` субтитры не переносят (сам ffmpeg берёт их, только если для них есть кодировщик) и из-за них не падают |
-| Пишет | H.264 (libx264), AAC; скриншоты JPEG, PNG и WebP (libwebp); mp4, mov, matroska, image2, mjpeg, null |
+| Декодеры | H.264, HEVC, AV1 (dav1d), VP9, VP8, MJPEG; AAC, MP3, Opus, Vorbis, AC3, E-AC3, PCM; JPEG, PNG, WebP. Декодеров и кодировщиков субтитров нет: конвертация и склейка с `-c copy` субтитры не переносят (сам ffmpeg берёт их, только если для них есть кодировщик) и из-за них не падают |
+| Пишет | H.264 (libx264) только в 8 бит 4:2:0 — то, что играют браузеры ([`libx264-8bit-420.patch`](freebsd/ffmpeg/libx264-8bit-420.patch)): загрузку в 10 бит (HEVC с телефона), 4:2:2 (MJPEG с фотоаппарата) или 4:4:4 он переводит в него без `-pix_fmt yuv420p` в команде — иначе вышли бы H.264 High 10, High 4:2:2 или High 4:4:4, которые Safari и айфоны не играют; AAC; скриншоты JPEG, PNG и WebP (libwebp); mp4, mov, matroska, image2, mjpeg, null |
 | Фильтры | все фильтры FFmpeg, которым не нужны другие библиотеки (без drawtext: ему нужен HarfBuzz, как и в порту без HARFBUZZ) |
 | Протоколы | file и pipe: ни http, https, tcp, udp, rtmp, ftp, hls, concat, subfile, data, crypto |
-| Сборка | FFmpeg 9.0.2, libx264, dav1d и libwebp из портов FreeBSD (их дистфайлы и патчи), слинкованы статически: ничего из `/usr/local/lib`; `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, LTO, PIE, RELRO, BIND_NOW |
+| Сборка | FFmpeg 9.0.2 из его порта FreeBSD (дистфайлы и патчи порта), с libx264, dav1d и libwebp из `az-libs`, слинкованными статически: ничего из `/usr/local/lib`; `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, LTO, PIE, RELRO, BIND_NOW |
 
-На сервере: тарбол под его процессор (`v3` требует AVX2: `grep -c AVX2
-/var/run/dmesg.boot` больше 0; иначе `v2`) из релиза `ffmpeg-fbsd15-latest` (до него —
-`ffmpeg-fbsd15-candidate`), распаковать в `/usr/local`:
+На сервере с репозиторием az:
 
-```
-fetch https://github.com/azsupport/php-src/releases/download/ffmpeg-fbsd15-latest/ffmpeg-fbsd15-amd64-v3.tar.xz
-tar -xf ffmpeg-fbsd15-amd64-v3.tar.xz -C /usr/local
-/usr/local/ffmpeg/bin/ffmpeg -hide_banner -version
+```sh
+pkg install -r az ffmpeg
+ffmpeg -hide_banner -version
 ```
 
-Затем в настройках сайтов указать `/usr/local/ffmpeg/bin/ffmpeg` и
-`/usr/local/ffmpeg/bin/ffprobe`. Пакет `ffmpeg` остаётся для всего остального, что им
-пользуется.
-
-Workflow [`ffmpeg.yml`](.github/workflows/ffmpeg.yml) («FFmpeg for the video sites»)
-собирает её в FreeBSD под x86-64-v3 и v2 скриптом
-[`tools/build-ffmpeg.sh`](tools/build-ffmpeg.sh) и проверяет
+В настройках сайтов остаются `/usr/local/bin/ffmpeg` и `/usr/local/bin/ffprobe`.
+`az.yml` собирает его ([`tools/build-ffmpeg.sh`](tools/build-ffmpeg.sh)) и проверяет
 [`tools/ffmpeg-test.sh`](tools/ffmpeg-test.sh): образцы всех контейнеров и кодеков,
-которые принимают сайты (сделаны пакетом `ffmpeg`), конвертация KVS, скриншоты,
-водяной знак, повёрнутое видео с телефона, склейка через `-f concat -safe 0 -c copy` в
-mp4, mov и mkv, тишина из `-f lavfi -i anullsrc`, видео из картинок; отвергаются AVI,
-FLV, MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip, HLS и скрипт concat с именем
-`.mp4`, и любой протокол, кроме file и pipe. Если все проверки прошли, публикует
-пре-релиз `ffmpeg-fbsd15-candidate`, а с выключенным `candidate` —
-`ffmpeg-fbsd15-latest` и датированный релиз. [Проверка апстрима](#проверка-апстрима)
-следит за релизами FFmpeg, dav1d и libwebp и за коммитами в их порты.
+которые принимают сайты (сделаны пакетом `ffmpeg` из FreeBSD), а также H.264 в 10 бит,
+4:2:2 и 4:4:4 и MJPEG с фотоаппарата; конвертация KVS, которая из каждого должна дать
+H.264 в 8 бит 4:2:0; скриншоты, водяной знак, повёрнутое видео с телефона, склейка
+через `-f concat -safe 0 -c copy` в mp4, mov и mkv, тишина из `-f lavfi -i anullsrc`,
+видео из картинок; отвергаются AVI, FLV, MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip,
+HLS и скрипт concat с именем `.mp4`, и любой протокол, кроме file и pipe.
+[Проверка апстрима](#проверка-апстрима) следит за релизами FFmpeg, dav1d и libwebp и
+за коммитами в их порты.
 
 ## ImageMagick 6 и 7 для видеосайтов
 
-ImageMagick 6 и 7 для видеосайтов (KVS) на FreeBSD 15 — статические программы в
-`/usr/local/imagemagick6/bin` (`convert`, `identify`, `mogrify`, `composite` и
-другие) и `/usr/local/imagemagick7/bin` (`magick` и те же имена), так что их можно
-поставить одновременно (пакеты `ImageMagick6` и `ImageMagick7` конфликтуют):
-[`freebsd/imagemagick.conf`](freebsd/imagemagick.conf). Как и FFmpeg, ImageMagick
+Пакеты `ImageMagick6` и `ImageMagick7` из [репозитория az](#пакеты-репозиторий-az)
+вместо пакетов портов, для видеосайтов (KVS) на FreeBSD 15: статические программы в
+`/usr/local/bin`, ImageMagick 7 — `magick` и имена-ссылки на него (`convert`,
+`identify`, `mogrify`, `composite`, …), ImageMagick 6 — с 6 на конце (`convert6`,
+`identify6`, `mogrify6`, `composite6`, …), так что их можно поставить одновременно
+(пакеты портов конфликтуют): [`freebsd/imagemagick.conf`](freebsd/imagemagick.conf).
+У ImageMagick 7 ещё есть статические библиотеки, заголовки и `MagickWand-config` в
+`/usr/local/az` — с ними линкуется imagick в PHP-пакетах. Как и FFmpeg, ImageMagick
 определяет формат по содержимому файла, а часть его форматов выполняет код или
 читает другие файлы (скрипты MVG и MSL, SVG, PostScript через Ghostscript, `text:` и
 `@файл`); здесь собрано только нужное сайтам, и политика
-[`freebsd/imagemagick/policy.xml`](freebsd/imagemagick/policy.xml) разрешает только
-это.
+[`freebsd/imagemagick/policy.xml`](freebsd/imagemagick/policy.xml)
+(`etc/ImageMagick-6/policy.xml`, `etc/ImageMagick-7/policy.xml`; сохраняются, если их
+поменяли) разрешает только это.
 
 | | |
 |---|---|
@@ -811,32 +906,27 @@ ImageMagick 6 и 7 для видеосайтов (KVS) на FreeBSD 15 — ст�
 | Ещё | текст (FreeType; fontconfig с настройками и шрифтами системы, `/usr/local/etc/fonts`), цветовые профили (lcms2) |
 | Не собрано | SVG, PDF, PostScript (без Ghostscript), RAW, EXR, JPEG 2000, JPEG XL, DjVu, WMF, TIFF, X11, Perl, подгружаемые модули, libxml2 (MSL, URL) |
 | Политика | политика ImageMagick `websafe` с форматами выше: без внешних программ, без `@файл`, без чтения из `/etc` и через `../`, без стандартного ввода; картинки до 20000 точек в ширину и высоту, 1 ГиБ памяти, 120 секунд |
-| Сборка | из портов FreeBSD (freebsd-ports от 04.11.2026: ImageMagick7 7.1.2-34 и ImageMagick6 6.9.13-59, в них закрыты уязвимости записи VuXML от 26.10.2026) с `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO, BIND_NOW; библиотеки вшиты, из `/usr/local/lib` ничего |
+| Сборка | из портов FreeBSD (freebsd-ports от 04.11.2026: ImageMagick7 7.1.2-34 и ImageMagick6 6.9.13-59, в них закрыты уязвимости записи VuXML от 26.10.2026) с `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO, BIND_NOW; библиотеки из `az-libs` вшиты, из `/usr/local/lib` ничего |
 
-На сервере: тарболы под его процессор (`v3` требует AVX2: `grep -c AVX2
-/var/run/dmesg.boot` больше 0; иначе `v2`) из релиза `imagemagick-fbsd15-latest`
-(до него — `imagemagick-fbsd15-candidate`), распаковать в `/usr/local`:
+На сервере с репозиторием az:
 
-```
-fetch https://github.com/azsupport/php-src/releases/download/imagemagick-fbsd15-latest/imagemagick6-fbsd15-amd64-v3.tar.xz
-fetch https://github.com/azsupport/php-src/releases/download/imagemagick-fbsd15-latest/imagemagick7-fbsd15-amd64-v3.tar.xz
-tar -xf imagemagick6-fbsd15-amd64-v3.tar.xz -C /usr/local
-tar -xf imagemagick7-fbsd15-amd64-v3.tar.xz -C /usr/local
-/usr/local/imagemagick6/bin/convert -version
-/usr/local/imagemagick7/bin/magick -version
+```sh
+pkg install -r az ImageMagick6 ImageMagick7
+convert6 -version
+magick -version
 ```
 
-Затем указать эти программы в настройках сайтов; для текста по имени шрифта нужны
-пакет `fontconfig` и шрифты (например, `dejavu`), как и пакетам. Workflow
-[`imagemagick.yml`](.github/workflows/imagemagick.yml) («ImageMagick for the video
-sites») собирает оба под x86-64-v3 и v2 скриптом
-[`tools/build-imagemagick.sh`](tools/build-imagemagick.sh) и проверяет
+Затем в настройках сайтов указать `/usr/local/bin/convert6` и остальные имена с 6
+(ImageMagick 6) или `/usr/local/bin/magick` и `/usr/local/bin/convert` (ImageMagick 7);
+для текста по имени шрифта нужны пакет `fontconfig` и шрифты (например, `dejavu`), как
+и пакетам портов. `az.yml` собирает оба
+([`tools/build-imagemagick.sh`](tools/build-imagemagick.sh)) и проверяет
 [`tools/imagemagick-test.sh`](tools/imagemagick-test.sh): образцы всех форматов
-(сделаны пакетом `ImageMagick7`), identify, миниатюры, WebP, анимации, водяной
-знак, текст, CMYK; отвергаются SVG, MVG, MSL, PostScript, PDF, TIFF, BMP, MNG,
-`text:`, `label:@`, `@файл`, `inline:`, URL, `/etc`, `../` и
-стандартный ввод. [Проверка апстрима](#проверка-апстрима) следит за релизами
-ImageMagick 6 и 7 и их библиотек и за коммитами в их порты.
+(сделаны пакетом `ImageMagick7` из FreeBSD), identify, миниатюры, WebP, анимации,
+водяной знак, текст, CMYK; отвергаются SVG, MVG, MSL, PostScript, PDF, TIFF, BMP, MNG,
+`text:`, `label:@`, `@файл`, `inline:`, URL, `/etc`, `../` и стандартный ввод.
+[Проверка апстрима](#проверка-апстрима) следит за релизами ImageMagick 6 и 7 и их
+библиотек и за коммитами в их порты.
 
 ## Как приходят обновления
 
@@ -871,24 +961,25 @@ push.
 то, что веткам стоит взять. Каждая находка открывает одно issue с меткой `upstream`
 ([эти issue](https://github.com/azsupport/php-src/issues?q=label%3Aupstream)); само
 ничего не применяется. За чем он следит — в
-[`freebsd/upstream.conf`](freebsd/upstream.conf), а для библиотек `/usr/local/phpdeps` —
-в [`freebsd/deps.conf`](freebsd/deps.conf). Новый релиз curl, его библиотек, PCRE2 и
-библиотек phpdeps и FFmpeg берётся, когда он есть в порту FreeBSD; раньше порта —
+[`freebsd/upstream.conf`](freebsd/upstream.conf), а для пакетов az — в
+[`freebsd/deps.conf`](freebsd/deps.conf) (библиотеки `az-libs` и curl),
+[`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf) и
+[`freebsd/imagemagick.conf`](freebsd/imagemagick.conf). Новый релиз curl, его
+библиотек, PCRE2 и библиотек и программ az берётся, когда он есть в порту FreeBSD; раньше порта —
 только если закрывает уязвимость, которая нас касается, или нашу ошибку (правило от
 04.11.2026). Каждое issue о релизе пишет, что называют заметки к релизу (CVE и GHSA,
 для релизов на GitHub), и остаётся открытым, пока версии нет в порту. Такая
-библиотека phpdeps тогда собирается из файла релиза апстрима с патчами порта
-(строка `take` в `deps.conf`, патчи проверяет
+библиотека или программа az тогда собирается из файла релиза апстрима с патчами
+порта (строка `take` в её файле, патчи проверяет
 [`tools/deps-take-check.sh`](tools/deps-take-check.sh)). Порты отслеживаются ради
-патчей сборки и нужного для FreeBSD. Так же — FFmpeg и библиотеки, которые в него
-входят: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf). Новый релиз встроенного
-расширения берётся сразу.
+патчей сборки и нужного для FreeBSD. Новый релиз встроенного расширения берётся
+сразу.
 
 | Что ищет | Чего |
 |---|---|
-| Новые релизы | встроенных расширений PECL (теги репозиториев и PECL, сверяя с версиями PHP, которые поддерживает каждый релиз), curl, библиотек curl, PCRE2, библиотек `/usr/local/phpdeps`, FFmpeg, dav1d и libwebp в `/usr/local/ffmpeg` (теги репозиториев или каталог релизов) |
-| Коммиты портов FreeBSD, которые меняют патчи или сборку | их портов, `lang/php8x` и портов `freebsd/deps.conf` и `freebsd/ffmpeg.conf` (после их коммита портов) |
-| Порт, в котором теперь есть версия строки `take` | библиотек `/usr/local/phpdeps` и `/usr/local/ffmpeg`: строку можно убрать |
+| Новые релизы | встроенных расширений PECL (теги репозиториев и PECL, сверяя с версиями PHP, которые поддерживает каждый релиз), curl, библиотек curl, PCRE2, библиотек `az-libs`, FFmpeg, ImageMagick 6 и 7 (теги репозиториев или каталог релизов) |
+| Коммиты портов FreeBSD, которые меняют патчи или сборку | их портов, `lang/php8x` и портов `freebsd/deps.conf`, `freebsd/ffmpeg.conf` и `freebsd/imagemagick.conf` (после их коммита портов) |
+| Порт, в котором теперь есть версия строки `take` | библиотек и программ az: строку можно убрать |
 | Файлы релизов в distinfo порта, которых нет в бандле | портов curl и его библиотек (не пока бандл впереди порта) |
 | Конец security-поддержки, начиная за 60 дней до него | веток, которые собираются из тегов php-src (8.2 — 31.12.2026), с отметкой, есть ли у бэкпортов Remi Collet ветка, на которую можно перейти |
 
@@ -951,4 +1042,7 @@ fine-grained personal access token для этого репозитория (о�
 - Бэкпорты безопасности для веток без поддержки: Remi Collet,
   [remicollet/php-src-security](https://github.com/remicollet/php-src-security).
 - Патчи портов FreeBSD: мейнтейнеры портов FreeBSD, BSD-2-Clause.
+- Пакеты az: у каждой программы и библиотеки своя лицензия, она в пакете
+  (`/usr/local/share/licenses/<пакет>/`, `/usr/local/az/LICENSES/`); FFmpeg с x264 —
+  GPL версии 2 или новее.
 - Инструменты в этой ветке: BSD-2-Clause, см. [LICENSE](LICENSE).
