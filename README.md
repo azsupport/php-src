@@ -33,6 +33,7 @@ Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
   - [OpenSSL](#openssl)
   - [Bundled curl](#bundled-curl)
   - [Bundled PCRE](#bundled-pcre)
+- [FFmpeg for the video sites](#ffmpeg-for-the-video-sites)
 - [How updates happen](#how-updates-happen)
   - [Upstream check](#upstream-check)
   - [Build compatibility patches](#build-compatibility-patches)
@@ -751,6 +752,54 @@ How a release gets into the tree:
 | System PCRE | `--with-external-pcre` (5.6: `--with-pcre-regex=DIR`) still takes it. `config-check.sh` leaves those options out when the PCRE of the tree is not older than the one of the system, so the build needs no `pcre2` or `pcre` package, and says so; a newer library in the system keeps the option |
 | New releases | the daily [upstream check](#upstream-check) opens an issue for each new PCRE2 release |
 
+## FFmpeg for the video sites
+
+`ffmpeg` and `ffprobe` for the video sites (KVS) on FreeBSD 15, in
+`/usr/local/ffmpeg`, with only what the sites need:
+[`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf). FFmpeg takes the format of a file from
+its content, not from its name, so every demuxer of a build is one that an uploaded
+file can reach: a playlist named `video.mp4` goes to the HLS demuxer, which reads the
+files and addresses it lists. This build has no network and no playlists; the other
+demuxers and decoders of FFmpeg are not built.
+
+| | |
+|---|---|
+| Reads (by content) | mov (mp4, m4v, mov), matroska (mkv, webm), JPEG, PNG and WebP pictures |
+| Reads only when asked for | image2 by the name of the file (`task-%d.jpg`), concat with `-f concat` (not by content: [`concat-no-probe.patch`](freebsd/ffmpeg/concat-no-probe.patch)), the lavfi device with `-f lavfi` (`anullsrc`) |
+| Decoders | H.264, HEVC, AV1 (dav1d), VP9, VP8; AAC, MP3, Opus, Vorbis, AC3, E-AC3; JPEG, PNG, WebP. No subtitle decoders: a conversion to mp4 leaves subtitles out, `-c copy` keeps them |
+| Writes | H.264 (libx264), AAC; JPEG, PNG and WebP (libwebp) screenshots; mp4, mov, matroska, image2, mjpeg, null |
+| Filters | all of FFmpeg that need no other library (not drawtext, which needs HarfBuzz, as in the port without HARFBUZZ) |
+| Protocols | file and pipe: no http, https, tcp, udp, rtmp, ftp, hls, concat, subfile, data, crypto |
+| Built | FFmpeg 9.0.2, libx264, dav1d and libwebp from the FreeBSD ports (their distfiles and patches), linked in statically: nothing of `/usr/local/lib`; `-O3 -pipe -march=<level> -fstack-protector-strong -fno-strict-aliasing`, LTO, PIE, RELRO, BIND_NOW |
+
+On a server: the tarball of its CPU (`v3` needs AVX2: `grep -c AVX2
+/var/run/dmesg.boot` above 0; else `v2`) from the release `ffmpeg-fbsd15-latest`
+(`ffmpeg-fbsd15-candidate` before it), extracted into `/usr/local`:
+
+```
+fetch https://github.com/azsupport/php-src/releases/download/ffmpeg-fbsd15-latest/ffmpeg-fbsd15-amd64-v3.tar.xz
+tar -xf ffmpeg-fbsd15-amd64-v3.tar.xz -C /usr/local
+/usr/local/ffmpeg/bin/ffmpeg -hide_banner -version
+```
+
+The sites then take `/usr/local/ffmpeg/bin/ffmpeg` and `/usr/local/ffmpeg/bin/ffprobe`
+in their settings (the path of ffprobe on its own: one made from the path of ffmpeg
+by replacing every `ffmpeg` would be `/usr/local/ffprobe/bin/ffprobe`). The `ffmpeg`
+package stays for what else uses it.
+
+The workflow [`ffmpeg.yml`](.github/workflows/ffmpeg.yml) ("FFmpeg for the video
+sites") builds it in FreeBSD for x86-64-v3 and v2 with
+[`tools/build-ffmpeg.sh`](tools/build-ffmpeg.sh) and tests it with
+[`tools/ffmpeg-test.sh`](tools/ffmpeg-test.sh): samples of every container and codec
+the sites take (made with the `ffmpeg` package), the conversion of KVS, screenshots, a
+watermark, a rotated phone video, joins with `-f concat -safe 0 -c copy` into mp4, mov
+and mkv, silence from `-f lavfi -i anullsrc`, a video from pictures; refused: AVI,
+FLV, MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip, HLS and a concat script named
+`.mp4`, and every protocol but file and pipe. When every test passes it publishes the
+pre-release `ffmpeg-fbsd15-candidate`, or with `candidate` off `ffmpeg-fbsd15-latest`
+and a dated release. The [upstream check](#upstream-check) follows the releases of
+FFmpeg, dav1d and libwebp and the commits to their ports.
+
 ## How updates happen
 
 [`.github/workflows/sync.yml`](.github/workflows/sync.yml) runs every hour and
@@ -789,13 +838,14 @@ is applied on its own. What it follows is listed in
 release is taken when it is out, without waiting for its FreeBSD port; the ports are
 followed for their build patches and what FreeBSD needs (a library of phpdeps whose
 port is behind is built from the upstream release file, with the patches of the
-port: a `take` line of `deps.conf`).
+port: a `take` line of `deps.conf`). The same goes for FFmpeg and the libraries it
+links in: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf).
 
 | It looks for | Of |
 |---|---|
-| Newer releases | the bundled PECL extensions (repository tags and PECL, checked against the PHP versions each release supports), curl, the libraries of curl, PCRE2, the libraries of `/usr/local/phpdeps` (repository tags or the directory of the releases) |
-| FreeBSD ports commits that change the patches or the build | their ports, `lang/php8x` and the ports of `freebsd/deps.conf` (after its ports commit) |
-| A port that has the version of a `take` line now | the libraries of `/usr/local/phpdeps`: the line can go |
+| Newer releases | the bundled PECL extensions (repository tags and PECL, checked against the PHP versions each release supports), curl, the libraries of curl, PCRE2, the libraries of `/usr/local/phpdeps`, FFmpeg, dav1d and libwebp of `/usr/local/ffmpeg` (repository tags or the directory of the releases) |
+| FreeBSD ports commits that change the patches or the build | their ports, `lang/php8x` and the ports of `freebsd/deps.conf` and `freebsd/ffmpeg.conf` (after their ports commit) |
+| A port that has the version of a `take` line now | the libraries of `/usr/local/phpdeps` and `/usr/local/ffmpeg`: the line can go |
 | Release files in the distinfo of a port that the bundle has not | the ports of curl and its libraries (not while the bundle is ahead of the port) |
 | The end of security support, from 60 days before it on | the branches built from php-src tags (8.2: 31.12.2026), with whether Remi Collet's backports have a branch to switch to |
 

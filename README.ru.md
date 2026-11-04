@@ -35,6 +35,7 @@
   - [OpenSSL](#openssl)
   - [Встроенный curl](#встроенный-curl)
   - [Встроенная PCRE](#встроенная-pcre)
+- [FFmpeg для видеосайтов](#ffmpeg-для-видеосайтов)
 - [Как приходят обновления](#как-приходят-обновления)
   - [Проверка апстрима](#проверка-апстрима)
   - [Патчи совместимости сборки](#патчи-совместимости-сборки)
@@ -743,6 +744,53 @@ php-src несёт старую PCRE с известными ошибками б
 | Системная PCRE | её по-прежнему берёт `--with-external-pcre` (5.6: `--with-pcre-regex=DIR`). `config-check.sh` не пишет эти опции, если PCRE дерева не старее системной, так что сборке не нужен пакет `pcre2` или `pcre`, и говорит об этом; если в системе библиотека новее, опция остаётся |
 | Новые релизы | ежедневная [проверка апстрима](#проверка-апстрима) открывает issue на каждый новый релиз PCRE2 |
 
+## FFmpeg для видеосайтов
+
+`ffmpeg` и `ffprobe` для видеосайтов (KVS) на FreeBSD 15, в `/usr/local/ffmpeg`,
+только с тем, что сайтам нужно: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf). FFmpeg
+определяет формат файла по содержимому, а не по имени, поэтому любой собранный
+демультиплексор доступен загруженному файлу: плейлист с именем `video.mp4` попадёт в
+демультиплексор HLS, а тот читает перечисленные в нём файлы и адреса. В этой сборке
+нет сети и плейлистов; остальные демультиплексоры и декодеры FFmpeg не собраны.
+
+| | |
+|---|---|
+| Читает (по содержимому) | mov (mp4, m4v, mov), matroska (mkv, webm), картинки JPEG, PNG и WebP |
+| Читает, только когда попросят | image2 по имени файла (`task-%d.jpg`), concat с `-f concat` (не по содержимому: [`concat-no-probe.patch`](freebsd/ffmpeg/concat-no-probe.patch)), устройство lavfi с `-f lavfi` (`anullsrc`) |
+| Декодеры | H.264, HEVC, AV1 (dav1d), VP9, VP8; AAC, MP3, Opus, Vorbis, AC3, E-AC3; JPEG, PNG, WebP. Декодеров субтитров нет: при конвертации в mp4 субтитры не переносятся, `-c copy` их сохраняет |
+| Пишет | H.264 (libx264), AAC; скриншоты JPEG, PNG и WebP (libwebp); mp4, mov, matroska, image2, mjpeg, null |
+| Фильтры | все фильтры FFmpeg, которым не нужны другие библиотеки (без drawtext: ему нужен HarfBuzz, как и в порту без HARFBUZZ) |
+| Протоколы | file и pipe: ни http, https, tcp, udp, rtmp, ftp, hls, concat, subfile, data, crypto |
+| Сборка | FFmpeg 9.0.2, libx264, dav1d и libwebp из портов FreeBSD (их дистфайлы и патчи), слинкованы статически: ничего из `/usr/local/lib`; `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, LTO, PIE, RELRO, BIND_NOW |
+
+На сервере: тарбол под его процессор (`v3` требует AVX2: `grep -c AVX2
+/var/run/dmesg.boot` больше 0; иначе `v2`) из релиза `ffmpeg-fbsd15-latest` (до него —
+`ffmpeg-fbsd15-candidate`), распаковать в `/usr/local`:
+
+```
+fetch https://github.com/azsupport/php-src/releases/download/ffmpeg-fbsd15-latest/ffmpeg-fbsd15-amd64-v3.tar.xz
+tar -xf ffmpeg-fbsd15-amd64-v3.tar.xz -C /usr/local
+/usr/local/ffmpeg/bin/ffmpeg -hide_banner -version
+```
+
+Затем в настройках сайтов указать `/usr/local/ffmpeg/bin/ffmpeg` и
+`/usr/local/ffmpeg/bin/ffprobe` (путь ffprobe отдельно: если получать его из пути
+ffmpeg заменой каждого `ffmpeg`, выйдет `/usr/local/ffprobe/bin/ffprobe`). Пакет
+`ffmpeg` остаётся для всего остального, что им пользуется.
+
+Workflow [`ffmpeg.yml`](.github/workflows/ffmpeg.yml) («FFmpeg for the video sites»)
+собирает её в FreeBSD под x86-64-v3 и v2 скриптом
+[`tools/build-ffmpeg.sh`](tools/build-ffmpeg.sh) и проверяет
+[`tools/ffmpeg-test.sh`](tools/ffmpeg-test.sh): образцы всех контейнеров и кодеков,
+которые принимают сайты (сделаны пакетом `ffmpeg`), конвертация KVS, скриншоты,
+водяной знак, повёрнутое видео с телефона, склейка через `-f concat -safe 0 -c copy` в
+mp4, mov и mkv, тишина из `-f lavfi -i anullsrc`, видео из картинок; отвергаются AVI,
+FLV, MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip, HLS и скрипт concat с именем
+`.mp4`, и любой протокол, кроме file и pipe. Если все проверки прошли, публикует
+пре-релиз `ffmpeg-fbsd15-candidate`, а с выключенным `candidate` —
+`ffmpeg-fbsd15-latest` и датированный релиз. [Проверка апстрима](#проверка-апстрима)
+следит за релизами FFmpeg, dav1d и libwebp и за коммитами в их порты.
+
 ## Как приходят обновления
 
 [`.github/workflows/sync.yml`](.github/workflows/sync.yml) запускается каждый час и
@@ -780,13 +828,14 @@ push.
 в [`freebsd/deps.conf`](freebsd/deps.conf). Новый релиз апстрима берётся сразу, не
 дожидаясь порта FreeBSD; порты отслеживаются ради патчей сборки и нужного для FreeBSD
 (библиотека phpdeps, порт которой отстаёт, собирается из файла релиза апстрима с
-патчами порта: строка `take` в `deps.conf`).
+патчами порта: строка `take` в `deps.conf`). Так же — FFmpeg и библиотеки, которые
+в него входят: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf).
 
 | Что ищет | Чего |
 |---|---|
-| Новые релизы | встроенных расширений PECL (теги репозиториев и PECL, сверяя с версиями PHP, которые поддерживает каждый релиз), curl, библиотек curl, PCRE2, библиотек `/usr/local/phpdeps` (теги репозиториев или каталог релизов) |
-| Коммиты портов FreeBSD, которые меняют патчи или сборку | их портов, `lang/php8x` и портов `freebsd/deps.conf` (после его коммита портов) |
-| Порт, в котором теперь есть версия строки `take` | библиотек `/usr/local/phpdeps`: строку можно убрать |
+| Новые релизы | встроенных расширений PECL (теги репозиториев и PECL, сверяя с версиями PHP, которые поддерживает каждый релиз), curl, библиотек curl, PCRE2, библиотек `/usr/local/phpdeps`, FFmpeg, dav1d и libwebp в `/usr/local/ffmpeg` (теги репозиториев или каталог релизов) |
+| Коммиты портов FreeBSD, которые меняют патчи или сборку | их портов, `lang/php8x` и портов `freebsd/deps.conf` и `freebsd/ffmpeg.conf` (после их коммита портов) |
+| Порт, в котором теперь есть версия строки `take` | библиотек `/usr/local/phpdeps` и `/usr/local/ffmpeg`: строку можно убрать |
 | Файлы релизов в distinfo порта, которых нет в бандле | портов curl и его библиотек (не пока бандл впереди порта) |
 | Конец security-поддержки, начиная за 60 дней до него | веток, которые собираются из тегов php-src (8.2 — 31.12.2026), с отметкой, есть ли у бэкпортов Remi Collet ветка, на которую можно перейти |
 
