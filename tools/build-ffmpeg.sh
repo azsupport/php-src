@@ -1,5 +1,5 @@
 #!/bin/sh
-# build-ffmpeg.sh - build /usr/local/kvs-media (ffmpeg and ffprobe) for the video
+# build-ffmpeg.sh - build /usr/local/ffmpeg (ffmpeg and ffprobe) for the video
 # sites from the FreeBSD ports of freebsd/ffmpeg.conf, with only the formats,
 # codecs and protocols listed there (see the head of that file for why).
 #
@@ -17,9 +17,9 @@
 # (default /var/tmp/ffmpeg-work) as static, position independent libraries;
 # FFmpeg links them in, so that ffmpeg and ffprobe need no library of /usr/local
 # (only libc, libm, libthr and libz of the base system). FFmpeg goes to
-# FFMPEG_PREFIX (default /usr/local/kvs-media): bin/ffmpeg, bin/ffprobe, VERSIONS
+# FFMPEG_PREFIX (default /usr/local/ffmpeg): bin/ffmpeg, bin/ffprobe, VERSIONS
 # and LICENSES/. Results go to ffmpeg-results/ (summary.txt, one log per
-# library), the tarball to dist/ (kvs-media-fbsd<major>-amd64-<level>.tar.xz,
+# library), the tarball to dist/ (ffmpeg-fbsd<major>-amd64-<level>.tar.xz,
 # extracted with tar -xf ... -C /usr/local). tools/ffmpeg-test.sh tests it.
 #
 # Compiler flags as for PHP and phpdeps: CPUTYPE and CFLAGS of /etc/make.conf
@@ -35,7 +35,7 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/ffmpeg.conf"
-F="${FFMPEG_PREFIX:-/usr/local/kvs-media}"
+F="${FFMPEG_PREFIX:-/usr/local/ffmpeg}"
 work="${FFMPEG_WORK:-/var/tmp/ffmpeg-work}"
 L="$work/prefix"
 res="$top/ffmpeg-results"
@@ -349,10 +349,10 @@ if [ "$rc" = 0 ]; then
     manifest
     check_bins
     if [ ! -s "$res/bins-bad.txt" ]; then
-        tarball="$dist/kvs-media-fbsd$major-amd64-$level.tar.xz"
+        tarball="$dist/ffmpeg-fbsd$major-amd64-$level.tar.xz"
         tar -cJf "$tarball" -C "$(dirname "$F")" "$(basename "$F")"
         sha256 -q "$tarball" > "$tarball.sha256"
-        cp "$F/VERSIONS" "$dist/kvs-media-fbsd$major-amd64-$level.VERSIONS.txt"
+        cp "$F/VERSIONS" "$dist/ffmpeg-fbsd$major-amd64-$level.VERSIONS.txt"
         echo "tarball: ${tarball##*/} ($(du -k "$tarball" | cut -f1) KB, $(du -sk "$F" | cut -f1) KB unpacked)" >> "$res/summary.txt"
     else
         rc=1

@@ -1,14 +1,14 @@
-name: FFmpeg for the video sites (kvs-media)
+name: FFmpeg for the video sites
 
-# Builds /usr/local/kvs-media (tools/build-ffmpeg.sh): ffmpeg and ffprobe for the
+# Builds /usr/local/ffmpeg (tools/build-ffmpeg.sh): ffmpeg and ffprobe for the
 # video sites (KVS) with only the formats, codecs and protocols of
 # freebsd/ffmpeg.conf, from the FreeBSD ports, with the compiler flags of the
 # servers for an x86-64 level; tests it as the sites use it (tools/ffmpeg-test.sh)
-# and publishes it, one job per level: kvs-media-fbsd<major>-amd64-<level>.tar.xz,
+# and publishes it, one job per level: ffmpeg-fbsd<major>-amd64-<level>.tar.xz,
 # .sha256 and the list of versions, to the pre-release
-# kvs-media-fbsd<major>-candidate (for a check on a server) or, with candidate
-# off, to kvs-media-fbsd<major>-latest and a dated release.
-# Started by hand: Actions, "FFmpeg for the video sites (kvs-media)", "Run workflow".
+# ffmpeg-fbsd<major>-candidate (for a check on a server) or, with candidate
+# off, to ffmpeg-fbsd<major>-latest and a dated release.
+# Started by hand: Actions, "FFmpeg for the video sites", "Run workflow".
 
 on:
   workflow_dispatch:
@@ -31,7 +31,7 @@ on:
         type: boolean
         default: true
       candidate:
-        description: 'Publish to kvs-media-fbsd<major>-candidate only (a pre-release, for a check on a server), not to -latest'
+        description: 'Publish to ffmpeg-fbsd<major>-candidate only (a pre-release, for a check on a server), not to -latest'
         type: boolean
         default: true
 
@@ -39,7 +39,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: kvs-media-${{ inputs.release }}
+  group: ffmpeg-${{ inputs.release }}
   cancel-in-progress: false
 
 jobs:
@@ -50,7 +50,7 @@ jobs:
       fail-fast: false
       matrix:
         cputype: ${{ inputs.cputype == 'both' && fromJSON('["x86-64-v3", "x86-64-v2"]') || fromJSON(format('["{0}"]', inputs.cputype)) }}
-    name: kvs-media (${{ matrix.cputype }})
+    name: ffmpeg (${{ matrix.cputype }})
     steps:
       - uses: actions/checkout@v5
 
@@ -90,13 +90,13 @@ jobs:
         run: |
           major="${RELEASE%%.*}"
           level="${CPUTYPE#x86-64-}"
-          tag="kvs-media-fbsd$major-latest"
-          name="kvs-media-fbsd$major-amd64-$level"
-          dated="kvs-media-fbsd$major-$(date -u +%Y%m%d)"
-          if [ -n "$CANDIDATE" ]; then tag="kvs-media-fbsd$major-candidate"; dated="$tag"; fi
-          notes="FFmpeg (ffmpeg and ffprobe) for the video sites on FreeBSD $major (amd64), with only the formats, codecs and protocols of freebsd/ffmpeg.conf: no network, no playlists. Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, LTO, PIE, RELRO and BIND_NOW, one tarball per x86-64 level: kvs-media-fbsd$major-amd64-v3.tar.xz (-march=x86-64-v3, CPUs with AVX2) and kvs-media-fbsd$major-amd64-v2.tar.xz (-march=x86-64-v2). Extract the one of the server's CPU with: tar -xf kvs-media-fbsd$major-amd64-<level>.tar.xz -C /usr/local (gives /usr/local/kvs-media/bin/ffmpeg and ffprobe). Versions, patches and the configure options: kvs-media-fbsd$major-amd64-<level>.VERSIONS.txt."
+          tag="ffmpeg-fbsd$major-latest"
+          name="ffmpeg-fbsd$major-amd64-$level"
+          dated="ffmpeg-fbsd$major-$(date -u +%Y%m%d)"
+          if [ -n "$CANDIDATE" ]; then tag="ffmpeg-fbsd$major-candidate"; dated="$tag"; fi
+          notes="FFmpeg (ffmpeg and ffprobe) for the video sites on FreeBSD $major (amd64), with only the formats, codecs and protocols of freebsd/ffmpeg.conf: no network, no playlists. Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, LTO, PIE, RELRO and BIND_NOW, one tarball per x86-64 level: ffmpeg-fbsd$major-amd64-v3.tar.xz (-march=x86-64-v3, CPUs with AVX2) and ffmpeg-fbsd$major-amd64-v2.tar.xz (-march=x86-64-v2). Extract the one of the server's CPU with: tar -xf ffmpeg-fbsd$major-amd64-<level>.tar.xz -C /usr/local (gives /usr/local/ffmpeg/bin/ffmpeg and ffprobe). Versions, patches and the configure options: ffmpeg-fbsd$major-amd64-<level>.VERSIONS.txt."
           if [ -n "$CANDIDATE" ]; then
-            notes="A candidate for kvs-media-fbsd$major-latest, for a check on a server before it is published there. $notes"
+            notes="A candidate for ffmpeg-fbsd$major-latest, for a check on a server before it is published there. $notes"
           fi
           for t in "$tag" "$dated"; do
             if ! gh release view "$t" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then

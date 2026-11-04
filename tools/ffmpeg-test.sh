@@ -1,5 +1,5 @@
 #!/bin/sh
-# ffmpeg-test.sh - test /usr/local/kvs-media of tools/build-ffmpeg.sh as the video
+# ffmpeg-test.sh - test /usr/local/ffmpeg of tools/build-ffmpeg.sh as the video
 # sites use it, and that what freebsd/ffmpeg.conf leaves out is refused.
 #
 # Usage (FreeBSD, as root, after tools/build-ffmpeg.sh): sh tools/ffmpeg-test.sh
@@ -25,7 +25,7 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/ffmpeg.conf"
-F="${FFMPEG_PREFIX:-/usr/local/kvs-media}"
+F="${FFMPEG_PREFIX:-/usr/local/ffmpeg}"
 res="$top/ffmpeg-results"
 T="${FFMPEG_TEST_WORK:-/var/tmp/ffmpeg-test}"
 ff="$F/bin/ffmpeg"
