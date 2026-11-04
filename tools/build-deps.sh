@@ -248,11 +248,17 @@ take_args() {
     [ -n "$t" ] || return 0
     set -- $t "$2"
     take_ver="$1"
-    tf="${2##*/}"
+    # several addresses of the same file, separated by commas: the first one that works
+    tf="${2%%,*}"; tf="${tf##*/}"
     mkdir -p "$work/distfiles"
     if [ ! -f "$work/distfiles/$tf" ] || [ "$(sha256 -q "$work/distfiles/$tf")" != "$3" ]; then
         rm -f "$work/distfiles/$tf"
-        fetch -q -o "$work/distfiles/$tf" "$2" || { echo "== fetch $2 failed" >&2; return 1; }
+        for u in $(echo "$2" | tr ',' ' '); do
+            fetch -q -T 60 -o "$work/distfiles/$tf" "$u" && break
+            echo "== fetch $u failed" >&2
+            rm -f "$work/distfiles/$tf"
+        done
+        [ -f "$work/distfiles/$tf" ] || return 1
     fi
     if [ "$(sha256 -q "$work/distfiles/$tf")" != "$3" ]; then
         echo "== $tf: SHA-256 $(sha256 -q "$work/distfiles/$tf"), not $3 as in deps.conf" >&2
