@@ -103,27 +103,29 @@ die() { echo "az-menu: $*" >&2; exit 2; }
 
 # The version of this file. The workflow az-menu.yml writes these lines into the
 # copy of the release az-menu: the revision (the number of commits that changed
-# this file, php-menu.sh before it), the last of those commits and its date. In a
-# checkout of the fork git gives them; a copy of master has none.
+# this file, php-menu.sh before it), the last of those commits and its time (in
+# seconds since 1970, shown in the time zone of the server). In a checkout of the
+# fork git gives them; a copy of master has none.
 AZ_MENU_REV=""
 AZ_MENU_COMMIT=""
-AZ_MENU_DATE=""
+AZ_MENU_TIME=""
 if [ -z "$AZ_MENU_COMMIT" ] && command -v git >/dev/null 2>&1 &&
     [ "$(git -C "$(dirname "$0")" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
     _d="$(dirname "$0")"; _f="$(basename "$0")"
     AZ_MENU_COMMIT="$(git -C "$_d" log -1 --format=%h -- "$_f" 2>/dev/null)"
     if [ -n "$AZ_MENU_COMMIT" ]; then
-        AZ_MENU_DATE="$(TZ=UTC git -C "$_d" log -1 --date=format-local:'%d.%m.%Y %H:%M UTC' --format=%cd -- "$_f" 2>/dev/null)"
+        AZ_MENU_TIME="$(git -C "$_d" log -1 --format=%ct -- "$_f" 2>/dev/null)"
         # a shallow clone has not all the commits to count
         [ "$(git -C "$_d" rev-parse --is-shallow-repository 2>/dev/null)" = true ] ||
             AZ_MENU_REV="r$(git -C "$_d" log --follow --format=%h -- "$_f" 2>/dev/null | wc -l | tr -d ' ')"
         git -C "$_d" diff --quiet HEAD -- "$_f" 2>/dev/null || AZ_MENU_COMMIT="$AZ_MENU_COMMIT+changed"
     fi
 fi
-# "r58 (163d3c28d, 04.11.2026 22:30 UTC)"; the short one for the top line of the screens
+# "r58 (163d3c28d, 04.11.2026 23:30 CET)"; the short one for the top line of the screens
+menu_date() { date -r "$1" "$2" 2>/dev/null || date -d "@$1" "$2" 2>/dev/null; }
 if [ -n "$AZ_MENU_COMMIT" ]; then
-    AZ_MENU_VERSION="${AZ_MENU_REV:+$AZ_MENU_REV }($AZ_MENU_COMMIT, $AZ_MENU_DATE)"
-    AZ_MENU_SHORT="${AZ_MENU_REV:+$AZ_MENU_REV }$AZ_MENU_COMMIT ${AZ_MENU_DATE% UTC}"
+    AZ_MENU_VERSION="${AZ_MENU_REV:+$AZ_MENU_REV }($AZ_MENU_COMMIT, $(menu_date "${AZ_MENU_TIME:-0}" '+%d.%m.%Y %H:%M %Z'))"
+    AZ_MENU_SHORT="${AZ_MENU_REV:+$AZ_MENU_REV }$AZ_MENU_COMMIT $(menu_date "${AZ_MENU_TIME:-0}" '+%d.%m.%Y %H:%M')"
 else
     AZ_MENU_VERSION="(no version: not the copy of the release az-menu)"
     AZ_MENU_SHORT="(no version)"
