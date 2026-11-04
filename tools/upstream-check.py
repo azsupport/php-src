@@ -189,6 +189,9 @@ BUNDLES = [
     ("ffmpeg.conf", "ffmpeg", "/usr/local/ffmpeg", "ffmpeg.yml",
      "run ffmpeg.yml (it builds, tests and publishes `ffmpeg-fbsd<major>-candidate`), check it on a "
      "server, then ffmpeg.yml with `candidate` off for `-latest`."),
+    ("imagemagick.conf", "imagemagick", "/usr/local/imagemagick6 and /usr/local/imagemagick7", "imagemagick.yml",
+     "run imagemagick.yml (it builds, tests and publishes `imagemagick-fbsd<major>-candidate`), check it "
+     "on a server, then imagemagick.yml with `candidate` off for `-latest`."),
 ]
 # Slave ports whose patches and build are in their master port.
 MASTER_PORTS = {"multimedia/libx264": "multimedia/x264"}
@@ -200,6 +203,12 @@ def deps_rows(kind, cfile="deps.conf"):
     if not os.path.exists(os.path.join(ROOT, "freebsd", cfile)):
         return []
     return [r[1:] for r in conf(cfile) if r[0] == kind]
+
+
+def deps_ports(cfile):
+    """{name: port} of the lib lines and of the im lines (an ImageMagick of
+    imagemagick.conf) of a conf file."""
+    return {r[0]: r[1] for r in deps_rows("lib", cfile) + deps_rows("im", cfile)}
 
 
 def deps_ports_commit(cfile="deps.conf"):
@@ -264,7 +273,7 @@ def check_deps_releases():
 def check_bundle_releases(cfile, bundle, prefix, steps):
     findings, checked = [], set()
     kb = bundle_key(bundle)
-    ports = {r[0]: r[1] for r in deps_rows("lib", cfile)}
+    ports = deps_ports(cfile)
     takes = {r[0]: r[1] for r in deps_rows("take", cfile)}
     for row in deps_rows("upstream", cfile):
         name, built, source = row[0], row[1], row[2]
@@ -282,7 +291,7 @@ def check_bundle_releases(cfile, bundle, prefix, steps):
         if name in takes and takes[name] != built and not (series and "patch" in (pattern or "")):
             warn("%s %s: the upstream line says %s, the take line %s" % (bundle, name, built, takes[name]))
         newest = max(found, key=vkey)
-        if not vkey(built) or vkey(newest) <= vkey(built):
+        if not vkey(norm_version(built)) or vkey(newest) <= vkey(norm_version(built)):
             continue
         port = ports.get(name, "?")
         where = "listing" if source.endswith("/") else "tag `%s`" % found[newest]
@@ -316,7 +325,7 @@ def check_takes(git):
     findings, checked = [], set()
     for cfile, bundle, _prefix, _workflow, _steps in BUNDLES:
         kt = "take:" if bundle == "phpdeps" else "take:%s:" % bundle
-        ports = {r[0]: r[1] for r in deps_rows("lib", cfile)}
+        ports = deps_ports(cfile)
         for row in deps_rows("take", cfile):
             name, ver = row[0], row[1]
             port = ports.get(name)
@@ -662,7 +671,7 @@ def ports_followed():
         commit = deps_ports_commit(cfile)
         if not commit:
             continue
-        for name, port in [r[:2] for r in deps_rows("lib", cfile)]:
+        for name, port in deps_ports(cfile).items():
             for p in (port, MASTER_PORTS.get(port)):
                 if p and p != "bundle" and p not in listed:
                     listed.add(p)
