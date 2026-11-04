@@ -424,6 +424,12 @@ their options (below) and keeps the choices. OK then installs the ready ones wit
 offers to install it; a PHP ticked without Options gets the menu of its version
 first.
 
+The list of packages (ffmpeg, ImageMagick 7 and the ready php74 ticked) and Options on
+php74: what it is built with.
+
+<p><img src="docs/images/menu-packages.png" alt="The packages of az" width="800"></p>
+<p><img src="docs/images/menu-packages-options.png" alt="What the ready php74 is built with" width="800"></p>
+
 The menu of a version (`sh az-menu.sh 8.4`, or `sh az-menu.sh` inside a source tree)
 is the `make config` of the ports for this fork: dialogs (bsddialog on FreeBSD 14 and
 later, dialog on 13) with the descriptions of the ports. Unlike the ports,
@@ -539,8 +545,10 @@ the CLI and OPcache, redis with igbinary and zstd, memcached without SASL):
 <p><img src="docs/images/menu-roundcube-ext2.png" alt="More extensions with the roundcube template" width="800"></p>
 <p><img src="docs/images/menu-main.png" alt="The main menu" width="800"></p>
 <p><img src="docs/images/menu-roundcube-script.png" alt="The script of the roundcube template" width="800"></p>
-<p><img src="docs/images/menu-bare-core.png" alt="Build options of the bare build" width="800"></p>
-<p><img src="docs/images/menu-bare-script.png" alt="The script of the bare build" width="800"></p>
+<p><img src="docs/images/menu-bare-core.png" alt="Build options of the base build" width="800"></p>
+<p><img src="docs/images/menu-bare-memcached.png" alt="The options of memcached" width="800"></p>
+<p><img src="docs/images/menu-bare-redis.png" alt="The options of redis" width="800"></p>
+<p><img src="docs/images/menu-bare-script.png" alt="The script of the base build" width="800"></p>
 <p><img src="docs/images/menu-bare.gif" alt="az-menu.sh with the defaults" width="800"></p>
 
 </details>

@@ -422,6 +422,12 @@ sh az-menu.sh
 собрать, собирается с его выбором и предлагается к установке; для PHP, отмеченного без
 Options, сначала идёт меню его версии.
 
+Список пакетов (отмечены ffmpeg, ImageMagick 7 и готовый php74) и Options на php74: с чем
+он собран.
+
+<p><img src="docs/images/menu-packages.png" alt="Пакеты az" width="800"></p>
+<p><img src="docs/images/menu-packages-options.png" alt="С чем собран готовый php74" width="800"></p>
+
 Меню версии (`sh az-menu.sh 8.4` или `sh az-menu.sh` внутри дерева исходников) — это
 `make config` портов для этого форка: диалоги (bsddialog на FreeBSD 14 и новее, dialog
 на 13) с описаниями из портов. В отличие от портов, всё встраивается в один PHP.
@@ -534,8 +540,10 @@ mbstring и OpenSSL, главное меню и скрипт, который о�
 <p><img src="docs/images/menu-roundcube-ext2.png" alt="Ещё расширения с шаблоном roundcube" width="800"></p>
 <p><img src="docs/images/menu-main.png" alt="Главное меню" width="800"></p>
 <p><img src="docs/images/menu-roundcube-script.png" alt="Скрипт шаблона roundcube" width="800"></p>
-<p><img src="docs/images/menu-bare-core.png" alt="Опции голой сборки" width="800"></p>
-<p><img src="docs/images/menu-bare-script.png" alt="Скрипт голой сборки" width="800"></p>
+<p><img src="docs/images/menu-bare-core.png" alt="Опции базовой сборки" width="800"></p>
+<p><img src="docs/images/menu-bare-memcached.png" alt="Опции memcached" width="800"></p>
+<p><img src="docs/images/menu-bare-redis.png" alt="Опции redis" width="800"></p>
+<p><img src="docs/images/menu-bare-script.png" alt="Скрипт базовой сборки" width="800"></p>
 <p><img src="docs/images/menu-bare.gif" alt="az-menu.sh по умолчанию" width="800"></p>
 
 </details>
