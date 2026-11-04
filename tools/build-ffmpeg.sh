@@ -286,7 +286,7 @@ check_bins() {
         now="$(readelf -d "$f" | grep -c -E 'BIND_NOW|FLAGS_1.*NOW')"
         libs="$(ldd "$f" | awk 'NR > 1 { print $3 }' | tr '\n' ' ' | sed 's/ *$//')"
         printf '%s: %s KB, ELF type %s, RELRO %s, BIND_NOW %s; libraries: %s\n' "$b" \
-            "$(du -k "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/bins.txt"
+            "$(du -Ak "$f" | cut -f1)" "$type" "$relro" "$now" "$libs" >> "$res/bins.txt"
         case "$libs" in *"/usr/local/"*) echo "$b: links a library of /usr/local" >> "$res/bins-bad.txt" ;; esac
         [ "$type" = DYN ] || echo "$b: not a PIE (ELF type $type)" >> "$res/bins-bad.txt"
         [ "$relro" -gt 0 ] || echo "$b: no RELRO" >> "$res/bins-bad.txt"
@@ -332,7 +332,7 @@ if [ "$rc" = 0 ]; then
     manifest
     check_bins
     if [ ! -s "$res/bins-bad.txt" ]; then
-        echo "installed: bin/ffmpeg, bin/ffprobe of $F into the stage $stage ($(du -k "$stage$F/bin/ffmpeg" | cut -f1) KB, $(du -k "$stage$F/bin/ffprobe" | cut -f1) KB)" >> "$res/summary.txt"
+        echo "installed: bin/ffmpeg, bin/ffprobe of $F into the stage $stage ($(du -Ak "$stage$F/bin/ffmpeg" | cut -f1) KB, $(du -Ak "$stage$F/bin/ffprobe" | cut -f1) KB)" >> "$res/summary.txt"
     else
         rc=1
     fi
