@@ -6,8 +6,18 @@
 #
 # Usage (from the top of a php-src checkout of master):
 #   sh tools/build-test.sh --deps 5.6 7.4        install the packages the presets need
-#   sh tools/build-test.sh --phpdeps <dir>       extract the phpdeps tarball of this CPU's level
+#   sh tools/build-test.sh --az <dir>            install az-libs, curl and ImageMagick7 from
+#                                                the repository of pkg in <dir> (az.yml)
 #   sh tools/build-test.sh [--tests] 5.6 7.4     build dist/php-<target>-fbsd-latest.tar.xz
+#
+# AZ_BUNDLE=1: build against the static libraries of /usr/local/az (az-libs; curl
+# and imagick with those of curl and ImageMagick7 there), in the layout of the
+# packages of tools/az-menu.sh (/usr/local, bin/php84, etc/php84...) instead of
+# the prefix of the preset; AZ_PACKAGE=1 then also makes the package phpXY of each
+# build (make install into a stage, tools/az-menu.sh --package) into dist/az-php/,
+# installs it and starts its php-fpm with the rc.d script (php_fpmXY onestart),
+# all versions side by side. AZ_CPUTYPE: the -march (x86-64-v3, x86-64-v2) instead
+# of that of this CPU.
 #
 # Every target is unpacked into build-test/<target>, configured with its preset
 # (below), built with make -j<cpus>, then checked: php -v, php -m, php-fpm -v,
@@ -33,15 +43,12 @@ deps() {
     # no curl and none of the libraries of curl: the bundled curl brings them
     # (--with-curl=bundled, ext/curl/deps)
     pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis"
-    if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
-        # PHP against /usr/local/phpdeps: none of the libraries it has, so that
-        # configure cannot take one of pkg by mistake; MAGICK=none leaves out the
-        # magick packages too.
+    if [ "${AZ_BUNDLE:-0}" = 1 ]; then
+        # PHP against the static libraries of /usr/local/az (--az): none of the
+        # libraries they have, so that configure cannot take one of pkg by mistake;
+        # imagick takes ImageMagick 7 of the tree (the package ImageMagick7 of az)
         pkgs="pkgconf memcached redis apache24 perl5"
-        case "${MAGICK:-imagick}" in
-            imagick) pkgs="$pkgs ImageMagick7-nox11" ;;
-            gmagick) pkgs="$pkgs GraphicsMagick-nox11" ;;
-        esac
+        [ "${MAGICK:-imagick}" = gmagick ] && pkgs="$pkgs GraphicsMagick-nox11"
         set --
     fi
     for t in "$@"; do
@@ -81,19 +88,21 @@ cpu_lacks() {
 # CPU runs it; else v2, so that the test binaries can run here.
 v3_lacks="$(cpu_lacks x86-64-v3)"
 if [ -z "$v3_lacks" ]; then march=x86-64-v3; else march=x86-64-v2; fi
+[ -n "${AZ_CPUTYPE:-}" ] && march="$AZ_CPUTYPE"
 
 if [ "${1:-}" = "--deps" ]; then
     shift
     deps "$@"
     exit $?
 fi
-# /usr/local/phpdeps of the level this CPU runs, from the tarballs of the release
-# phpdeps-fbsd<major>-latest in $2 (phpdeps-fbsd<major>-amd64-v3.tar.xz, -v2).
-if [ "${1:-}" = "--phpdeps" ]; then
-    f="$(ls "${2:-.}"/phpdeps-fbsd*-amd64-"${march#x86-64-}".tar.xz 2>/dev/null | head -n 1)"
-    [ -n "$f" ] || { echo "build-test: no phpdeps tarball for -march=$march in ${2:-.}" >&2; exit 1; }
-    echo "build-test: extracting $f (this CPU runs -march=$march)"
-    tar -xf "$f" -C /usr/local
+# az-libs, curl and ImageMagick7 from the files of a repository of pkg in $2 (the
+# release az-fbsd<major>-amd64-<level> of az.yml), as the repository az
+if [ "${1:-}" = "--az" ]; then
+    d="$(cd "${2:-.}" 2>/dev/null && pwd)"
+    [ -n "$d" ] && [ -f "$d/meta.conf" ] || { echo "build-test: no repository of pkg (meta.conf) in ${2:-.}" >&2; exit 1; }
+    mkdir -p /usr/local/etc/pkg/repos
+    printf 'az: { url: "file://%s", signature_type: "none", priority: 100, enabled: yes }\n' "$d" > /usr/local/etc/pkg/repos/az.conf
+    pkg update -f -r az && env ASSUME_ALWAYS_YES=yes pkg install -y -r az az-libs curl ImageMagick7
     exit $?
 fi
 run_tests=0
@@ -224,6 +233,43 @@ trap stop_servers EXIT INT TERM
 # Progress on stdout (the details go to build-test-results/<target>/).
 say() { printf '[build-test %s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
+# az_package <target> <source tree> <results dir>: make install into a stage, the
+# package phpXY of it (tools/az-menu.sh --package) into dist/az-php/, then pkg add,
+# php -v, and with FPM its rc.d script: onestart (the pool on its own socket, next
+# to the other versions), onestop
+az_package() {
+    t="$1"; s="$2"; o="$3"; v="$(echo "$t" | tr -d .)"
+    st="$work/stage-$t"
+    rm -rf "$st"
+    (cd "$s" && make install INSTALL_ROOT="$st") > "$o/install.log" 2>&1 || { tail -n 5 "$o/install.log" > "$o/package.log"; return 1; }
+    {
+        echo "#!/bin/sh"
+        printf "CFLAGS='%s' \\\\\n" "$CFLAGS"
+        printf "CXXFLAGS='%s' \\\\\n" "$CXXFLAGS"
+        printf "LDFLAGS='%s' \\\\\n" "$LDFLAGS"
+        printf "LIBS='%s' \\\\\n" "$LIBS"
+        printf "PKG_CONFIG='%s' \\\\\n" "$pkgconfig"
+        echo "'./configure' \\"
+        sed "s/'/'\\\\''/g; s/^/'/; s/\$/' \\\\/" "$o/configure-options.txt"
+        echo '"$@"'
+    } > "$o/config.sh"
+    f="$(AZ_MENU_WORK="$dist/az-php" sh "$top/tools/az-menu.sh" --package "$t" "$s" "$st" "$o/config.sh" 2> "$o/package.log")" ||
+        return 1
+    echo "package:  ${f##*/} ($(( $(wc -c < "$f") / 1024 )) KB)" >> "$o/summary.txt"
+    pkg add "$f" >> "$o/package.log" 2>&1 || { echo "pkg add failed" >> "$o/package.log"; return 1; }
+    echo "pkg add:  $(/usr/local/bin/php"$v" -n -v | head -n 1)" >> "$o/summary.txt"
+    if [ -f "/usr/local/etc/rc.d/php_fpm$v" ]; then
+        if sh "/usr/local/etc/rc.d/php_fpm$v" onestart >> "$o/package.log" 2>&1 && sleep 2 &&
+            [ -S "/var/run/php-fpm$v.sock" ] && sh "/usr/local/etc/rc.d/php_fpm$v" onestatus >> "$o/package.log" 2>&1; then
+            echo "php-fpm:  php_fpm$v onestart: /var/run/php-fpm$v.sock, $(pgrep -f "php-fpm$v" | wc -l | tr -d ' ') processes" >> "$o/summary.txt"
+            sh "/usr/local/etc/rc.d/php_fpm$v" onestop >> "$o/package.log" 2>&1
+        else
+            echo "php_fpm$v onestart failed" >> "$o/package.log"; return 1
+        fi
+    fi
+    return 0
+}
+
 rc=0
 for target in "$@"; do
     out="$res/$target"
@@ -255,15 +301,29 @@ for target in "$@"; do
     cd "$src" || exit 1
 
     # shellcheck disable=SC2046
-    # PHP against /usr/local/phpdeps (PHPDEPS_BUNDLE=1): the options and LDFLAGS as
-    # config-check.sh writes them with the bundle installed, its pkg-config.
+    # PHP against the static libraries of /usr/local/az (AZ_BUNDLE=1): the layout of
+    # the packages of az-menu.sh instead of the prefix of the preset, the options and
+    # LDFLAGS as config-check.sh writes them with the libraries installed, their pkg-config.
     pkgconfig="${PKG_CONFIG:-pkg-config}"
-    if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
+    short="$(echo "$target" | tr -d .)"
+    if [ "${AZ_BUNDLE:-0}" = 1 ]; then
+        grep -v -E '^--(prefix|mandir|infodir|program-suffix|sysconfdir|libdir|includedir|datadir)=' \
+            "$out/configure-options.txt" > "$out/configure-options.new"
+        {
+            echo --prefix=/usr/local
+            echo "--program-suffix=$short"
+            echo "--sysconfdir=/usr/local/etc/php$short"
+            echo "--libdir=/usr/local/lib/php$short"
+            echo "--includedir=/usr/local/include/php$short"
+            echo "--datadir=/usr/local/share/php$short"
+            echo --mandir=/usr/local/share/man
+            cat "$out/configure-options.new"
+        } > "$out/configure-options.txt"
         printf "LDFLAGS='%s'\n" "$LDFLAGS" > "$out/env.txt"
-        sh "$top/tools/config-check.sh" --deps-rewrite "$out/configure-options.txt" "$out/env.txt" > "$out/phpdeps-note.txt"
+        PHPDEPS=/usr/local/az sh "$top/tools/config-check.sh" --deps-rewrite "$out/configure-options.txt" "$out/env.txt" > "$out/az-note.txt"
         LDFLAGS="$(sed -n "s/^LDFLAGS='\(.*\)'\$/\1/p" "$out/env.txt")"
         pkgconfig="$(sed -n "s/^PKG_CONFIG='\(.*\)'\$/\1/p" "$out/env.txt")"
-        echo "phpdeps:  $(head -n 1 /usr/local/phpdeps/VERSIONS)" >> "$sum"
+        echo "az-libs:  $(pkg query '%v' az-libs) ($(head -n 1 /usr/local/az/share/doc/az-libs/VERSIONS | sed 's/, built.*//'))" >> "$sum"
     fi
     if ! env CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" LDFLAGS="$LDFLAGS" LIBS="$LIBS" PKG_CONFIG="$pkgconfig" \
             ./configure $(cat "$out/configure-options.txt") > "$out/configure.log" 2>&1; then
@@ -308,11 +368,11 @@ for target in "$@"; do
         # far: a module linked seconds before shows 1 KB)
         for so in libs/libphp*.so; do [ -f "$so" ] && echo "module:   $so ($(( $(wc -c < "$so") / 1024 )) KB)"; done
         echo "modules:  $("$php" -n -m | grep -v '^\[' | grep -v '^$' | tr '\n' ' ')"
-        # the libraries of /usr/local the binaries load (none with phpdeps and MAGICK=none)
+        # the libraries of /usr/local the binaries load (none with AZ_BUNDLE=1, but gmagick)
         echo "ldd:      $(ldd sapi/cli/php sapi/fpm/php-fpm libs/libphp*.so 2>/dev/null | awk '/=>/ { print $3 }' |
             grep '^/usr/local/' | sort -u | tr '\n' ' ' | sed 's/ *$//' | grep . || echo 'no library of /usr/local')"
-        if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
-            echo "curl:     $("$pkgconfig" --modversion libcurl) of /usr/local/phpdeps"
+        if [ "${AZ_BUNDLE:-0}" = 1 ]; then
+            echo "curl:     $("$pkgconfig" --modversion libcurl) of /usr/local/az"
         fi
         if [ -f ext/curl/libcurl-build/VERSION ]; then
             echo "curl:     bundled $(cat ext/curl/libcurl-build/VERSION) (ext/curl/libcurl-build.log)"
@@ -327,7 +387,7 @@ for target in "$@"; do
     grep -qx -- --with-openssl-legacy-provider "$out/configure-options.txt" && legacy=1
     curl_v="$(cat ext/curl/libcurl-build/VERSION 2>/dev/null)"
     brotli_v="$(awk '$1 == "brotli" { print $2 }' ext/curl/libcurl-build/DEPS 2>/dev/null)"
-    if [ "${PHPDEPS_BUNDLE:-0}" = 1 ]; then
+    if [ "${AZ_BUNDLE:-0}" = 1 ]; then
         curl_v="$("$pkgconfig" --modversion libcurl 2>/dev/null)"
         brotli_v="$("$pkgconfig" --modversion libbrotlidec 2>/dev/null | sed 's/\.!=.*//')"
     fi
@@ -373,6 +433,14 @@ for target in "$@"; do
     fi
     if [ "$run_tests" = 1 ] && [ -s "$out/tests-left-out.txt" ]; then
         echo "left out: $(tr '\n' ' ' < "$out/tests-left-out.txt")(they hang here)" >> "$sum"
+    fi
+    if [ "${AZ_PACKAGE:-0}" = 1 ] && [ "${AZ_BUNDLE:-0}" = 1 ]; then
+        say "$target: the package php$short"
+        if ! az_package "$target" "$src" "$out"; then
+            echo "result:   FAIL (package: $(tail -n 1 "$out/package.log" 2>/dev/null))" >> "$sum"
+            say "$target: FAIL in the package: $(tail -n 1 "$out/package.log" 2>/dev/null)"
+            rc=1; cd "$top" || exit 1; continue
+        fi
     fi
     echo "result:   OK" >> "$sum"
     say "$target: OK ($(grep -c '^ok ' "$out/smoke.txt") smoke checks ok, $(grep -c '^FAIL ' "$out/smoke.txt") failed)"

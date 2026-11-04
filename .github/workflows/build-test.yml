@@ -30,12 +30,12 @@ on:
         type: choice
         options: [imagick, gmagick, none]
         default: imagick
-      deps:
-        description: 'Build against /usr/local/phpdeps (release phpdeps-fbsd<major>-latest) instead of pkg libraries'
+      az:
+        description: 'Build against the static libraries of the repository az (az-libs, curl, ImageMagick7), in the layout of the packages, instead of pkg libraries'
         type: boolean
         default: false
-      deps_release:
-        description: 'With deps: the release of phpdeps to take, such as phpdeps-fbsd15-candidate (empty: phpdeps-fbsd<major>-latest)'
+      az_release:
+        description: 'With az: the release of the repository, such as az-fbsd15-amd64-v3-candidate (empty: az-fbsd<major>-amd64-v3)'
         type: string
         default: ''
       configure:
@@ -50,7 +50,7 @@ permissions:
 # cancels the one that waited before, so the variants (swoole/openswoole,
 # imagick/gmagick, tests) get groups of their own and run side by side.
 concurrency:
-  group: build-test-${{ inputs.swoole || 'swoole' }}-${{ inputs.magick || 'imagick' }}-${{ inputs.tests && 'tests' || 'build' }}-${{ inputs.deps && 'deps' || 'pkg' }}-${{ inputs.configure }}
+  group: build-test-${{ inputs.swoole || 'swoole' }}-${{ inputs.magick || 'imagick' }}-${{ inputs.tests && 'tests' || 'build' }}-${{ inputs.az && 'az' || 'pkg' }}-${{ inputs.configure }}
   cancel-in-progress: false
 
 jobs:
@@ -73,21 +73,17 @@ jobs:
           done
           cd dist && sha256sum -c ./*.sha256
 
-      - name: Download /usr/local/phpdeps
-        if: ${{ inputs.deps }}
+      - name: Download the repository az
+        if: ${{ inputs.az }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE: ${{ inputs.release }}
-          DEPS_RELEASE: ${{ inputs.deps_release }}
+          AZ_RELEASE: ${{ inputs.az_release }}
         run: |
           major="${RELEASE%%.*}"
-          mkdir -p deps-dist
-          gh release download "${DEPS_RELEASE:-phpdeps-fbsd$major-latest}" --repo "$GITHUB_REPOSITORY" --dir deps-dist \
-            --pattern "phpdeps-fbsd$major-amd64-*.tar.xz" --pattern "phpdeps-fbsd$major-amd64-*.tar.xz.sha256"
-          cd deps-dist
-          for f in phpdeps-fbsd$major-amd64-*.tar.xz; do
-            echo "$(cat "$f.sha256")  $f" | sha256sum -c || exit 1
-          done
+          mkdir -p az-repo
+          gh release download "${AZ_RELEASE:-az-fbsd$major-amd64-v3}" --repo "$GITHUB_REPOSITORY" --dir az-repo
+          ls az-repo
 
       - name: Build in FreeBSD ${{ inputs.release }}
         uses: vmactions/freebsd-vm@v1
@@ -96,14 +92,14 @@ jobs:
           TESTS: ${{ inputs.tests && '--tests' || '' }}
           SWOOLE: ${{ inputs.swoole }}
           MAGICK: ${{ inputs.magick }}
-          PHPDEPS_BUNDLE: ${{ inputs.deps && '1' || '0' }}
+          AZ_BUNDLE: ${{ inputs.az && '1' || '0' }}
           EXTRA_CONFIGURE: ${{ inputs.configure }}
         with:
           release: ${{ inputs.release }}
-          envs: 'TARGETS TESTS SWOOLE MAGICK PHPDEPS_BUNDLE EXTRA_CONFIGURE'
+          envs: 'TARGETS TESTS SWOOLE MAGICK AZ_BUNDLE EXTRA_CONFIGURE'
           prepare: |
-            if [ "$PHPDEPS_BUNDLE" = 1 ]; then sh tools/build-test.sh --phpdeps deps-dist; fi
             sh tools/build-test.sh --deps $TARGETS
+            if [ "$AZ_BUNDLE" = 1 ]; then sh tools/build-test.sh --az az-repo; fi
           run: |
             sh tools/build-test.sh $TESTS $TARGETS || true
 
