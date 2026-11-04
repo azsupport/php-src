@@ -111,6 +111,8 @@ space() {
 
 # --- the builds ---------------------------------------------------------------------
 rc=0
+mkdir -p "$work"
+space "the start"
 say "libraries and the curl program (tools/build-deps.sh)"
 if sh "$top/tools/build-deps.sh"; then part libraries OK; else part libraries FAIL; rc=1; fi
 space "the libraries"
