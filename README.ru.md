@@ -774,9 +774,8 @@ tar -xf ffmpeg-fbsd15-amd64-v3.tar.xz -C /usr/local
 ```
 
 Затем в настройках сайтов указать `/usr/local/ffmpeg/bin/ffmpeg` и
-`/usr/local/ffmpeg/bin/ffprobe` (путь ffprobe отдельно: если получать его из пути
-ffmpeg заменой каждого `ffmpeg`, выйдет `/usr/local/ffprobe/bin/ffprobe`). Пакет
-`ffmpeg` остаётся для всего остального, что им пользуется.
+`/usr/local/ffmpeg/bin/ffprobe`. Пакет `ffmpeg` остаётся для всего остального, что им
+пользуется.
 
 Workflow [`ffmpeg.yml`](.github/workflows/ffmpeg.yml) («FFmpeg for the video sites»)
 собирает её в FreeBSD под x86-64-v3 и v2 скриптом
