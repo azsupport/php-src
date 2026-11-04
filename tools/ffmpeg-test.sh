@@ -11,7 +11,7 @@
 # each: ffprobe and "ffmpeg -i" (what KVS reads), the conversion of KVS (libx264
 # into mp4, without and with AAC), screenshots, a watermark. The other ways of
 # remote_cron.php and the plugins of KVS: joins with -f concat -safe 0 and -c copy
-# into mp4, mov (-f mov) and mkv (-f matroska), subtitles kept by -c copy,
+# into mp4, mov (-f mov) and mkv (-f matroska), subtitles left out, not failed on,
 # silence from -f lavfi -i anullsrc, a video from pictures (task-%d.jpg).
 # Refused, by content: other containers and playlists named .mp4 (AVI, FLV,
 # MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip, HLS, and a concat script: the
@@ -234,7 +234,8 @@ done
 # --- the other ways of remote_cron.php and the plugins of KVS --------------------
 # join <out> <format> <sample>...: a join as remote_cron.php does it (-f concat -safe
 # 0, a list of absolute paths, -c copy, -f with the format of the sources); the
-# result has every stream of the sources (subtitles too) and their length together
+# result has the streams of the sources but subtitles (ffmpeg maps subtitles by itself
+# only when it has an encoder for them: none here) and their length together
 join() {
     o="$1"; fmt="$2"; shift 2
     : > "$T/list.txt"
@@ -245,7 +246,8 @@ join() {
     if "$ff" -hide_banner -loglevel error -y -f concat -safe 0 -i "$T/list.txt" -c copy -f "$fmt" "$T/$o" > "$T/join.log" 2>&1; then
         o2="$(probe "$T/$o")"
         d="$("$fp" -v error -show_entries format=duration -of csv=p=0 "$T/$o" 2>/dev/null)"
-        if [ "${o2#* }" = "$(probe "$T/$1" | cut -d' ' -f2)" ] && awk -v d="${d:-0}" 'BEGIN { exit !(d > 5) }'; then
+        want="$(probe "$T/$1" | cut -d' ' -f2 | tr ',' '\n' | grep -v -x -e mov_text -e subrip | paste -s -d, -)"
+        if [ "${o2#* }" = "$want" ] && awk -v d="${d:-0}" 'BEGIN { exit !(d > 5) }'; then
             pass "join -f concat -safe 0 -c copy -f $fmt ($*) -> $o2, ${d}s"
         else
             fail "join -f concat -safe 0 -c copy -f $fmt ($*) -> $o2, ${d:-?}s"
