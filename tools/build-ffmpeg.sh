@@ -80,7 +80,8 @@ export CFLAGS="$ffcflags -fPIC"
 export CXXFLAGS="$CFLAGS"
 export CPPFLAGS="-I$L/include"
 export LDFLAGS="-L$L/lib"
-export PKG_CONFIG_LIBDIR="$L/lib/pkgconfig:/usr/libdata/pkgconfig"
+# meson puts the .pc files into libdata/pkgconfig on FreeBSD (x264, dav1d), autotools into lib/pkgconfig
+export PKG_CONFIG_LIBDIR="$L/lib/pkgconfig:$L/libdata/pkgconfig:/usr/libdata/pkgconfig"
 unset PKG_CONFIG_PATH
 # LTO (x264 and FFmpeg) puts LLVM bitcode into static archives: their index needs
 # the ar of LLVM, taken by name when ar of the base system is another one.
