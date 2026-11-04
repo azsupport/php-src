@@ -784,12 +784,18 @@ A daily workflow, [`upstream-check.yml`](.github/workflows/upstream-check.yml), 
 for what the branches should take. Each finding opens one issue labelled `upstream`
 ([the issues](https://github.com/azsupport/php-src/issues?q=label%3Aupstream)); nothing
 is applied on its own. What it follows is listed in
-[`freebsd/upstream.conf`](freebsd/upstream.conf).
+[`freebsd/upstream.conf`](freebsd/upstream.conf) and, for the libraries of
+`/usr/local/phpdeps`, in [`freebsd/deps.conf`](freebsd/deps.conf). A new upstream
+release is taken when it is out, without waiting for its FreeBSD port; the ports are
+followed for their build patches and what FreeBSD needs (a library of phpdeps whose
+port is behind is built from the upstream release file, with the patches of the
+port: a `take` line of `deps.conf`).
 
 | It looks for | Of |
 |---|---|
-| Newer releases | the bundled PECL extensions (repository tags and PECL, checked against the PHP versions each release supports), curl, the libraries of curl, PCRE2 |
-| FreeBSD ports commits that change the patches or the build | their ports and `lang/php8x` |
+| Newer releases | the bundled PECL extensions (repository tags and PECL, checked against the PHP versions each release supports), curl, the libraries of curl, PCRE2, the libraries of `/usr/local/phpdeps` (repository tags or the directory of the releases) |
+| FreeBSD ports commits that change the patches or the build | their ports, `lang/php8x` and the ports of `freebsd/deps.conf` (after its ports commit) |
+| A port that has the version of a `take` line now | the libraries of `/usr/local/phpdeps`: the line can go |
 | Release files in the distinfo of a port that the bundle has not | the ports of curl and its libraries (not while the bundle is ahead of the port) |
 | The end of security support, from 60 days before it on | the branches built from php-src tags (8.2: 31.12.2026), with whether Remi Collet's backports have a branch to switch to |
 

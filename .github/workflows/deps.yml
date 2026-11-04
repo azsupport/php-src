@@ -28,6 +28,10 @@ on:
         description: 'Publish the tarball when every library built'
         type: boolean
         default: true
+      candidate:
+        description: 'Publish to phpdeps-fbsd<major>-candidate only (for a build test with deps_release), not to -latest and the dated release'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -72,16 +76,21 @@ jobs:
           RELEASE: ${{ inputs.release }}
           CPUTYPE: ${{ matrix.cputype }}
           CFLAGS_IN: ${{ inputs.cflags }}
+          CANDIDATE: ${{ inputs.candidate && '1' || '' }}
         run: |
           major="${RELEASE%%.*}"
           level="${CPUTYPE#x86-64-}"
           tag="phpdeps-fbsd$major-latest"
           name="phpdeps-fbsd$major-amd64-$level"
           dated="phpdeps-fbsd$major-$(date -u +%Y%m%d)"
+          if [ -n "$CANDIDATE" ]; then tag="phpdeps-fbsd$major-candidate"; dated="$tag"; fi
           notes="Static, position independent libraries for PHP on FreeBSD $major (amd64), built from the FreeBSD ports of freebsd/deps.conf with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, one tarball per x86-64 level: phpdeps-fbsd$major-amd64-v3.tar.xz (-march=x86-64-v3, CPUs with AVX2) and phpdeps-fbsd$major-amd64-v2.tar.xz (-march=x86-64-v2). Extract the one of the server's CPUTYPE with: tar -xf phpdeps-fbsd$major-amd64-<level>.tar.xz -C /usr/local (gives /usr/local/phpdeps). Versions and flags: phpdeps-fbsd$major-amd64-<level>.VERSIONS.txt."
+          if [ -n "$CANDIDATE" ]; then
+            notes="A candidate for phpdeps-fbsd$major-latest, for a build test (build-test.yml, deps_release $tag) before it is published there. $notes"
+          fi
           for t in "$tag" "$dated"; do
             if ! gh release view "$t" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release create "$t" --repo "$GITHUB_REPOSITORY" --title "$t" --notes "$notes" --target "$GITHUB_SHA" ||
+              gh release create "$t" --repo "$GITHUB_REPOSITORY" --title "$t" --notes "$notes" --target "$GITHUB_SHA" ${CANDIDATE:+--prerelease} ||
                 gh release view "$t" --repo "$GITHUB_REPOSITORY" >/dev/null
             fi
             gh release edit "$t" --repo "$GITHUB_REPOSITORY" --notes "$notes"
