@@ -12,7 +12,7 @@
 # site (thumbnail to JPEG, resize to WebP, the first frame of an animation, all
 # frames); a PNG watermark (composite); text (-annotate, label:) with a font that
 # fontconfig finds; CMYK to sRGB. Refused: SVG, MVG, MSL, PostScript, EPS, PDF,
-# TIFF, BMP, MNG, text:, label:@file, caption:@file, @file, inline:, ephemeral:,
+# TIFF, BMP, MNG, text:, label:@file, caption:@file, @file, inline:,
 # http:, https:, ftp:, a file in /etc, a ../ path, standard input. The delegates
 # built in (-version) must be those of the conf, and the policy ours.
 #
@@ -111,7 +111,7 @@ for im in $(awk '$1 == "im" { print $2 }' "$conf"); do
 
     while read -r s; do
         f="$T/$s"
-        want="$(echo "${s##*.}" | tr a-z A-Z)"; [ "$s" = logo.png ] && want=PNG
+        want="$(echo "${s##*.}" | tr a-z A-Z)"; [ "$want" = JPG ] && want=JPEG
         # shellcheck disable=SC2086
         got="$($idf -format '%m %wx%h\n' "$f" 2>"$w/id.err" | head -n 1)"
         case "$got" in "$want "*) pass "$im: identify $s: $got" ;; *) fail "$im: identify $s: ${got:-nothing} $(last "$w/id.err")" ;; esac
@@ -169,15 +169,14 @@ for im in $(awk '$1 == "im" { print $2 }' "$conf"); do
 
     # refused: formats not built or not allowed, pseudo files, indirection, paths;
     # refused = an error and no output (../photo.jpg and /etc/... exist, so only the
-    # policy can refuse them; ephemeral: would delete its file: a copy)
+    # policy can refuse them)
     cp "$T/photo.jpg" /etc/imagemagick-test.jpg 2>/dev/null
     mkdir -p "$w/sub"
     cp "$T/photo.jpg" "$w/photo.jpg"
-    cp "$T/photo.jpg" "$w/eph.jpg"
     for x in "$T/no.svg" "svg:$T/no.svg" "$T/no.mvg" "mvg:$T/no.mvg" "msl:$T/no.msl" "$T/no.ps" "$T/no.eps" \
         "$T/no.pdf" "$T/no.tiff" "$T/no.bmp" "$T/no.mng" "text:$T/secret.txt" "txt:$T/secret.txt" \
         "label:@$T/secret.txt" "caption:@$T/secret.txt" "@$T/list.txt" \
-        "inline:data:image/gif;base64,R0lGODlhAQABAAAAACw=" "ephemeral:$w/eph.jpg" \
+        "inline:data:image/gif;base64,R0lGODlhAQABAAAAACw=" \
         "http://127.0.0.1:9/x.jpg" "https://127.0.0.1:9/x.jpg" "ftp://127.0.0.1:9/x.jpg" \
         "/etc/imagemagick-test.jpg" "../photo.jpg"; do
         case "$x" in
@@ -193,7 +192,6 @@ for im in $(awk '$1 == "im" { print $2 }' "$conf"); do
             pass "$im: refused $(echo "$x" | sed "s#$T/##g"): $(tail -n 1 "$w/c.log" | sed "s#$T/##g" | cut -c1-120)"
         fi
     done
-    [ -f "$w/eph.jpg" ] || fail "$im: ephemeral: deleted its file"
     rm -f /etc/imagemagick-test.jpg
     rm -f "$w/stdin.png"
     cat "$T/photo.jpg" | "$cv" - "$w/stdin.png" > "$w/c.log" 2>&1

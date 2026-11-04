@@ -36,6 +36,7 @@
   - [Встроенный curl](#встроенный-curl)
   - [Встроенная PCRE](#встроенная-pcre)
 - [FFmpeg для видеосайтов](#ffmpeg-для-видеосайтов)
+- [ImageMagick 6 и 7 для видеосайтов](#imagemagick-6-и-7-для-видеосайтов)
 - [Как приходят обновления](#как-приходят-обновления)
   - [Проверка апстрима](#проверка-апстрима)
   - [Патчи совместимости сборки](#патчи-совместимости-сборки)
@@ -790,6 +791,52 @@ FLV, MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip, HLS и скрипт concat с
 пре-релиз `ffmpeg-fbsd15-candidate`, а с выключенным `candidate` —
 `ffmpeg-fbsd15-latest` и датированный релиз. [Проверка апстрима](#проверка-апстрима)
 следит за релизами FFmpeg, dav1d и libwebp и за коммитами в их порты.
+
+## ImageMagick 6 и 7 для видеосайтов
+
+ImageMagick 6 и 7 для видеосайтов (KVS) на FreeBSD 15 — статические программы в
+`/usr/local/imagemagick6/bin` (`convert`, `identify`, `mogrify`, `composite` и
+другие) и `/usr/local/imagemagick7/bin` (`magick` и те же имена), так что их можно
+поставить одновременно (пакеты `ImageMagick6` и `ImageMagick7` конфликтуют):
+[`freebsd/imagemagick.conf`](freebsd/imagemagick.conf). Как и FFmpeg, ImageMagick
+определяет формат по содержимому файла, а часть его форматов выполняет код или
+читает другие файлы (скрипты MVG и MSL, SVG, PostScript через Ghostscript, `text:` и
+`@файл`); здесь собрано только нужное сайтам, и политика
+[`freebsd/imagemagick/policy.xml`](freebsd/imagemagick/policy.xml) разрешает только
+это.
+
+| | |
+|---|---|
+| Читает и пишет | JPEG (mozjpeg), PNG, WebP, GIF, HEIC и AVIF (libheif с libde265 и dav1d; чтение); `xc:`, `canvas:`, `label:`, `caption:` |
+| Ещё | текст (FreeType; fontconfig с настройками и шрифтами системы, `/usr/local/etc/fonts`), цветовые профили (lcms2) |
+| Не собрано | SVG, PDF, PostScript (без Ghostscript), RAW, EXR, JPEG 2000, JPEG XL, DjVu, WMF, TIFF, X11, Perl, подгружаемые модули, libxml2 (MSL, URL) |
+| Политика | политика ImageMagick `websafe` с форматами выше: без внешних программ, без `@файл`, без чтения из `/etc` и через `../`, без стандартного ввода; картинки до 20000 точек в ширину и высоту, 1 ГиБ памяти, 120 секунд |
+| Сборка | из портов FreeBSD (freebsd-ports от 04.11.2026: ImageMagick7 7.1.2-34 и ImageMagick6 6.9.13-59, в них закрыты уязвимости записи VuXML от 26.10.2026) с `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO, BIND_NOW; библиотеки вшиты, из `/usr/local/lib` ничего |
+
+На сервере: тарболы под его процессор (`v3` требует AVX2: `grep -c AVX2
+/var/run/dmesg.boot` больше 0; иначе `v2`) из релиза `imagemagick-fbsd15-latest`
+(до него — `imagemagick-fbsd15-candidate`), распаковать в `/usr/local`:
+
+```
+fetch https://github.com/azsupport/php-src/releases/download/imagemagick-fbsd15-latest/imagemagick6-fbsd15-amd64-v3.tar.xz
+fetch https://github.com/azsupport/php-src/releases/download/imagemagick-fbsd15-latest/imagemagick7-fbsd15-amd64-v3.tar.xz
+tar -xf imagemagick6-fbsd15-amd64-v3.tar.xz -C /usr/local
+tar -xf imagemagick7-fbsd15-amd64-v3.tar.xz -C /usr/local
+/usr/local/imagemagick6/bin/convert -version
+/usr/local/imagemagick7/bin/magick -version
+```
+
+Затем указать эти программы в настройках сайтов; для текста по имени шрифта нужны
+пакет `fontconfig` и шрифты (например, `dejavu`), как и пакетам. Workflow
+[`imagemagick.yml`](.github/workflows/imagemagick.yml) («ImageMagick for the video
+sites») собирает оба под x86-64-v3 и v2 скриптом
+[`tools/build-imagemagick.sh`](tools/build-imagemagick.sh) и проверяет
+[`tools/imagemagick-test.sh`](tools/imagemagick-test.sh): образцы всех форматов
+(сделаны пакетом `ImageMagick7`), identify, миниатюры, WebP, анимации, водяной
+знак, текст, CMYK; отвергаются SVG, MVG, MSL, PostScript, PDF, TIFF, BMP, MNG,
+`text:`, `label:@`, `@файл`, `inline:`, URL, `/etc`, `../` и
+стандартный ввод. [Проверка апстрима](#проверка-апстрима) следит за релизами
+ImageMagick 6 и 7 и их библиотек и за коммитами в их порты.
 
 ## Как приходят обновления
 

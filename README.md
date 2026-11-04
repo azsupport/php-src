@@ -34,6 +34,7 @@ Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
   - [Bundled curl](#bundled-curl)
   - [Bundled PCRE](#bundled-pcre)
 - [FFmpeg for the video sites](#ffmpeg-for-the-video-sites)
+- [ImageMagick 6 and 7 for the video sites](#imagemagick-6-and-7-for-the-video-sites)
 - [How updates happen](#how-updates-happen)
   - [Upstream check](#upstream-check)
   - [Build compatibility patches](#build-compatibility-patches)
@@ -798,6 +799,53 @@ FLV, MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip, HLS and a concat script named
 pre-release `ffmpeg-fbsd15-candidate`, or with `candidate` off `ffmpeg-fbsd15-latest`
 and a dated release. The [upstream check](#upstream-check) follows the releases of
 FFmpeg, dav1d and libwebp and the commits to their ports.
+
+## ImageMagick 6 and 7 for the video sites
+
+ImageMagick 6 and 7 for the video sites (KVS) on FreeBSD 15 as static programs in
+`/usr/local/imagemagick6/bin` (`convert`, `identify`, `mogrify`, `composite` and
+the others) and `/usr/local/imagemagick7/bin` (`magick` and the same names), so
+that both can be installed at once (the `ImageMagick6` and `ImageMagick7` packages
+conflict): [`freebsd/imagemagick.conf`](freebsd/imagemagick.conf). Like FFmpeg,
+ImageMagick takes the format of a file from its content, and some of its formats
+run code or read other files (MVG and MSL scripts, SVG, PostScript through
+Ghostscript, `text:` and `@file`); here only what the sites need is built, and the
+policy [`freebsd/imagemagick/policy.xml`](freebsd/imagemagick/policy.xml) allows
+only that.
+
+| | |
+|---|---|
+| Reads and writes | JPEG (mozjpeg), PNG, WebP, GIF, HEIC and AVIF (libheif with libde265 and dav1d; reading); `xc:`, `canvas:`, `label:`, `caption:` |
+| Also | text (FreeType; fontconfig with the configuration and fonts of the system, `/usr/local/etc/fonts`), colour profiles (lcms2) |
+| Not built | SVG, PDF, PostScript (no Ghostscript), RAW, EXR, JPEG 2000, JPEG XL, DjVu, WMF, TIFF, X11, Perl, loadable modules, libxml2 (MSL, URLs) |
+| Policy | the `websafe` policy of ImageMagick with the formats above: no delegate programs, no `@file`, no reading from `/etc` or through `../`, no standard input; images up to 20000 pixels wide and high, 1 GiB of memory, 120 seconds |
+| Built | from the FreeBSD ports (freebsd-ports of 04.11.2026: ImageMagick7 7.1.2-34 and ImageMagick6 6.9.13-59, which fix the vulnerabilities of the VuXML entry of 26.10.2026) with `-O3 -pipe -march=<level> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO, BIND_NOW; the libraries are linked in, nothing of `/usr/local/lib` |
+
+On a server: the tarballs of its CPU (`v3` needs AVX2: `grep -c AVX2
+/var/run/dmesg.boot` above 0; else `v2`) from the release
+`imagemagick-fbsd15-latest` (`imagemagick-fbsd15-candidate` before it), extracted
+into `/usr/local`:
+
+```
+fetch https://github.com/azsupport/php-src/releases/download/imagemagick-fbsd15-latest/imagemagick6-fbsd15-amd64-v3.tar.xz
+fetch https://github.com/azsupport/php-src/releases/download/imagemagick-fbsd15-latest/imagemagick7-fbsd15-amd64-v3.tar.xz
+tar -xf imagemagick6-fbsd15-amd64-v3.tar.xz -C /usr/local
+tar -xf imagemagick7-fbsd15-amd64-v3.tar.xz -C /usr/local
+/usr/local/imagemagick6/bin/convert -version
+/usr/local/imagemagick7/bin/magick -version
+```
+
+The sites then take those programs in their settings; text by font name needs
+the `fontconfig` package and fonts (such as `dejavu`), as the packages do. The
+workflow [`imagemagick.yml`](.github/workflows/imagemagick.yml) ("ImageMagick for
+the video sites") builds both for x86-64-v3 and v2 with
+[`tools/build-imagemagick.sh`](tools/build-imagemagick.sh) and tests them with
+[`tools/imagemagick-test.sh`](tools/imagemagick-test.sh): samples of every format
+(made with the `ImageMagick7` package), identify, thumbnails, WebP, animations, a
+watermark, text, CMYK; refused: SVG, MVG, MSL, PostScript, PDF, TIFF, BMP, MNG,
+`text:`, `label:@`, `@file`, `inline:`, URLs, `/etc`, `../` and
+standard input. The [upstream check](#upstream-check) follows the releases of
+ImageMagick 6 and 7 and of their libraries and the commits to their ports.
 
 ## How updates happen
 

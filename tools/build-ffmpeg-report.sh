@@ -24,7 +24,7 @@ escape() { sed 's/%/%25/g; s/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }'; }
     if [ -s "$res/tests.txt" ]; then
         echo
         grep -v '^ok ' "$res/tests.txt"
-        echo "($(grep -c '^ok ' "$res/tests.txt") checks passed: ffmpeg-results/tests.txt)"
+        echo "($(grep -c '^ok ' "$res/tests.txt") checks passed: ${res##*/}/tests.txt)"
     fi
 } > "$res/report.txt"
 cat "$res/report.txt"

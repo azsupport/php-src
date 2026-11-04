@@ -1,0 +1,30 @@
+ImageMagick 6: the HEIC, HEIF and AVIF formats belong to the module HEIC, as in
+ImageMagick 7 (coders/heic.c sets no magick_module, so a policy that allows
+modules by name, such as freebsd/imagemagick/policy.xml, refused them as "(null)").
+
+--- a/coders/heic.c
++++ b/coders/heic.c
+@@ -838,6 +838,7 @@
+ #endif
+ #endif
+   entry=SetMagickInfo("HEIC");
++  entry->magick_module=ConstantString("HEIC");
+ #if defined(MAGICKCORE_HEIC_DELEGATE)
+   entry->decoder=(DecodeImageHandler *) ReadHEICImage;
+   if (heif_have_encoder_for_format(heif_compression_HEVC))
+@@ -853,6 +854,7 @@
+   entry->blob_support=MagickFalse;
+   (void) RegisterMagickInfo(entry);
+   entry=SetMagickInfo("HEIF");
++  entry->magick_module=ConstantString("HEIC");
+ #if defined(MAGICKCORE_HEIC_DELEGATE)
+   entry->decoder=(DecodeImageHandler *) ReadHEICImage;
+   if (heif_have_encoder_for_format(heif_compression_HEVC))
+@@ -869,6 +871,7 @@
+   (void) RegisterMagickInfo(entry);
+ #if LIBHEIF_NUMERIC_VERSION >= HEIC_COMPUTE_NUMERIC_VERSION(1,7,0)
+   entry=SetMagickInfo("AVIF");
++  entry->magick_module=ConstantString("HEIC");
+ #if defined(MAGICKCORE_HEIC_DELEGATE)
+   if (heif_have_decoder_for_format(heif_compression_AV1))
+     entry->decoder=(DecodeImageHandler *) ReadHEICImage;
