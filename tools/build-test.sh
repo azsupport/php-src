@@ -40,9 +40,10 @@ deps() {
     # GraphicsMagick needs libwmf, which conflicts with the libwmf-nox11 of
     # ImageMagick7-nox11, and pkg -y then drops GraphicsMagick from the request);
     # memcached and redis: servers for the smoke checks of the PECL extensions;
-    # no curl and none of the libraries of curl: the bundled curl brings them
-    # (--with-curl=bundled, ext/curl/deps)
-    pkgs="pkgconf libmemcached ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis"
+    # zstd: the zstd compression of redis (7.4 and later); no curl and none of the
+    # libraries of curl: the bundled curl brings them (--with-curl=bundled,
+    # ext/curl/deps)
+    pkgs="pkgconf libmemcached zstd ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis"
     if [ "${AZ_BUNDLE:-0}" = 1 ]; then
         # PHP against the static libraries of /usr/local/az (--az): none of the
         # libraries they have, so that configure cannot take one of pkg by mistake;
@@ -167,7 +168,7 @@ preset() {
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
                 --enable-memcache --with-$mg=/usr/local \
                 --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw \
-                --enable-excimer --with-mcrypt=/usr/local
+                --enable-redis-zstd --enable-excimer --with-mcrypt=/usr/local
             ;;
         8.*)
             v="$(echo "$1" | tr -d .)"
@@ -188,7 +189,7 @@ preset() {
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
                 --enable-memcache --with-$mg=/usr/local \
                 --enable-igbinary --enable-redis-igbinary --enable-memcached-igbinary --enable-$sw \
-                --enable-excimer --with-mcrypt=/usr/local
+                --enable-redis-zstd --enable-excimer --with-mcrypt=/usr/local
             ;;
         *) return 1 ;;
     esac

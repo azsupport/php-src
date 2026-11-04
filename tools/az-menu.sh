@@ -183,7 +183,7 @@ menu_data() {
 *	I	ext	018	GMP	0	--with-gmp=/usr/local	-	GNU MP support	package gmp
 5.6	I	ext	019	HASH	0	--enable-hash	-	HASH Message Digest Framework	built in from PHP 7.4; mhash: next screen
 *	I	ext	020	ICONV	0	--with-iconv=/usr/local	-	iconv support	GNU libiconv (package libiconv): //TRANSLIT as on Linux
-*	I	ext	021	IGBINARY	0	--enable-igbinary	-	Binary serializer (igbinary, PECL)	-
+*	I	ext	021	IGBINARY	1	--enable-igbinary	-	Binary serializer (igbinary, PECL)	-
 *	I	ext	022	IMAGICK	0	--with-imagick=/usr/local	-	ImageMagick image library (Imagick, PECL)	package ImageMagick7
 5.6-8.3	I	ext	023	IMAP	0	--with-imap=/usr/local	-	IMAP support	package cclient (built with SSL)
 5.6	I	ext	024	INTERBASE	0	--with-interbase=/usr/local	-	Interbase 6 database support (Firebird)	Firebird client package (firebirdNN-client)
@@ -194,7 +194,7 @@ menu_data() {
 5.6	I	ext	029	MBSTRING	0	--enable-mbstring	-	multibyte string support	oniguruma built in
 5.6	I	ext	030	MCRYPT	0	--with-mcrypt=/usr/local	-	Encryption support	package libmcrypt
 *	I	ext	031	MEMCACHE	0	--enable-memcache	-	memcache client, the old one (PECL)	-
-*	I	ext	032	MEMCACHED	0	--enable-memcached --with-libmemcached-dir=/usr/local	-	memcached client on libmemcached (PECL)	package libmemcached
+*	I	ext	032	MEMCACHED	1	--enable-memcached --with-libmemcached-dir=/usr/local	-	memcached client on libmemcached (PECL)	package libmemcached
 5.6	I	ext	033	MSSQL	0	--with-mssql=/usr/local	-	MS-SQL database support	package freetds
 5.6	I	ext	034	MYSQL	0	--with-mysql	-	MySQL database support	on mysqlnd: no MySQL client needed
 5.6	I	ext	035	MYSQLI	0	--with-mysqli	-	MySQLi database support	on mysqlnd: no MySQL client needed
@@ -214,7 +214,7 @@ menu_data() {
 5.6-8.3	I	ext	050	PSPELL	0	--with-pspell=/usr/local	-	pspell support	package aspell
 *	I	ext	051	READLINE	0	-	-	readline support (CLI only)	only for php -a; library: next screen
 5.6	I	ext	052	RECODE	0	--with-recode=/usr/local	-	recode support	package recode
-*	I	ext	053	REDIS	0	--enable-redis	-	Redis client (phpredis, PECL)	serializers, compression, sessions: next screen
+*	I	ext	053	REDIS	1	--enable-redis	-	Redis client (phpredis, PECL)	serializers, compression, sessions: next screen
 *	I	ext	054	SESSION	0	--enable-session	-	session support	needed by almost every site
 *	I	ext	055	SHMOP	0	--enable-shmop	-	shmop support	-
 *	I	ext	056	SIMPLEXML	0	--enable-simplexml	-	simplexml support	-
@@ -1007,7 +1007,7 @@ menu_data() {
 7.4+	I	dba	007	DBA.LMDB	0	--with-lmdb=/usr/local	-	LMDB database support	package lmdb
 7.4	I	redis	001	REDIS.JSON	1	-	--disable-redis-json	JSON serializer	needs the json extension
 7.4+	I	redis	003	REDIS.LZ4	0	--enable-redis-lz4 --with-liblz4	-	Build with lz4 support	package liblz4
-7.4+	I	redis	004	REDIS.ZSTD	0	--enable-redis-zstd	-	Build with zstd support	package zstd
+7.4+	I	redis	004	REDIS.ZSTD	1	--enable-redis-zstd	-	Build with zstd support	package zstd
 7.4+	I	swoole	000	SWOOLE.CURL	0	--enable-swoole-curl	-	Coroutine curl hook	needs the curl extension
 7.4+	I	swoole	001	SWOOLE.BROTLI	0	--enable-brotli	--disable-brotli	Brotli compression	package brotli
 7.4+	I	openswoole	000	OPENSWOOLE.HTTP2	0	--enable-http2	-	HTTP/2 server	-
@@ -1716,7 +1716,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     pkg rquery -r az '%n	%v	%c' > "$mt/ready" 2>/dev/null
     names="az-libs curl ffmpeg ImageMagick6 ImageMagick7"
     for b in $BRANCHES; do names="$names php$(echo "$b" | tr -d .)"; done
-    focus=""
+    focus="" checked=" " chosen=" "
     while :; do
         set --
         for n in $names; do
@@ -1724,11 +1724,16 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             rc_="$(awk -F '	' -v n="$n" '$1 == n { print $3 }' "$mt/ready")"
             iv="$(pkg query '%v' "$n" 2>/dev/null)"
             if [ -n "$rv" ]; then
-                set -- "$@" "$n" "ready $rv${iv:+, installed $iv}" off "$rc_ (Options: what it is built with)"
+                st_=off; case "$checked" in *" $n "*) st_=on ;; esac
+                set -- "$@" "$n" "ready $rv${iv:+, installed $iv}" "$st_" "$rc_ (Options: what it is built with)"
             fi
             case "$n" in
-                php*) set -- "$@" "$n.build" "build here with your options${iv:+, installed $iv}" off \
-                    "PHP ${n#php}: the menu of its options, then the package $n made here" ;;
+                php*)
+                    st_=off; case "$checked$chosen" in *" $n.build "*) st_=on ;; esac
+                    d_="build here: Options chooses its modules"
+                    case "$chosen" in *" $n.build "*) d_="build here with the modules chosen" ;; esac
+                    set -- "$@" "$n.build" "$d_${iv:+, installed $iv}" "$st_" \
+                        "PHP $(echo "${n#php}" | sed 's/^\(.\)/\1./'): Options opens the menu of its modules and their options; OK builds the package $n here" ;;
             esac
         done
         [ -n "$focus" ] || focus="$1"
@@ -1742,9 +1747,17 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             2|4)
                 set -- $(printf '%s\n' "${res#HELP }" | tr -d "\"'")
                 ftag="${1:-}"
+                [ $# -gt 0 ] && shift
+                checked=" $* "
                 [ -n "$ftag" ] && focus="$ftag"
                 case "$ftag" in
-                    *.build) dlg --title "$ftag" --msgbox "Built here: the menu of PHP with the options of the build on this server (config.installed.sh), else those saved before, else the defaults." 0 0 ;;
+                    *.build)
+                        # the menu of the modules of that version: the choices are
+                        # saved, and OK builds the package with them
+                        b_="$(echo "${ftag%.build}" | sed 's/^php//; s/^\(.\)/\1./')"
+                        if AZ_MENU_CHOOSE=1 sh "$0" "$b_"; then
+                            case "$chosen" in *" $ftag "*) ;; *) chosen="$chosen$ftag " ;; esac
+                        fi ;;
                     "") ;;
                     *)
                         {
@@ -1779,6 +1792,8 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
         case "$sel" in *" $n "*) ready="$ready $n" ;; esac
         case "$sel" in *" $n.build "*) builds="$builds ${n#php}" ;; esac
     done
+    # the versions whose modules were chosen with Options: built with those choices
+    # (--batch), then the question whether to install the package
     rm -rf "$mt"
     command -v clear >/dev/null 2>&1 && clear
     [ -n "$ready$builds" ] || { say "nothing chosen"; exit 0; }
@@ -1789,8 +1804,25 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     fi
     for v in $builds; do
         b="$(echo "$v" | sed 's/^\(.\)/\1./')"
-        say "PHP $b: its menu (BUILD there makes the package and offers to install it)"
-        sh "$0" "$b" || say "PHP $b: not built"
+        case "$chosen" in
+            *" php$v.build "*)
+                say "PHP $b: the package php$v with the modules chosen ($db/php$v.options)"
+                if sh "$0" --batch --build "$b"; then
+                    f_="$(ls -t "$work"/php"$v"-[0-9]*.pkg 2>/dev/null | head -n 1)"
+                    if [ -n "$f_" ] && dlg --title "php$v" --yesno "Install ${f_##*/} into the system now (pkg add)?" 0 0; then
+                        command -v clear >/dev/null 2>&1 && clear
+                        pkg add "$f_" || say "pkg add $f_ failed"
+                    else
+                        command -v clear >/dev/null 2>&1 && clear
+                        say "not installed: pkg add $f_"
+                    fi
+                else
+                    say "PHP $b: not built"
+                fi ;;
+            *)
+                say "PHP $b: its menu (BUILD there makes the package and offers to install it)"
+                sh "$0" "$b" || say "PHP $b: not built" ;;
+        esac
     done
     exit 0
 }
@@ -2633,8 +2665,13 @@ if [ -z "$template" ]; then
 fi
 show_screen core && show_screen ext && sub_screens rest || { echo "az-menu: cancelled, nothing written" >&2; exit 1; }
 while :; do
-    set -- WRITE "Write ${out##*/} and save the choices" \
-        BUILD "Write it, build the package php$short here, install it" \
+    if [ -n "${AZ_MENU_CHOOSE:-}" ]; then
+        set -- SAVE "Save the choices: OK in the list of packages builds php$short with them"
+    else
+        set -- WRITE "Write ${out##*/} and save the choices" \
+            BUILD "Write it, build the package php$short here, install it"
+    fi
+    set -- "$@" \
         CORE "Build options" \
         EXT "Extensions" \
         OPTIONS "Options of the extensions"
@@ -2644,10 +2681,22 @@ while :; do
         set -- "$@" "$vid" "$desc: ${v:-none}"
     done < "$tmp/vals_def"
     [ -s "$tmp/tpls" ] && set -- "$@" TEMPLATES "Start again from a template or the defaults"
-    set -- "$@" SHOW "Show the script it writes" QUIT "Quit without writing"
-    choice="$(dlg --title "PHP $branch" --default-item WRITE --menu \
+    if [ -n "${AZ_MENU_CHOOSE:-}" ]; then
+        set -- "$@" SHOW "Show the configure script of the choices" QUIT "Back to the list of packages without saving"
+    else
+        set -- "$@" SHOW "Show the script it writes" QUIT "Quit without writing"
+    fi
+    dflt=WRITE; [ -n "${AZ_MENU_CHOOSE:-}" ] && dflt=SAVE
+    choice="$(dlg --title "PHP $branch" --default-item "$dflt" --menu \
         "Write the configure script, go back to a screen, or change a path (choices: $db/php$short.options)" 0 0 0 "$@")" || choice=QUIT
     case "$choice" in
+        SAVE)
+            fix_radios
+            closure
+            conflicts
+            if [ -n "$bad" ]; then dlg --title "Not together" --msgbox "$bad" 0 0; continue; fi
+            save_choices
+            exit 0 ;;
         WRITE)
             fix_radios
             closure

@@ -415,6 +415,15 @@ if (function_exists('igbinary_serialize')) {
         $r->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
         $r->set('build-test-ig', $data);
         check('redis with igbinary', $r->get('build-test-ig') === $data, 'serializer igbinary');
+        if (defined('Redis::COMPRESSION_ZSTD')) {
+            $r->setOption(Redis::OPT_COMPRESSION, Redis::COMPRESSION_ZSTD);
+            $big = array_fill(0, 200, $data);
+            $r->set('build-test-zstd', $big);
+            check('redis with zstd', $r->get('build-test-zstd') === $big, 'compression zstd with the serializer igbinary');
+            $r->setOption(Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE);
+        } else {
+            check('redis with zstd', null, 'no zstd compression (--enable-redis-zstd)');
+        }
     }
     if (class_exists('Memcached') && defined('Memcached::HAVE_IGBINARY') && Memcached::HAVE_IGBINARY && port_open(11211)) {
         $m = new Memcached();

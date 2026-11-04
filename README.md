@@ -417,9 +417,12 @@ the last of those commits and its date, for example `r58 163d3c28d 04.11.2026 22
 Started so (no version named, not in a PHP source tree), it lists the packages of az
 with check boxes: each one ready from the repository (the button **Options** shows
 what it is built with: its description, for PHP the configure options and `CFLAGS`
-of the build, the packages it depends on) or, for PHP, built here with your options.
-The ready ones go in with `pkg install -r az`; for each PHP to build, the menu of its
-version follows.
+of the build, the packages it depends on) or, for PHP, built here with your options:
+**Options** on `phpXY` "build here" opens the menu of the modules of that version and
+their options (below) and keeps the choices. OK then installs the ready ones with
+`pkg install -r az`, builds the package of each PHP to build with its choices and
+offers to install it; a PHP ticked without Options gets the menu of its version
+first.
 
 The menu of a version (`sh az-menu.sh 8.4`, or `sh az-menu.sh` inside a source tree)
 is the `make config` of the ports for this fork: dialogs (bsddialog on FreeBSD 14 and
@@ -461,7 +464,7 @@ sh config.menu.sh
 
 | What | How |
 |---|---|
-| Starts from | what the installed build has (the `config.installed.sh` of `config-check.sh`), keeping its environment and its other options (layout, php.ini paths, `--build`). Without `config.installed.sh`: our base build only (`--disable-all`, the CLI and OPcache; the SAPI and the extensions are chosen) with the compiler flags of every build |
+| Starts from | what the installed build has (the `config.installed.sh` of `config-check.sh`), keeping its environment and its other options (layout, php.ini paths, `--build`). Without `config.installed.sh`: our base build (`--disable-all`, the CLI and OPcache; redis with igbinary and zstd, memcached on libmemcached without SASL: `--enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd`, zstd in 7.4 and later, `--enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl`; the SAPI and the other extensions are chosen) with the compiler flags of every build |
 | Writes | `config.menu.sh`, a script of the same form, with the SAPI, the build options and the extensions chosen in the menu |
 | On by default | OPcache built into PHP and no extension loading (the options of this fork, [below](#built-in-opcache-and-no-extension-loading)); the bundled curl where the base system has OpenSSL 3 (FreeBSD 14 and later); the Argon2 of OpenSSL where it has 3.2 (FreeBSD 15) |
 | Off unless chosen | phpdbg: in 7.4 and later the menu writes `--disable-phpdbg`, since `--disable-all` leaves the SAPIs alone |
