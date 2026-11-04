@@ -10,10 +10,12 @@
 #
 # The samples are made with the ffmpeg package (installed here; it has all the
 # encoders): every container the sites take (mp4, m4v, mov, mkv, webm) with
-# H.264, HEVC (8 and 10 bit), AV1, VP9 and VP8, AAC, MP3, Opus, Vorbis, AC3 and
-# E-AC3, subtitles, a rotated phone video, JPEG, PNG and WebP pictures. With
-# each: ffprobe and "ffmpeg -i" (what KVS reads), the conversion of KVS (libx264
-# into mp4, without and with AAC), screenshots, a watermark. The other ways of
+# H.264 (also in 10 bit, 4:2:2 and 4:4:4), HEVC (8 and 10 bit), AV1, VP9, VP8 and
+# MJPEG, AAC, MP3, Opus, Vorbis, AC3, E-AC3 and PCM, subtitles, a rotated phone
+# video, JPEG, PNG and WebP pictures. With each: ffprobe and "ffmpeg -i" (what KVS
+# reads), the conversion of KVS (libx264 into mp4, without and with AAC; its
+# command has no -pix_fmt), which must give 8-bit 4:2:0 H.264, what browsers play
+# (freebsd/ffmpeg/libx264-8bit-420.patch), screenshots, a watermark. The other ways of
 # remote_cron.php and the plugins of KVS: joins with -f concat -safe 0 and -c copy
 # into mp4, mov (-f mov) and mkv (-f matroska), subtitles left out, not failed on,
 # silence from -f lavfi -i anullsrc, a video from pictures (task-%d.jpg).
@@ -132,6 +134,10 @@ if "$ref" -hide_banner -encoders 2>/dev/null | grep -q ' libsvtav1 '; then av1="
     mk h264_mp3.mp4 $x264 -c:a libmp3lame
     mk h264_ac3.mp4 $x264 -c:a ac3
     mk h264_eac3.mp4 $x264 -c:a eac3
+    mk h264_10_aac.mp4 -c:v libx264 -preset veryfast -pix_fmt yuv420p10le -c:a aac
+    mk h264_422_aac.mov -c:v libx264 -preset veryfast -pix_fmt yuv422p -c:a aac
+    mk h264_444_aac.mp4 -c:v libx264 -preset veryfast -pix_fmt yuv444p -c:a aac
+    mk mjpeg_pcm.mov -c:v mjpeg -pix_fmt yuvj422p -c:a pcm_s16le
     mk hevc_aac.mp4 $x265 -tag:v hvc1 -c:a aac
     mk hevc10_aac.mov $x265 -tag:v hvc1 -pix_fmt yuv420p10le -c:a aac
     mk av1_aac.mp4 $av1 -c:a aac
@@ -196,6 +202,19 @@ probe() {
         awk -F= '$1 == "format_name" { f = $2 } $1 == "codec_name" { c = c (c ? "," : "") $2 } END { print f, c }'
 }
 dims() { "$fp" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x "$1" 2>/dev/null; }
+pfmt() { "$fp" -v error -select_streams v:0 -show_entries stream=profile,pix_fmt -of csv=p=0 "$1" 2>/dev/null; }
+# libx264 takes 8-bit 4:2:0 only (freebsd/ffmpeg/libx264-8bit-420.patch); an explicit
+# -pix_fmt of another format becomes yuv420p
+v="$("$ff" -hide_banner -h encoder=libx264 2>/dev/null | sed -n 's/^ *Supported pixel formats: *//p')"
+[ "$v" = "yuv420p yuvj420p nv12 nv21" ] && pass "libx264: pixel formats $v" || fail "libx264: pixel formats ${v:-none} (not those of libx264-8bit-420.patch)"
+if [ -f "$T/h264_aac.mp4" ]; then
+    if "$ff" -hide_banner -loglevel error -y -i "$T/h264_aac.mp4" -c:v libx264 -pix_fmt yuv444p10le -an -f mp4 "$T/pix.mp4" > "$T/pix.log" 2>&1; then
+        v="$(pfmt "$T/pix.mp4")"
+        case "$v" in "High,yuv420p") pass "-pix_fmt yuv444p10le -> H.264 $v" ;; *) fail "-pix_fmt yuv444p10le -> H.264 $v" ;; esac
+    else
+        fail "-pix_fmt yuv444p10le: $(tail -n 2 "$T/pix.log" | tr '\n' ' ')"
+    fi
+fi
 kvs="-vcodec libx264 -movflags +faststart -threads 0 -r 25 -g 50 -crf 25 -me_method hex -trellis 0 -bf 8"
 while read -r s; do
     f="$T/$s"
@@ -224,7 +243,12 @@ while read -r s; do
         [ "${o#* }" = h264,aac ] && pass "$s: KVS with AAC -> $o" || fail "$s: KVS with AAC -> $o"
         case "$s" in
             *rot90*) d="$(dims "$T/out.mp4")"; [ "$d" = 360x640 ] && pass "$s: turned: $d" || fail "$s: not turned: $d" ;;
-            hevc10*) note "$s: 10-bit input -> $("$fp" -v error -select_streams v:0 -show_entries stream=profile,pix_fmt -of csv=p=0 "$T/out.mp4") (no -pix_fmt yuv420p in the KVS line)" ;;
+        esac
+        # 8-bit 4:2:0 whatever the input (10 bit, 4:2:2, 4:4:4): what browsers play
+        v="$(pfmt "$T/out.mp4")"
+        case "$v" in
+            "Constrained Baseline,yuv"*420p|"Main,yuv"*420p|"High,yuv"*420p) pass "$s: KVS -> H.264 $v" ;;
+            *) fail "$s: KVS -> H.264 $v (not 8-bit 4:2:0)" ;;
         esac
     else
         fail "$s: KVS with AAC: $(tail -n 3 "$T/conv.log" | tr '\n' ' ')"

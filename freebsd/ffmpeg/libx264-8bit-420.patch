@@ -1,0 +1,37 @@
+libx264 takes 8-bit 4:2:0 only (yuv420p, yuvj420p, nv12, nv21), what browsers
+play. Without it, an upload in 10 bit (HEVC of a phone), in 4:2:2 (MJPEG of a
+camera) or in 4:4:4 (a screen recording) becomes H.264 High 10, High 4:2:2 or
+High 4:4:4 when the command of the site has no -pix_fmt yuv420p (the conversion
+of KVS has none): Safari and iPhones play none of these, other browsers not
+everywhere. With this list ffmpeg converts such input into 8-bit 4:2:0 itself
+(an explicit -pix_fmt of another format is turned into yuv420p, with a warning).
+
+--- a/libavcodec/libx264.c
++++ b/libavcodec/libx264.c
+@@ -1481,6 +1481,17 @@
+ #endif
+     AV_PIX_FMT_NONE
+ };
++/* What browsers play: 8-bit 4:2:0. With only these formats ffmpeg converts any
++ * other input into 8-bit 4:2:0 itself, without -pix_fmt yuv420p in the command. */
++static const enum AVPixelFormat pix_fmts_8bit_420[] = {
++    AV_PIX_FMT_YUV420P,
++    AV_PIX_FMT_YUVJ420P,
++    AV_PIX_FMT_NV12,
++#ifdef X264_CSP_NV21
++    AV_PIX_FMT_NV21,
++#endif
++    AV_PIX_FMT_NONE
++};
+ #if CONFIG_LIBX264RGB_ENCODER
+ static const enum AVPixelFormat pix_fmts_8bit_rgb[] = {
+     AV_PIX_FMT_BGR0,
+@@ -1625,7 +1636,7 @@
+     .flush            = X264_flush,
+     .close            = X264_close,
+     .defaults         = x264_defaults,
+-    CODEC_PIXFMTS_ARRAY(pix_fmts_all),
++    CODEC_PIXFMTS_ARRAY(pix_fmts_8bit_420),
+     .color_ranges     = AVCOL_RANGE_MPEG | AVCOL_RANGE_JPEG,
+     .caps_internal  = FF_CODEC_CAP_INIT_CLEANUP | FF_CODEC_CAP_AUTO_THREADS
+ #if X264_BUILD < 158
