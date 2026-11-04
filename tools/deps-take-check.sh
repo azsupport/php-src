@@ -30,7 +30,15 @@ names="$*"
 [ -n "$names" ] || { echo "deps-take-check: no take line in $conf"; exit 0; }
 
 sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else sha256 -q "$1"; fi; }
-get() { if command -v curl >/dev/null 2>&1; then curl -fsSL -o "$1" "$2"; else fetch -q -o "$1" "$2"; fi; }
+get1() { if command -v curl >/dev/null 2>&1; then curl -fsSL --connect-timeout 30 --max-time 600 -o "$1" "$2"; else fetch -q -T 60 -o "$1" "$2"; fi; }
+# get <file> <url[,url...]>: the first address that works
+get() {
+    for u in $(echo "$2" | tr ',' ' '); do
+        get1 "$1" "$u" && return 0
+        echo "fetch $u failed"
+    done
+    return 1
+}
 
 mkdir -p "$work" "$out"
 ports="$work/ports"
@@ -55,7 +63,7 @@ for n in $names; do
     # shellcheck disable=SC2086
     set -- $t
     ver="$1"; url="$2"; sha="$3"; srcdir="$4"
-    f="$work/${url##*/}"
+    f="${url%%,*}"; f="$work/${f##*/}"
     echo "==== $n $ver ($port at $commit)"
     get "$f" "$url" || { echo "FAIL fetch $url"; rc=1; continue; }
     got="$(sha256_of "$f")"
