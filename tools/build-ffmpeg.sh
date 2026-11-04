@@ -152,7 +152,7 @@ b_ffmpeg() {
     for p in "$top"/freebsd/ffmpeg/*.patch; do
         [ -f "$p" ] || continue
         echo "== freebsd/ffmpeg/${p##*/}"
-        patch -p1 -N -s --no-backup-if-mismatch -d "$1" < "$p" || { echo "== ${p##*/} does not apply"; return 1; }
+        patch -p1 -N -s -d "$1" < "$p" || { echo "== ${p##*/} does not apply"; return 1; }
     done
     (
         cd "$1" || exit 1
