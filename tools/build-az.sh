@@ -215,6 +215,14 @@ for n in az-libs curl ffmpeg ImageMagick6 ImageMagick7; do
         tfail "$n: pkg create: $(tail -n 2 "$res/create.$n.log" | tr '\n' ' ')"
     fi
 done
+# GitHub turns a comma in the name of a release file into a dot: the files of the
+# packages with an epoch (ffmpeg-9.0.2_26110423,1.pkg) get that name here already,
+# so that the catalog of pkg repo names them as the release serves them (the version
+# in the package keeps its ,1)
+for f in "$repo"/*,*.pkg; do
+    [ -e "$f" ] || continue
+    mv "$f" "$repo/$(basename "$f" | tr ',' '.')" || tfail "${f##*/}: not renamed"
+done
 # no file in two packages
 cat "$res"/plist.* | sed 's/^@config //' | LC_ALL=C sort | uniq -d | head -n 3 > "$res/dups.txt"
 if [ -s "$res/dups.txt" ]; then tfail "files in two packages: $(tr '\n' ' ' < "$res/dups.txt")"
