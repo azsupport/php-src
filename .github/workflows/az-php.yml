@@ -89,6 +89,13 @@ jobs:
           done
           cd dist && sha256sum -c ./*.sha256
 
+      - name: Free space on the runner (the disk of the VM grows on it)
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost /usr/share/swift || true
+          sudo docker system prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
       - name: Build, package and install in FreeBSD ${{ inputs.release }}
         uses: vmactions/freebsd-vm@v1
         env:

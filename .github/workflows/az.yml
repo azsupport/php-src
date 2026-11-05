@@ -69,6 +69,13 @@ jobs:
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir php-keep --pattern 'php[0-9]*.pkg' 2>/dev/null || true
           ls php-keep
 
+      - name: Free space on the runner (the disk of the VM grows on it)
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost /usr/share/swift || true
+          sudo docker system prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
       - name: Build, test and package in FreeBSD ${{ inputs.release }}
         uses: vmactions/freebsd-vm@v1
         env:
@@ -85,6 +92,8 @@ jobs:
             if [ -f "$r/meta.conf" ] && ls php-keep/php*.pkg > /dev/null 2>&1; then
               cp php-keep/php*.pkg "$r/" && pkg repo "$r" > az-results/repo-php.log 2>&1
             fi
+            # not back to the runner a second time
+            rm -rf php-keep
 
       - name: Report
         if: always()
