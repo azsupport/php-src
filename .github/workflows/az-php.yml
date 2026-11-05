@@ -146,3 +146,8 @@ jobs:
           for a in $(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'); do
             case "$a" in php[0-9]*-[0-9]*.pkg) [ -e "$dir/$a" ] || gh release delete-asset "$tag" "$a" --repo "$GITHUB_REPOSITORY" -y ;; esac
           done
+          # every file of the repository is in the release under its own name
+          have="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')"
+          for f in $(ls "$dir"); do
+            printf '%s\n' "$have" | grep -qxF "$f" || { echo "not in the release $tag: $f"; exit 1; }
+          done
