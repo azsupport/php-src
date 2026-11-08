@@ -2,7 +2,7 @@
 # build-az.sh - build the static programs of the fork for FreeBSD as packages
 # that take the place of those of the ports, and the static libraries they and
 # PHP are built against, with a repository of pkg made of them:
-#   az-libs        the static libraries of /usr/local/az (tools/build-deps.sh,
+#   azsupport      the static libraries of /usr/local/azsupport (tools/build-deps.sh,
 #                  freebsd/deps.conf): lib/, include/, lib/pkgconfig/, the
 #                  *-config scripts and bin/pkg-config, for builds against them
 #                  (PHP: tools/az-menu.sh, tools/config-check.sh); only there,
@@ -12,14 +12,14 @@
 #                  (the libraries of curl and OpenSSL inside it, only curl_*
 #                  exported), so that git and the other packages that link libcurl
 #                  take this one: a build of its own with the options of the port;
-#                  the curl of PHP is the static libcurl of az-libs
+#                  the curl of PHP is the static libcurl of azsupport
 #   ffmpeg         in the place of multimedia/ffmpeg: bin/ffmpeg, bin/ffprobe
 #                  (tools/build-ffmpeg.sh, freebsd/ffmpeg.conf)
 #   ImageMagick6   bin/convert6, identify6, mogrify6, composite6... with
 #                  etc/ImageMagick-6, share/ImageMagick-6, lib/ImageMagick-6.*
 #   ImageMagick7   in the place of graphics/ImageMagick7: bin/magick and the
 #                  names linked to it, etc/ImageMagick-7...; its static libraries,
-#                  headers and MagickWand-config in /usr/local/az, for imagick
+#                  headers and MagickWand-config in /usr/local/azsupport, for imagick
 #                  (tools/build-imagemagick.sh, freebsd/imagemagick.conf)
 # The names, origins and epochs are those of the ports, the versions those of the
 # ports with a revision of the build (AZ_STAMP, default the time of the build,
@@ -27,7 +27,7 @@
 # priority over that of FreeBSD on the servers. The programs are static: none of
 # the packages depends on another to run. Each has its list of versions and
 # options in share/doc/<name>/VERSIONS and its licences in share/licenses/<name>/
-# (az-libs: /usr/local/az/LICENSES/).
+# (azsupport: /usr/local/azsupport/LICENSES/).
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master; it
 # installs the packages it makes, in the place of those of the ports: a build
@@ -37,7 +37,7 @@
 #
 # The steps: the libraries and the curl program (tools/build-deps.sh), FFmpeg,
 # ImageMagick 6 and 7, all into stages (AZ_STAGE, default AZ_WORK/stage) but the
-# libraries (/usr/local/az, which must be empty or missing); the samples of the
+# libraries (/usr/local/azsupport, which must be empty or missing); the samples of the
 # tests, made with the packages of FreeBSD (ffmpeg-test.sh and imagemagick-test.sh
 # --samples), which are then removed; the packages and the repository
 # (dist/az-fbsd<major>-amd64-<level>/: the packages, meta.conf, packagesite.pkg,
@@ -56,7 +56,7 @@
 
 set -u
 top="$(pwd)"
-A="${AZ_PREFIX:-/usr/local/az}"
+A="${AZ_PREFIX:-/usr/local/azsupport}"
 work="${AZ_WORK:-/var/tmp/az-work}"
 stage="${AZ_STAGE:-$work/stage}"
 export AZ_STAGE="$stage"
@@ -151,7 +151,7 @@ docs() { mkdir -p "$stage/$1/usr/local/share/doc/$1" && cp "$2" "$stage/$1/usr/l
 {
     echo "curl ${v_curl%|*} for FreeBSD $major (amd64, $cputype): bin/curl and lib/libcurl.so.4, the release of the"
     echo "bundled curl of the fork (freebsd/curl.conf) with the options of the port ftp/curl (tools/build-deps.sh,"
-    echo "build_curl_program), against the libraries of az-libs; the curl of PHP is the static libcurl of az-libs."
+    echo "build_curl_program), against the libraries of azsupport; the curl of PHP is the static libcurl of azsupport."
     echo "The build of the libraries:"
     echo
     cat "$top/deps-results/VERSIONS"
@@ -181,10 +181,10 @@ print(json.dumps({
 }, indent=1))
 EOF
 }
-manifest az-libs az/libs "$(date -u +%Y%m%d)|" "$A" "Static libraries of /usr/local/az, for builds of PHP and the programs" \
-    MULTI devel "The static, position independent libraries of $A (freebsd/deps.conf of https://github.com/azsupport/php-src), with the curl of PHP (the static libcurl, only what PHP needs): PHP built against them (az-menu.sh, config-check.sh) and the programs of the fork need no library of /usr/local/lib. Versions: $A/share/doc/az-libs/VERSIONS."
+manifest azsupport az/azsupport "$(date -u +%Y%m%d)|" "$A" "Static libraries of /usr/local/azsupport, for builds of PHP and the programs" \
+    MULTI devel "The static, position independent libraries of $A (freebsd/deps.conf of https://github.com/azsupport/php-src), with the curl of PHP (the static libcurl, only what PHP needs): PHP built against them (az-menu.sh, config-check.sh) and the programs of the fork need no library of /usr/local/lib. Versions: $A/share/doc/azsupport/VERSIONS."
 manifest curl ftp/curl "$v_curl" /usr/local "Command line tool and library for transferring data with URLs (static, of azsupport/php-src)" \
-    MIT ftp "curl ${v_curl%|*} with the options of the port ftp/curl (HTTP/2, the protocols of the port, NTLM, IDN, the Public Suffix List, brotli, zstd, the threaded resolver; no SCP and SFTP, no GSSAPI), the OpenSSL of az-libs inside: bin/curl (static) and lib/libcurl.so.4 in the place of those of the port. Versions: share/doc/curl/VERSIONS."
+    MIT ftp "curl ${v_curl%|*} with the options of the port ftp/curl (HTTP/2, the protocols of the port, NTLM, IDN, the Public Suffix List, brotli, zstd, the threaded resolver; no SCP and SFTP, no GSSAPI), the OpenSSL of azsupport inside: bin/curl (static) and lib/libcurl.so.4 in the place of those of the port. Versions: share/doc/curl/VERSIONS."
 manifest ffmpeg multimedia/ffmpeg "$v_ffmpeg" /usr/local "FFmpeg for the video sites, static (ffmpeg, ffprobe)" \
     GPLv2+ multimedia "FFmpeg ${v_ffmpeg%|*} with only what the video sites need (freebsd/ffmpeg.conf of https://github.com/azsupport/php-src): bin/ffmpeg and bin/ffprobe, static, in the place of those of the port. Versions and options: share/doc/ffmpeg/VERSIONS."
 manifest ImageMagick6 graphics/ImageMagick6 "$v_im6" /usr/local "ImageMagick 6 for the video sites, static (convert6, identify6, ...)" \
@@ -199,11 +199,11 @@ plist() {
     (cd "$2" && find . ! -type d | sed 's#^\.##' | LC_ALL=C sort) |
         awk '/\/etc\/ImageMagick-[67]\/policy\.xml$/ { print "@config " $0; next } { print }' > "$res/plist.$1"
 }
-# the files of az-libs: all of /usr/local/az (with the static libcurl of PHP)
-(cd / && find ".$A" ! -type d | sed 's#^\.##' | LC_ALL=C sort) > "$res/plist.az-libs"
+# the files of azsupport: all of /usr/local/azsupport (with the static libcurl of PHP)
+(cd / && find ".$A" ! -type d | sed 's#^\.##' | LC_ALL=C sort) > "$res/plist.azsupport"
 for n in curl ffmpeg ImageMagick6 ImageMagick7; do plist "$n" "$stage/$n"; done
-for n in az-libs curl ffmpeg ImageMagick6 ImageMagick7; do
-    if [ "$n" = az-libs ]; then r=/; else r="$stage/$n"; fi
+for n in azsupport curl ffmpeg ImageMagick6 ImageMagick7; do
+    if [ "$n" = azsupport ]; then r=/; else r="$stage/$n"; fi
     if [ ! -s "$res/plist.$n" ]; then tfail "$n: no files"; continue; fi
     if pkg create -m "$res/meta.$n" -p "$res/plist.$n" -r "$r" -o "$repo" > "$res/create.$n.log" 2>&1; then
         f="$(ls "$repo"/"$n"-[0-9]*.pkg 2>/dev/null | head -n 1)"
@@ -229,12 +229,12 @@ if [ -s "$res/dups.txt" ]; then tfail "files in two packages: $(tr '\n' ' ' < "$
 else tpass "no file in two packages ($(cat "$res"/plist.* | wc -l | tr -d ' ') files)"; fi
 
 # --- the repository, an install into an empty root, the install here ---------------
-names="az-libs curl ffmpeg ImageMagick6 ImageMagick7"
+names="azsupport curl ffmpeg ImageMagick6 ImageMagick7"
 rd="$res/repos"
 mkdir -p "$rd"
 printf 'aztest: { url: "file://%s", signature_type: "none", priority: 100, enabled: yes }\n' "$repo" > "$rd/aztest.conf"
 if pkg repo "$repo" > "$res/repo.log" 2>&1; then
-    tpass "pkg repo: $(cd "$repo" && ls | grep -v -E '^(az-libs|curl|ffmpeg|ImageMagick[67])-[0-9].*\.pkg$' | tr '\n' ' ')"
+    tpass "pkg repo: $(cd "$repo" && ls | grep -v -E '^(azsupport|curl|ffmpeg|ImageMagick[67])-[0-9].*\.pkg$' | tr '\n' ' ')"
     root="/var/tmp/az-pkg-root"
     rm -rf "$root"; mkdir -p "$root"
     abi="$(pkg config ABI)"
@@ -273,7 +273,7 @@ if grep -q '^ok .*pkg install here' "$res/tests.txt"; then
     echo "installed: the package curl, /usr/local/bin/curl and lib/libcurl.so.4" >> "$top/curl-results/summary.txt"
 fi
 # imagick of PHP links the static libraries of ImageMagick 7 in, with the line of
-# MagickWand-config of /usr/local/az: a program (and a shared object, as libphp.so)
+# MagickWand-config of /usr/local/azsupport: a program (and a shared object, as libphp.so)
 # that does so, run once; it has to find HEIC among the formats (libheif, the policy)
 t="$work/imagick-link"
 rm -rf "$t"; mkdir -p "$t"
