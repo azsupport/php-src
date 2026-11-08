@@ -16,9 +16,10 @@
 # 4032x3024 photo and CMYK), PNG with alpha, WebP (lossy, lossless, animated),
 # animated GIF, HEIC, AVIF. With each ImageMagick: identify; the conversions of a
 # site (thumbnail to JPEG, resize to WebP, the first frame of an animation, all
-# frames); a PNG watermark (composite); text (-annotate, label:) with a font that
-# fontconfig finds; CMYK to sRGB. Refused: SVG, MVG, MSL, PostScript, EPS, PDF,
-# TIFF, BMP, MNG, text:, label:@file, caption:@file, @file, inline:,
+# frames); the BMP intermediate the sites write and read back; a PNG watermark
+# (composite); text (-annotate, label:) with a font that fontconfig finds; CMYK to
+# sRGB. Refused: SVG, MVG, MSL, PostScript, EPS, PDF,
+# TIFF, MNG, text:, label:@file, caption:@file, @file, inline:,
 # http:, https:, ftp:, a file in /etc, a ../ path, standard input. The delegates
 # built in (-version) must be those of the conf, and the policy ours.
 #
@@ -80,7 +81,6 @@ mk photo.heic -size 640x480 plasma:fractal -quality 80
 mk photo.avif -size 640x480 plasma:fractal -quality 80
 # made only to be refused
 "$ref" -size 64x64 xc:gray "$T/no.tiff" > /dev/null 2>&1
-"$ref" -size 64x64 xc:gray "$T/no.bmp" > /dev/null 2>&1
 "$ref" -size 64x64 -delay 20 xc:red xc:green "$T/no.mng" > /dev/null 2>&1
 printf '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>\n' > "$T/no.svg"
 printf 'push graphic-context\nviewbox 0 0 10 10\nfill red\nrectangle 0,0 9,9\npop graphic-context\n' > "$T/no.mvg"
@@ -160,6 +160,15 @@ for im in $(awk '$1 == "im" { print $2 }' "$conf"); do
             fail "$im: $s: frames: $(last "$w/c.log")"
         fi
     done
+    # the BMP intermediate the sites write for every screenshot and read back
+    if "$cv" "$T/photo.jpg" -resize 320x240 "$w/inter.bmp" > "$w/c.log" 2>&1 && [ -s "$w/inter.bmp" ] &&
+        "$cv" "$w/inter.bmp" -quality 85 "$w/from-bmp.jpg" > "$w/c.log" 2>&1 && [ -s "$w/from-bmp.jpg" ]; then
+        # shellcheck disable=SC2086
+        o="$($idf -format '%m' "$w/inter.bmp" 2>/dev/null)"
+        pass "$im: BMP intermediate (write $o, read back to JPEG)"
+    else
+        fail "$im: BMP intermediate: $(last "$w/c.log")"
+    fi
     # a PNG watermark, text, CMYK to sRGB
     # shellcheck disable=SC2086
     if $cps -gravity southeast -geometry +10+10 "$T/logo.png" "$T/photo.jpg" "$w/wm.jpg" > "$w/c.log" 2>&1 && [ -s "$w/wm.jpg" ]; then
@@ -192,7 +201,7 @@ for im in $(awk '$1 == "im" { print $2 }' "$conf"); do
     mkdir -p "$w/sub"
     cp "$T/photo.jpg" "$w/photo.jpg"
     for x in "$T/no.svg" "svg:$T/no.svg" "$T/no.mvg" "mvg:$T/no.mvg" "msl:$T/no.msl" "$T/no.ps" "$T/no.eps" \
-        "$T/no.pdf" "$T/no.tiff" "$T/no.bmp" "$T/no.mng" "text:$T/secret.txt" "txt:$T/secret.txt" \
+        "$T/no.pdf" "$T/no.tiff" "$T/no.mng" "text:$T/secret.txt" "txt:$T/secret.txt" \
         "label:@$T/secret.txt" "caption:@$T/secret.txt" "@$T/list.txt" \
         "inline:data:image/gif;base64,R0lGODlhAQABAAAAACw=" \
         "http://127.0.0.1:9/x.jpg" "https://127.0.0.1:9/x.jpg" "ftp://127.0.0.1:9/x.jpg" \

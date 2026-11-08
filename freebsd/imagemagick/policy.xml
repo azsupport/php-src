@@ -19,9 +19,10 @@
   It is the "websafe" policy of ImageMagick (config/policy-websafe.xml of 7.1.2-25
   and 6.9.13-50, the same in both) with the formats of the video sites and room
   for the photos of phones:
-  - read and write JPEG, PNG, WebP, GIF, HEIC and AVIF (module HEIC), nothing else
-    from files (not BMP and TIFF of websafe; not MNG and JNG, which are in the
-    module PNG); make images with xc:, canvas:, label: and caption: (text);
+  - read and write JPEG, PNG, WebP, GIF, HEIC and AVIF (module HEIC), and BMP (the
+    intermediate file KVS writes and reads back for every screenshot and album
+    image), nothing else from files (not TIFF of websafe; not MNG and JNG, which
+    are in the module PNG); make images with xc:, canvas:, label: and caption: (text);
     write INFO and JSON (identify output), MPC (the pixel cache) unseen. A module
     is allowed with "read | write": the programs are built without loadable
     modules, and a built-in module is registered only when the policy gives it
@@ -58,7 +59,7 @@
   <policy domain="path" rights="none" pattern="*../*"/>
   <policy domain="path" rights="none" pattern="@*"/>
   <policy domain="module" rights="none" pattern="*"/>
-  <policy domain="module" rights="read | write" pattern="{GIF,JPEG,PNG,WEBP,HEIC,XC,LABEL,CAPTION,INFO,JSON}"/>
+  <policy domain="module" rights="read | write" pattern="{BMP,GIF,JPEG,PNG,WEBP,HEIC,XC,LABEL,CAPTION,INFO,JSON}"/>
   <policy domain="module" rights="read | write" pattern="{MPC}" stealth="true"/>
   <policy domain="coder" rights="none" pattern="{MNG,JNG}"/>
   <policy domain="system" name="shred" value="1"/>
