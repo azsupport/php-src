@@ -326,6 +326,70 @@ else
     tfail "imagick: the static libraries of ImageMagick 7 do not link as imagick links them: $(tail -n 3 "$res/imagick-link.txt" | tr '\n' ' ')"
 fi
 
+# The PHP modules of pkg mode link the shared libraries of the shared tree
+# /usr/local/azsupport: a program that links them as such a module would (the
+# .pc files through bin/pkg-config of the tree, libMagickWand of the package
+# ImageMagick7 through bin/MagickWand-config), run once; every library it loads
+# has to come from /usr/local/azsupport/lib or the base system (the run path).
+t="$work/shared-link"
+rm -rf "$t"; mkdir -p "$t"
+cat > "$t/t.c" <<'EOF'
+#include <stdio.h>
+#include <libxml/xmlversion.h>
+#include <curl/curl.h>
+#include <gd.h>
+#include <unicode/uversion.h>
+#include <zip.h>
+#include <sodium.h>
+#include <oniguruma.h>
+#include <sqlite3.h>
+#include <gmp.h>
+#include <libxslt/xslt.h>
+#include <ffi.h>
+#include <tidy.h>
+#include <MagickWand/MagickWand.h>
+int main(void)
+{
+    UVersionInfo uv;
+    char us[U_MAX_VERSION_STRING_LENGTH];
+    ffi_cif cif;
+    ffi_type *args[1] = { &ffi_type_sint };
+    int ffi_ok;
+    u_getVersion(uv);
+    u_versionToString(uv, us);
+    xmlCheckVersion(LIBXML_VERSION);
+    if (sodium_init() < 0)
+        return 1;
+    ffi_ok = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 1, &ffi_type_sint, args) == FFI_OK;
+    MagickWandGenesis();
+    printf("libxml2 %s; curl %s; gd %s; ICU %s; libzip %s; libsodium %s; oniguruma %s; sqlite %s; gmp %s; "
+        "libxslt %d; libffi %s; tidy %s; %s\n", LIBXML_DOTTED_VERSION, curl_version_info(CURLVERSION_NOW)->version,
+        gdVersionString(), us, zip_libzip_version(), sodium_version_string(), onig_version(), sqlite3_libversion(),
+        gmp_version, xsltLibxsltVersion, ffi_ok ? "ok" : "FAIL", tidyLibraryVersion(), MagickGetVersion(NULL));
+    MagickWandTerminus();
+    return ffi_ok ? 0 : 1;
+}
+EOF
+spc="libxml-2.0 libcurl gdlib icu-uc libzip libsodium oniguruma sqlite3 gmp libxslt libffi tidy"
+# shellcheck disable=SC2086
+if cf="$("$A/bin/pkg-config" --cflags $spc)" && lf="$("$A/bin/pkg-config" --libs $spc)" &&
+    mcf="$("$A/bin/MagickWand-config" --cflags)" && mlf="$("$A/bin/MagickWand-config" --libs)" &&
+    {
+        echo "pkg-config --cflags: $cf"
+        echo "pkg-config --libs: $lf"
+        echo "MagickWand-config: $mcf $mlf"
+        # shellcheck disable=SC2086
+        cc -O2 -fPIC $cf $mcf -o "$t/t" "$t/t.c" $lf $mlf -Wl,-rpath,"$A/lib" && "$t/t" &&
+            ldd "$t/t" > "$t/ldd.txt" &&
+            echo "libraries of the program: $(awk 'NF > 2 && $2 == "=>" { print $3 }' "$t/ldd.txt" | tr '\n' ' ')" &&
+            bad="$(awk -v a="$A/lib/" 'NF > 2 && $2 == "=>" && index($3, a) != 1 && $3 !~ /^\/(usr\/)?lib\// { print $1 " " $3 }' "$t/ldd.txt" | tr '\n' ' ')" &&
+            { [ -z "$bad" ] || { echo "not of $A/lib or the base system: $bad"; false; }; }
+    } > "$res/shared-link.txt" 2>&1; then
+    tpass "shared libraries of $A: $(grep -m 1 '^libxml2 ' "$res/shared-link.txt"), from $A/lib and the base system"
+else
+    tfail "shared libraries of $A: a program does not link or run as a PHP module of pkg mode would: $(tail -n 3 "$res/shared-link.txt" | tr '\n' ' ')"
+fi
+
 echo "tests: $pok ok, $pbad failed" >> "$res/tests.txt"
 {
     echo
