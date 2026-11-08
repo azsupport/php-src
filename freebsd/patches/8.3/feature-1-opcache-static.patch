@@ -1,9 +1,10 @@
-Description: OPcache built into PHP instead of opcache.so, as PHP 8.5 always does: the module registers the zend_extension in its MINIT, and the startup of the zend_extension registers the INI entries after its globals, in the order opcache.so has. No zend_extension line is needed; zend_extension=opcache.so is skipped quietly, also when an old opcache.so is still in extension_dir. Without the option opcache.so is built as before. Not with ZTS and the JIT: before PHP 8.5 the JIT reaches thread-local data in a way that works only from opcache.so, so configure stops (add --disable-opcache-jit, or build opcache.so).
+Description: OPcache built into PHP instead of opcache.so, as PHP 8.5 always does: the module registers the zend_extension in its MINIT, and the startup of the zend_extension registers the INI entries after its globals, in the order opcache.so has. No zend_extension line is needed; zend_extension=opcache.so is skipped quietly, also when an old opcache.so is still in extension_dir. Without the option opcache.so is built as before. Not with ZTS and the JIT: before PHP 8.5 the JIT reaches thread-local data in a way that works only from opcache.so, so configure stops (add --disable-opcache-jit, or build opcache.so). With OPcache built in, opcache.huge_code_pages is ignored with one warning at startup (ini_get and phpinfo still show the configured value), since remapping the code of the PHP binary would remap the remapping code too and crash.
 Option: --enable-opcache-static
 Origin: azsupport; the approach of php/php-src 7b4c14dc (PHP 8.5, "Make OPcache non-optional"), kept behind COMPILE_DL_OPCACHE so that the opcache.so build is unchanged
+Note: the upstream fix of opcache.huge_code_pages for an OPcache built in (PHP 8.5, php/php-src#19388: accel_remap_huge_pages in a section of its own, .remap_stub, and only .text remapped) is not backported: it could not be tested on FreeBSD here.
 
 diff --git a/ext/opcache/ZendAccelerator.c b/ext/opcache/ZendAccelerator.c
-index 935560414..ea9aaedec 100644
+index 935560414..5f62e9cfa 100644
 --- a/ext/opcache/ZendAccelerator.c
 +++ b/ext/opcache/ZendAccelerator.c
 @@ -95,7 +95,13 @@ typedef int gid_t;
@@ -51,7 +52,23 @@ index 935560414..ea9aaedec 100644
  
  #ifdef ZEND_WIN32
  	if (UNEXPECTED(accel_gen_uname_id() == FAILURE)) {
-@@ -4904,7 +4922,11 @@ static zend_result accel_finish_startup(void)
+@@ -3157,7 +3175,15 @@ static int accel_startup(zend_extension *extension)
+ 	     strcmp(sapi_module.name, "cli-server") == 0 ||
+ 		 strcmp(sapi_module.name, "cgi-fcgi") == 0 ||
+ 		 strcmp(sapi_module.name, "fpm-fcgi") == 0)) {
++#ifdef COMPILE_DL_OPCACHE
+ 		accel_move_code_to_huge_pages();
++#else
++		/* OPcache built into PHP (--enable-opcache-static, azsupport/php-src):
++		 * remapping the code of the PHP binary would remap this code too and
++		 * crash; fixed in PHP 8.5 by php/php-src#19388, not in this branch */
++		(void) accel_move_code_to_huge_pages;
++		zend_error(E_WARNING, ACCELERATOR_PRODUCT_NAME ": opcache.huge_code_pages is ignored: OPcache is built into PHP (--enable-opcache-static); the upstream fix of php/php-src#19388 is not in this branch");
++#endif
+ 	}
+ #endif
+ 
+@@ -4904,7 +4930,11 @@ static zend_result accel_finish_startup(void)
  #endif /* ZEND_WIN32 */
  }
  
