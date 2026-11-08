@@ -19,7 +19,7 @@
 # frames); the BMP intermediate the sites write and read back; a PNG watermark
 # (composite); text (-annotate, label:) with a font that fontconfig finds; CMYK to
 # sRGB. Refused: SVG, MVG, MSL, PostScript, EPS, PDF,
-# TIFF, MNG, text:, label:@file, caption:@file, @file, inline:,
+# TIFF, MNG, text:, label:@file, caption:@file, -comment @file, @file, inline:,
 # http:, https:, ftp:, a file in /etc, a ../ path, standard input. The delegates
 # built in (-version) must be those of the conf, and the policy ours.
 #
@@ -227,6 +227,16 @@ for im in $(awk '$1 == "im" { print $2 }' "$conf"); do
         fail "$im: read standard input (exit $rc)"
     else
         pass "$im: refused standard input: $(tail -n 1 "$w/c.log" | cut -c1-120)"
+    fi
+    # -comment @file (the sites pass the comment of a format as it is) must not
+    # put the file into the image
+    rm -f "$w/comment.jpg"
+    "$cv" "$T/photo.jpg" -comment "@$T/secret.txt" "$w/comment.jpg" > "$w/c.log" 2>&1
+    # shellcheck disable=SC2086
+    if [ -s "$w/comment.jpg" ] && $idf -format '%c' "$w/comment.jpg" 2>/dev/null | grep -q 'a secret line'; then
+        fail "$im: -comment @file read the file"
+    else
+        pass "$im: refused -comment @file: $(tail -n 1 "$w/c.log" | sed "s#$T/##g" | cut -c1-120)"
     fi
 done
 finish

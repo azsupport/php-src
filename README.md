@@ -953,7 +953,7 @@ and fonts (such as `dejavu`), as the packages of the ports do. `az.yml` builds b
 [`tools/imagemagick-test.sh`](tools/imagemagick-test.sh): samples of every format
 (made with the `ImageMagick7` package of FreeBSD), identify, thumbnails, WebP,
 animations, the BMP intermediate, a watermark, text, CMYK; refused: SVG, MVG, MSL,
-PostScript, PDF, TIFF, MNG, `text:`, `label:@`, `@file`, `inline:`, URLs, `/etc`,
+PostScript, PDF, TIFF, MNG, `text:`, `label:@`, `-comment @`, `@file`, `inline:`, URLs, `/etc`,
 `../` and standard input. The [upstream check](#upstream-check) follows the releases of ImageMagick 6
 and 7 and of their libraries and the commits to their ports.
 
