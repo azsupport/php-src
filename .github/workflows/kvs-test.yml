@@ -1,0 +1,101 @@
+name: KVS command lines on the az packages
+
+# Runs tools/kvs-test.sh in FreeBSD: the samples with the ffmpeg and ImageMagick 7 of
+# the ports, then the packages ffmpeg, ImageMagick6 and ImageMagick7 of the repository
+# az (the release az-fbsd<major>-amd64-<level>, as the servers read it) in their
+# place, then the command lines the video sites (KVS) give them. Builds nothing.
+# Started by hand: Actions, "KVS command lines on the az packages", "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'FreeBSD release'
+        required: true
+        default: '15.1'
+      level:
+        description: 'x86-64 level of the repository az'
+        type: choice
+        options: [v3, v2]
+        default: v3
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    name: KVS on az (${{ inputs.level }})
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Samples, the packages az, the command lines in FreeBSD ${{ inputs.release }}
+        id: test
+        uses: vmactions/freebsd-vm@v1
+        env:
+          AZ_LEVEL: ${{ inputs.level }}
+        with:
+          release: ${{ inputs.release }}
+          envs: 'AZ_LEVEL GITHUB_REPOSITORY'
+          run: |
+            mkdir -p kvs-results
+            {
+              env ASSUME_ALWAYS_YES=yes pkg install -y ffmpeg ImageMagick7 dejavu
+              sh tools/kvs-test.sh --samples
+              # the packages of the ports out, those of az in (the same names and paths)
+              env ASSUME_ALWAYS_YES=yes pkg delete -y ffmpeg ImageMagick7
+              major="$(uname -r | cut -d. -f1)"
+              url="https://github.com/$GITHUB_REPOSITORY/releases/download/az-fbsd$major-amd64-$AZ_LEVEL"
+              mkdir -p /usr/local/etc/pkg/repos /usr/local/etc/pkg/keys
+              install -m 644 freebsd/az.pub /usr/local/etc/pkg/keys/az.pub
+              printf 'az: {\n    url: "%s",\n    signature_type: "pubkey",\n    pubkey: "/usr/local/etc/pkg/keys/az.pub",\n    priority: 100,\n    enabled: yes\n}\n' "$url" > /usr/local/etc/pkg/repos/az.conf
+              if ! pkg update -f -r az; then
+                echo "the catalog of az is not signed with freebsd/az.pub: read without a signature"
+                printf 'az: {\n    url: "%s",\n    signature_type: "none",\n    priority: 100,\n    enabled: yes\n}\n' "$url" > /usr/local/etc/pkg/repos/az.conf
+                pkg update -f -r az
+              fi
+              env ASSUME_ALWAYS_YES=yes pkg install -y -r az ffmpeg ImageMagick6 ImageMagick7
+              pkg query '%n %v %R' ffmpeg ImageMagick6 ImageMagick7
+            } > kvs-results/setup.log 2>&1 || true
+            tail -n 5 kvs-results/setup.log
+            sh tools/kvs-test.sh || true
+
+      - name: Report
+        id: report
+        if: always()
+        run: |
+          : > report.md
+          if [ ! -s kvs-results/tests.txt ]; then
+            echo "::error title=KVS on az::no results (kvs-results/setup.log)"
+            { echo "no results"; echo; tail -n 30 kvs-results/setup.log 2>/dev/null; } | tee -a report.md
+            cat report.md >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          {
+            grep -h '^note' kvs-results/tests.txt
+            echo
+            grep -E '^(FAIL|gap|bug|skip)' kvs-results/tests.txt
+            echo
+            tail -n 2 kvs-results/tests.txt
+          } | tee report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          grep -q '^tests: [0-9]* ok, 0 failed$' kvs-results/tests.txt || { echo "::error title=KVS on az::$(tail -n 2 kvs-results/tests.txt | head -n 1)"; exit 1; }
+
+      - name: Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kvs-results-${{ inputs.level }}
+          path: kvs-results/
+          if-no-files-found: ignore
+
+      # the report into the branch runs of the private azsupport/azsupport (secret RUNS_TOKEN)
+      - name: Report to azsupport/azsupport
+        if: always()
+        continue-on-error: true
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: release=${{ inputs.release }} level=${{ inputs.level }}
+          RUNS_STEPS: test=${{ steps.test.outcome }} report=${{ steps.report.outcome }}
+        run: sh tools/runs-report.sh report.md "x86-64-${{ inputs.level }}"

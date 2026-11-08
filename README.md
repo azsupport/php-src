@@ -37,6 +37,7 @@ Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
 - [Packages: the repository az](#packages-the-repository-az)
 - [FFmpeg for the video sites](#ffmpeg-for-the-video-sites)
 - [ImageMagick 6 and 7 for the video sites](#imagemagick-6-and-7-for-the-video-sites)
+  - [The command lines of the sites on the packages](#the-command-lines-of-the-sites-on-the-packages)
 - [How updates happen](#how-updates-happen)
   - [Upstream check](#upstream-check)
   - [Build compatibility patches](#build-compatibility-patches)
@@ -1036,6 +1037,20 @@ animations, the BMP intermediate, a watermark, text, CMYK; refused: SVG, MVG, MS
 PostScript, PDF, TIFF, MNG, `text:`, `label:@`, `-comment @`, `@file`, `inline:`, URLs, `/etc`,
 `../` and standard input. The [upstream check](#upstream-check) follows the releases of ImageMagick 6
 and 7 and of their libraries and the commits to their ports.
+
+### The command lines of the sites on the packages
+
+[`tools/kvs-test.sh`](tools/kvs-test.sh) runs the command lines the video sites (KVS 6.4.0)
+give to `ffmpeg`, `ffprobe` and ImageMagick, those of the vendor's release, of its
+media-security patch and of our version where they differ, on samples made with the
+packages of the ports (`--samples`): the checks of an upload with and without the
+whitelists of the patch, the screenshots and pictures through BMP, the formats with
+watermarks, joins, previews from parts, rolls, the plugins `movie_from_image` and
+`audit`, and what yt-dlp asks ffmpeg for. Each line is `ok`, `FAIL`, `gap` (the build
+does not have it, a decision to take) or `bug` (the command line of KVS fails with any
+build). The workflow [`kvs-test.yml`](.github/workflows/kvs-test.yml) ("KVS command
+lines on the az packages") runs it in FreeBSD on the published repository az of a
+level, without building anything.
 
 ## How updates happen
 
