@@ -48,7 +48,7 @@ on:
       candidate:
         description: 'The repository of az-fbsd<major>-amd64-<level>-candidate (a pre-release), not the one the servers read'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write

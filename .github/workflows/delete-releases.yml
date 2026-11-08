@@ -1,0 +1,38 @@
+name: delete releases
+# Delete releases of builds with their tags: a session of Claude may not delete
+# releases. Only the tags of builds (az-fbsd*, ffmpeg-fbsd*, imagemagick-fbsd*,
+# phpdeps-fbsd*); never freebsd-* (the tarballs of the branches) or az-menu.
+# Started by hand: Actions, "delete releases", "Run workflow", or gh api.
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Tags of the releases, separated by spaces'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete the releases and their tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          rc=0
+          for t in $TAGS; do
+            case "$t" in
+              az-fbsd*|ffmpeg-fbsd*|imagemagick-fbsd*|phpdeps-fbsd*) ;;
+              *) echo "::error::$t: not a release of a build, left as it is"; rc=1; continue ;;
+            esac
+            if gh release delete "$t" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y; then
+              echo "deleted: $t"
+            else
+              echo "::error::$t: not deleted"; rc=1
+            fi
+          done
+          exit "$rc"
