@@ -657,7 +657,7 @@ for fl in $fls; do
     rm -f "$O/alb$fl-off.bmp" "$O/alb$fl-prg.bmp"
     # shellcheck disable=SC2086
     x "conv-im$fl-album-off" cv -crop +10+10 -crop -10-10 "$S/i_photo.jpg" $tpl "$O/alb$fl-off.bmp"
-    wa=ok; [ "$fl" = 7 ] && wa='bug:the vendor puts the crop of an album before the image; magick wants the image first (fixed in ours)'
+    wa=ok; [ "$fl" = 7 ] && wa='bug:the crop of an album comes before the image (the vendor on the conversion servers, and both versions on the site; ours fixed only the conversion servers); magick wants the image first'
     c=1; case "$(img "$O/alb$fl-off.bmp")" in "BMP "*) c=0 ;; esac
     v "conv-im$fl-album-off" "$wa" "conv im$fl off: album: -crop ... before the image + template -> bmp" "$c"
     # shellcheck disable=SC2086
