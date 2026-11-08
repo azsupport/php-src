@@ -594,7 +594,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | igbinary | 3.2.16 | 3.2.16 | 3.2.16 | 2.0.8 |
 | imagick | 3.8.1 | 3.8.1 | 3.8.1 | 3.8.1 |
 | gmagick | 2.0.6RC1 | 2.0.6RC1 | 2.0.6RC1 | 1.1.7RC3 |
-| swoole | 6.2.4 | 6.1.11 | 4.8.13 | — |
+| swoole | 6.2.5 | 6.1.12 | 4.8.13 | — |
 | OpenSwoole | 4.12.1 | 4.12.1 | 4.12.1 | — |
 | excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
 | mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | в самом PHP 5.6 |
@@ -921,7 +921,7 @@ HLS и скрипт concat с именем `.mp4`, и любой протоко�
 | Ещё | текст (FreeType; fontconfig с настройками и шрифтами системы, `/usr/local/etc/fonts`), цветовые профили (lcms2) |
 | Не собрано | SVG, PDF, PostScript (без Ghostscript), RAW, EXR, JPEG 2000, JPEG XL, DjVu, WMF, TIFF, X11, Perl, подгружаемые модули, libxml2 (MSL, URL) |
 | Политика | политика ImageMagick `websafe` с форматами выше: без внешних программ, без `@файл`, без чтения из `/etc` и через `../`, без стандартного ввода; картинки до 20000 точек в ширину и высоту, 1 ГиБ памяти, 120 секунд |
-| Сборка | из портов FreeBSD (freebsd-ports от 04.11.2026: ImageMagick7 7.1.2-34 и ImageMagick6 6.9.13-59, в них закрыты уязвимости записи VuXML от 26.10.2026) с `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO, BIND_NOW; библиотеки из `az-libs` вшиты, из `/usr/local/lib` ничего |
+| Сборка | из портов FreeBSD (freebsd-ports от 04.11.2026), ImageMagick 7.1.2-35 и 6.9.13-60 — раньше портов, ради исправлений безопасности (08.11.2026), с `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO, BIND_NOW; библиотеки из `az-libs` вшиты, из `/usr/local/lib` ничего |
 
 На сервере с репозиторием az:
 
