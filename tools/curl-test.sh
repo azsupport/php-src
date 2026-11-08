@@ -2,7 +2,7 @@
 # curl-test.sh - test the package curl of tools/build-az.sh, installed in the place
 # of that of the ports (tools/build-deps.sh, build_curl_program; the line "program
 # curl" of freebsd/deps.conf): its version and features, those of the port ftp/curl
-# (the OpenSSL of /usr/local/az, the threaded resolver, HTTP/2, brotli, zstd, IDN,
+# (the OpenSSL of /usr/local/azsupport, the threaded resolver, HTTP/2, brotli, zstd, IDN,
 # the Public Suffix List, NTLM; the protocols of the port: DICT, FTP, gopher, HTTP,
 # IMAP, IPFS, MQTT, POP3, RTSP, SMTP, telnet, TFTP, WebSocket; no LDAP, SCP and
 # SFTP), a file:// read, an https:// request to

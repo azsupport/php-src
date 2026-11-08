@@ -3,7 +3,7 @@
 # lines of freebsd/imagemagick.conf; the packages ImageMagick6 and ImageMagick7 of
 # tools/build-az.sh, in the place of those of the ports): static programs side by
 # side in /usr/local/bin, with only the formats listed there (see the head of
-# that file for which and why), against the static libraries of /usr/local/az
+# that file for which and why), against the static libraries of /usr/local/azsupport
 # (tools/build-deps.sh first; tools/build-az.sh runs both, the tests and the
 # packages).
 #
@@ -17,7 +17,7 @@
 # patch); this script then builds the source tree with its own options. A take
 # line gives a new upstream release instead (with the port's patches, or those of
 # freebsd/deps/<name>-<version>/). Each ImageMagick links the libraries of
-# AZ_PREFIX (default /usr/local/az) in, is built with the prefix /usr/local and
+# AZ_PREFIX (default /usr/local/azsupport) in, is built with the prefix /usr/local and
 # installed into a stage directory first; what it keeps then goes to the stage of
 # its package, AZ_STAGE/ImageMagick<6|7> (default AZ_WORK/stage/...), as files of
 # /usr/local: its programs in bin/ (ImageMagick 7: magick and the usual names
@@ -26,7 +26,7 @@
 # freebsd/imagemagick/policy.xml), share/ImageMagick-<6|7>/,
 # lib/ImageMagick-<version>/ (its configure.xml), share/licenses/ImageMagick<6|7>/.
 # ImageMagick 7 also keeps its static libraries, headers and .pc files, in
-# /usr/local/az, for imagick of PHP (--with-imagick=/usr/local/az), with
+# /usr/local/azsupport, for imagick of PHP (--with-imagick=/usr/local/azsupport), with
 # bin/MagickWand-config and bin/MagickCore-config there printing the static link
 # line (tools/build-az.sh links a test program with them as imagick does, once
 # installed). fontconfig takes its configuration and fonts from the system
@@ -49,7 +49,7 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/imagemagick.conf"
-A="${AZ_PREFIX:-/usr/local/az}"
+A="${AZ_PREFIX:-/usr/local/azsupport}"
 I=/usr/local
 work="${AZ_WORK:-/var/tmp/az-work}/imagemagick"
 stage="${AZ_STAGE:-${AZ_WORK:-/var/tmp/az-work}/stage}"
@@ -215,7 +215,7 @@ b_im() {
     (cd "$s" && tar -cf - $keep) | (cd "$root$I" && tar -xpf -) || return 1
     cp "$top/freebsd/imagemagick/policy.xml" "$root$I/etc/ImageMagick-$v/policy.xml" || return 1
     if [ "$v" = 7 ]; then
-        # the static libraries, headers and .pc files, for imagick of PHP: in /usr/local/az
+        # the static libraries, headers and .pc files, for imagick of PHP: in /usr/local/azsupport
         # (the configuration they read stays that of /usr/local/etc/ImageMagick-7)
         mkdir -p "$root$A/lib/pkgconfig" "$root$A/include" "$root$A/bin" || return 1
         # the names of the port (its post-patch strips the Q16HDRI of the names):
@@ -352,7 +352,7 @@ manifest() {
     {
         echo "ImageMagick $v for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
         echo "freebsd-ports $ports_commit; CFLAGS: $CFLAGS"
-        echo "libraries: the static ones of $A (az-libs): libpng, mozjpeg, libwebp, FreeType, fontconfig, expat, lcms2, libheif, libde265, dav1d"
+        echo "libraries: the static ones of $A (azsupport): libpng, mozjpeg, libwebp, FreeType, fontconfig, expat, lcms2, libheif, libde265, dav1d"
         echo
         while read -r n pkgname port; do
             [ "$n" = "$im" ] || continue

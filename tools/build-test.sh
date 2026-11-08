@@ -6,11 +6,11 @@
 #
 # Usage (from the top of a php-src checkout of master):
 #   sh tools/build-test.sh --deps 5.6 7.4        install the packages the presets need
-#   sh tools/build-test.sh --az <dir>            install az-libs and ImageMagick7 from
+#   sh tools/build-test.sh --az <dir>            install azsupport and ImageMagick7 from
 #                                                the repository of pkg in <dir> (az.yml)
 #   sh tools/build-test.sh [--tests] 5.6 7.4     build dist/php-<target>-fbsd-latest.tar.xz
 #
-# AZ_BUNDLE=1: build against the static libraries of /usr/local/az (az-libs; curl
+# AZ_BUNDLE=1: build against the static libraries of /usr/local/azsupport (azsupport; curl
 # and imagick with those of curl and ImageMagick7 there), in the layout of the
 # packages of tools/az-menu.sh (/usr/local, bin/php84, etc/php84...) instead of
 # the prefix of the preset; AZ_PACKAGE=1 then also makes the package phpXY of each
@@ -45,7 +45,7 @@ deps() {
     # ext/curl/deps)
     pkgs="pkgconf libmemcached zstd ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis"
     if [ "${AZ_BUNDLE:-0}" = 1 ]; then
-        # PHP against the static libraries of /usr/local/az (--az): none of the
+        # PHP against the static libraries of /usr/local/azsupport (--az): none of the
         # libraries they have, so that configure cannot take one of pkg by mistake;
         # imagick takes ImageMagick 7 of the tree (the package ImageMagick7 of az)
         pkgs="pkgconf memcached redis apache24 perl5"
@@ -96,14 +96,14 @@ if [ "${1:-}" = "--deps" ]; then
     deps "$@"
     exit $?
 fi
-# az-libs (with the curl of PHP) and ImageMagick7 from the files of a repository of pkg in $2 (the
+# azsupport (with the curl of PHP) and ImageMagick7 from the files of a repository of pkg in $2 (the
 # release az-fbsd<major>-amd64-<level> of az.yml), as the repository az
 if [ "${1:-}" = "--az" ]; then
     d="$(cd "${2:-.}" 2>/dev/null && pwd)"
     [ -n "$d" ] && [ -f "$d/meta.conf" ] || { echo "build-test: no repository of pkg (meta.conf) in ${2:-.}" >&2; exit 1; }
     mkdir -p /usr/local/etc/pkg/repos
     printf 'az: { url: "file://%s", signature_type: "none", priority: 100, enabled: yes }\n' "$d" > /usr/local/etc/pkg/repos/az.conf
-    pkg update -f -r az && env ASSUME_ALWAYS_YES=yes pkg install -y -r az az-libs ImageMagick7
+    pkg update -f -r az && env ASSUME_ALWAYS_YES=yes pkg install -y -r az azsupport ImageMagick7
     exit $?
 fi
 run_tests=0
@@ -302,7 +302,7 @@ for target in "$@"; do
     cd "$src" || exit 1
 
     # shellcheck disable=SC2046
-    # PHP against the static libraries of /usr/local/az (AZ_BUNDLE=1): the layout of
+    # PHP against the static libraries of /usr/local/azsupport (AZ_BUNDLE=1): the layout of
     # the packages of az-menu.sh instead of the prefix of the preset, the options and
     # LDFLAGS as config-check.sh writes them with the libraries installed, their pkg-config.
     pkgconfig="${PKG_CONFIG:-pkg-config}"
@@ -321,10 +321,10 @@ for target in "$@"; do
             cat "$out/configure-options.new"
         } > "$out/configure-options.txt"
         printf "LDFLAGS='%s'\n" "$LDFLAGS" > "$out/env.txt"
-        PHPDEPS=/usr/local/az sh "$top/tools/config-check.sh" --deps-rewrite "$out/configure-options.txt" "$out/env.txt" > "$out/az-note.txt"
+        PHPDEPS=/usr/local/azsupport sh "$top/tools/config-check.sh" --deps-rewrite "$out/configure-options.txt" "$out/env.txt" > "$out/az-note.txt"
         LDFLAGS="$(sed -n "s/^LDFLAGS='\(.*\)'\$/\1/p" "$out/env.txt")"
         pkgconfig="$(sed -n "s/^PKG_CONFIG='\(.*\)'\$/\1/p" "$out/env.txt")"
-        echo "az-libs:  $(pkg query '%v' az-libs) ($(head -n 1 /usr/local/az/share/doc/az-libs/VERSIONS | sed 's/, built.*//'))" >> "$sum"
+        echo "azsupport: $(pkg query '%v' azsupport) ($(head -n 1 /usr/local/azsupport/share/doc/azsupport/VERSIONS | sed 's/, built.*//'))" >> "$sum"
     fi
     if ! env CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" LDFLAGS="$LDFLAGS" LIBS="$LIBS" PKG_CONFIG="$pkgconfig" \
             ./configure $(cat "$out/configure-options.txt") > "$out/configure.log" 2>&1; then
@@ -373,7 +373,7 @@ for target in "$@"; do
         echo "ldd:      $(ldd sapi/cli/php sapi/fpm/php-fpm libs/libphp*.so 2>/dev/null | awk '/=>/ { print $3 }' |
             grep '^/usr/local/' | sort -u | tr '\n' ' ' | sed 's/ *$//' | grep . || echo 'no library of /usr/local')"
         if [ "${AZ_BUNDLE:-0}" = 1 ]; then
-            echo "curl:     $("$pkgconfig" --modversion libcurl) of /usr/local/az"
+            echo "curl:     $("$pkgconfig" --modversion libcurl) of /usr/local/azsupport"
         fi
         if [ -f ext/curl/libcurl-build/VERSION ]; then
             echo "curl:     bundled $(cat ext/curl/libcurl-build/VERSION) (ext/curl/libcurl-build.log)"

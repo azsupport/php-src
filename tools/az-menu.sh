@@ -15,9 +15,9 @@
 # https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh, the
 # copy with its version: the top line of every screen and --version show it), it
 # takes the source of the branch from the release freebsd-X.Y-latest of the fork
-# (its SHA-256 checked), and the static libraries PHP is linked with (az-libs, with
+# (its SHA-256 checked), and the static libraries PHP is linked with (azsupport, with
 # the curl of PHP, and ImageMagick7 for imagick: its static libraries in
-# /usr/local/az) from the repository of pkg of the fork
+# /usr/local/azsupport) from the repository of pkg of the fork
 # (/usr/local/etc/pkg/repos/az.conf: --repo writes it), builds PHP with the
 # choices, makes the package phpXY of it (which depends on those packages) and
 # offers to install it. Inside a PHP source tree it builds that one.
@@ -25,7 +25,7 @@
 # Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree or not:
 #   sh az-menu.sh                   outside a PHP source tree: the packages of the
 #                                   repository az (curl, ffmpeg, ImageMagick6 and 7,
-#                                   php56 ... php84; az-libs), each the ready one
+#                                   php56 ... php84; azsupport), each the ready one
 #                                   (Options: what it is built with) or, for PHP,
 #                                   built here with your options;
 #                                   inside one: the menu for the branch of this tree
@@ -73,8 +73,8 @@
 # bin/php-config84, bin/php-cgi84, sbin/php-fpm84; --program-suffix=84), its own
 # directories with the version (etc/php84: php.ini, php-fpm.conf, php-fpm.d/;
 # lib/php84, include/php84, share/php84), the Apache module as
-# libexec/apache24/libphp84.so of Apache. With az-libs installed, the libraries
-# are the static ones of /usr/local/az (tools/config-check.sh, as for a
+# libexec/apache24/libphp84.so of Apache. With azsupport installed, the libraries
+# are the static ones of /usr/local/azsupport (tools/config-check.sh, as for a
 # config.installed.sh of it), so php, php-fpm and libphp84.so need no library of
 # /usr/local/lib. The package phpXY (the name and origin of the port) has, with
 # FPM, the rc.d script /usr/local/etc/rc.d/php_fpm84 (that of lang/php84, for this
@@ -1400,8 +1400,8 @@ done
 [ -z "$build$install" ] || [ -n "$batch" ] || die "--build and --install are for --batch (the menu asks)"
 [ -z "$install" ] || [ -n "$build" ] || die "--install needs --build"
 
-# --- /usr/local/az, its repository of pkg, and the builds of the packages ----------
-AZ="${AZ_PREFIX:-/usr/local/az}"
+# --- /usr/local/azsupport, its repository of pkg, and the builds of the packages ---
+AZ="${AZ_PREFIX:-/usr/local/azsupport}"
 AZ_URL="${AZ_URL:-https://github.com/azsupport/php-src}"
 AZ_REPO_CONF="${AZ_REPO_CONF:-/usr/local/etc/pkg/repos/az.conf}"
 work="${AZ_MENU_WORK:-/var/tmp/az-menu}"
@@ -1414,7 +1414,7 @@ cpu_level() {
     done
     echo v3
 }
-# the repository of the packages of /usr/local/az for this FreeBSD and this CPU (the
+# the repository of the packages of /usr/local/azsupport for this FreeBSD and this CPU (the
 # files of a release of the fork; AZ_CANDIDATE=1: the candidate)
 repo_conf() {
     printf 'az: {\n    url: "%s/releases/download/az-fbsd%s-amd64-%s%s",\n    signature_type: "none",\n    priority: 100,\n    enabled: yes\n}\n' \
@@ -1623,12 +1623,12 @@ package_php() {
     (cd "$st" && find . ! -type d | sed 's#^\.##' | LC_ALL=C sort) > "$pl.files" || return 1
     for c in $configs; do grep -qx -- "$c" "$pl.files" || { say "no $c in the stage"; return 1; }; done
     awk -v c=" $configs " 'index(c, " " $0 " ") { print "@config " $0; next } { print }' "$pl.files" > "$pl"
-    # the packages of /usr/local/az it is built with, and the options
+    # the packages of /usr/local/azsupport it is built with, and the options
     deps=""
-    for d in az-libs ImageMagick7; do
+    for d in azsupport ImageMagick7; do
         pkg info -e "$d" || continue
         case "$d" in
-            az-libs) grep -q -- "^PKG_CONFIG='$AZ/bin/pkg-config'" "$out_abs" || continue ;;
+            azsupport) grep -q -- "^PKG_CONFIG='$AZ/bin/pkg-config'" "$out_abs" || continue ;;
             ImageMagick7) grep -q -- "^'--with-imagick=$AZ'" "$out_abs" || continue ;;
         esac
         deps="$deps $d=$(pkg query %o "$d")=$(pkg query %v "$d")"
@@ -1713,7 +1713,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     pkg update -r az > /dev/null 2>&1 || say "pkg update -r az failed: the list of the repository may be old"
     mt="$(mktemp -d)" || exit 2
     pkg rquery -r az '%n	%v	%c' > "$mt/ready" 2>/dev/null
-    names="az-libs curl ffmpeg ImageMagick6 ImageMagick7"
+    names="azsupport curl ffmpeg ImageMagick6 ImageMagick7"
     for b in $BRANCHES; do names="$names php$(echo "$b" | tr -d .)"; done
     focus="" checked=" " chosen=" "
     while :; do
@@ -2170,7 +2170,7 @@ if [ -z "$reset" ] && [ -f "$installed" ]; then
     done < "$tmp/vals_def"
 fi
 # a build in a directory of its own (/usr/local/php84, /usr/local/php5640) moves
-# to /usr/local/az (the paths inside its old directory move along, compose)
+# to /usr/local (the paths inside its old directory move along, compose)
 moved=""
 move_prefix() {
     case "$(val_get PREFIX)" in
@@ -2388,10 +2388,10 @@ compose() {
     chosen_options >> "$tmp/opts"
     val_options rest >> "$tmp/opts"
     awk '!seen[$0]++' "$tmp/opts" > "$tmp/opts.u"
-    # with the libraries of /usr/local/az installed (az-libs): the options and the
+    # with the libraries of /usr/local/azsupport installed (azsupport): the options and the
     # environment of a build against them (tools/config-check.sh --deps-rewrite)
     deps_note=""
-    if [ -f "$AZ/share/doc/az-libs/VERSIONS" ] && [ -x "$AZ/bin/pkg-config" ]; then
+    if [ -f "$AZ/share/doc/azsupport/VERSIONS" ] && [ -x "$AZ/bin/pkg-config" ]; then
         if cc_script="$(config_check)"; then
             deps_note="$(PHPDEPS="$AZ" DEPS_PHP_MAJOR="${branch%%.*}" sh "$cc_script" --deps-rewrite "$tmp/opts.u" "$tmp/env" 2>&1)" ||
                 deps_note="the rewrite for $AZ failed: $deps_note"
@@ -2416,7 +2416,7 @@ compose() {
 # config_check: tools/config-check.sh next to this script, else that of the fork
 # (fetched into $work at each run: with the copy of the release az-menu the one of
 # that release, else that of master), for the rewrite of the options for
-# /usr/local/az
+# /usr/local/azsupport
 config_check() {
     _d="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
     if [ -f "$_d/config-check.sh" ]; then echo "$_d/config-check.sh"; return 0; fi
@@ -2491,14 +2491,14 @@ confirm() {
 # or the dialog)
 build_here() {
     [ "$(id -u)" = 0 ] || die "building the package needs root (pkg, a stage for make install)"
-    need="az-libs"
+    need="azsupport"
     is_on IMAGICK && need="$need ImageMagick7"
     missing=""
-    # az-libs (with the curl of PHP) and ImageMagick7 of the repository az (its
-    # static libraries are in /usr/local/az); the package curl is not needed
+    # azsupport (with the curl of PHP) and ImageMagick7 of the repository az (its
+    # static libraries are in /usr/local/azsupport); the package curl is not needed
     for d in $need; do
-        if [ "$d" = az-libs ]; then pkg info -e az-libs || missing="$missing az-libs"
-        elif [ ! -f "$AZ/share/doc/az-libs/VERSIONS" ]; then missing="$missing $d"
+        if [ "$d" = azsupport ]; then pkg info -e azsupport || missing="$missing azsupport"
+        elif [ ! -f "$AZ/share/doc/azsupport/VERSIONS" ]; then missing="$missing $d"
         else
             [ -e "$AZ/bin/MagickWand-config" ] || missing="$missing $d"
         fi
@@ -2509,7 +2509,7 @@ build_here() {
             die "not built"
         pkg install -y -r az $missing || die "pkg install$missing failed"
     fi
-    # the script again: with the libraries of /usr/local/az now
+    # the script again: with the libraries of /usr/local/azsupport now
     write_config
     case "$out" in /*) out_abs="$out" ;; *) out_abs="$(pwd)/$out" ;; esac
     if [ -f main/php_version.h ]; then src="$(pwd)"; else src="$(fetch_source)" || die "no source of PHP $branch"; fi

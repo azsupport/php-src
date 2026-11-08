@@ -1,8 +1,8 @@
 #!/bin/sh
-# build-deps.sh - build the libraries of /usr/local/az (lib/, include/), static
+# build-deps.sh - build the libraries of /usr/local/azsupport (lib/, include/), static
 # and position independent, from the FreeBSD ports listed in freebsd/deps.conf,
 # and the curl program (bin/curl). PHP built against them (php, php-fpm, php-cgi,
-# libphp.so) and the programs of /usr/local/az (FFmpeg, ImageMagick) need no
+# libphp.so) and the programs of /usr/local/azsupport (FFmpeg, ImageMagick) need no
 # library of /usr/local/lib: a pkg upgrade or packages of another FreeBSD version
 # cannot break them, and in Apache the copies of the libraries in PHP do not mix
 # with those of other modules (their symbols stay hidden). tools/build-az.sh runs
@@ -27,10 +27,10 @@
 # program and libcurl.so of the package curl are a build of their own, with the
 # options of the port ftp/curl, into a stage (the line "program curl", see
 # build_curl_program). All: only static libraries, -fPIC, into
-# AZ_PREFIX (default /usr/local/az), in AZ_WORK/deps (default
+# AZ_PREFIX (default /usr/local/azsupport), in AZ_WORK/deps (default
 # /var/tmp/az-work/deps); the licences go to LICENSES/. Results go to
 # deps-results/ (summary.txt, one log per library, VERSIONS, also installed as
-# share/doc/az-libs/VERSIONS).
+# share/doc/azsupport/VERSIONS).
 #
 # Compiler flags as on the servers: CPUTYPE and CFLAGS of /etc/make.conf (such as
 # CPUTYPE?=x86-64-v3 and CFLAGS=-O3 -pipe) with -fstack-protector-strong and
@@ -46,7 +46,7 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/deps.conf"
-P="${AZ_PREFIX:-/usr/local/az}"
+P="${AZ_PREFIX:-/usr/local/azsupport}"
 work="${AZ_WORK:-/var/tmp/az-work}/deps"
 res="$top/deps-results"
 dist="$top/dist"
@@ -577,20 +577,20 @@ manifest() {
         echo "curl (tools/build-az.sh): bin/curl and lib/libcurl.so.4 of /usr/local, a build of its own of the same"
         echo "release with the options of the port ftp/curl, against the libraries above."
     } > "$res/VERSIONS"
-    mkdir -p "$P/share/doc/az-libs"
-    cp "$res/VERSIONS" "$P/share/doc/az-libs/VERSIONS"
+    mkdir -p "$P/share/doc/azsupport"
+    cp "$res/VERSIONS" "$P/share/doc/azsupport/VERSIONS"
 }
 
 # The curl program and libcurl.so (deps.conf: "program curl"), for the package curl
 # of tools/build-az.sh, which takes the place of the curl of the ports (git and the
 # other packages that link libcurl.so get this one). A build of its own, apart
-# from the curl of PHP above (the static libcurl.a of /usr/local/az, in az-libs,
+# from the curl of PHP above (the static libcurl.a of /usr/local/azsupport, in azsupport,
 # with only what PHP needs): the same release, with the options of the port
 # ftp/curl (its CONFIGURE_ARGS and its default options: the protocols DICT, FTP,
 # GOPHER, HTTP, HTTP/2, IMAP, IPFS, MQTT, POP3, RTSP, SMTP, TELNET, TFTP,
 # WebSocket, NTLM, IDN, PSL, brotli, zstd, the threaded resolver), without SCP and
-# SFTP (libssh2) and GSSAPI, which the libraries of /usr/local/az do not have;
-# against the static libraries of /usr/local/az. Into the stage AZ_STAGE/curl
+# SFTP (libssh2) and GSSAPI, which the libraries of /usr/local/azsupport do not have;
+# against the static libraries of /usr/local/azsupport. Into the stage AZ_STAGE/curl
 # (default AZ_WORK/stage/curl) as files of /usr/local: bin/curl, static, PIE,
 # RELRO, BIND_NOW, stripped; lib/libcurl.so.4 of the libcurl.a of this build
 # (curl_* made visible by tools/elf-export.py and exported, the libraries inside

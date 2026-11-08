@@ -4,7 +4,7 @@
 # /usr/local/bin/ffmpeg, /usr/local/bin/ffprobe) from the FreeBSD port of
 # freebsd/ffmpeg.conf, with only the formats, codecs and protocols listed there
 # (see the head of that file for why), against the static libraries of
-# /usr/local/az (tools/build-deps.sh first; tools/build-az.sh runs both, the tests
+# /usr/local/azsupport (tools/build-deps.sh first; tools/build-az.sh runs both, the tests
 # and the packages).
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master):
@@ -17,7 +17,7 @@
 # freebsd/ffmpeg/; this script then builds the source tree with its own options.
 # A take line gives a new upstream release instead (with the port's patches, or
 # those of freebsd/deps/<name>-<version>/). FFmpeg links x264, dav1d and libwebp
-# of AZ_PREFIX (default /usr/local/az) in, so that ffmpeg and ffprobe need no
+# of AZ_PREFIX (default /usr/local/azsupport) in, so that ffmpeg and ffprobe need no
 # library of /usr/local (only libc, libm, libthr and libz of the base system), and
 # is installed (prefix /usr/local) into the stage AZ_STAGE/ffmpeg (default
 # AZ_WORK/stage/ffmpeg): usr/local/bin/ffmpeg, usr/local/bin/ffprobe,
@@ -38,7 +38,7 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/ffmpeg.conf"
-L="${AZ_PREFIX:-/usr/local/az}"
+L="${AZ_PREFIX:-/usr/local/azsupport}"
 work="${AZ_WORK:-/var/tmp/az-work}/ffmpeg"
 F=/usr/local
 stage="${AZ_STAGE:-${AZ_WORK:-/var/tmp/az-work}/stage}/ffmpeg"
@@ -250,7 +250,7 @@ manifest() {
     {
         echo "FFmpeg for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
         echo "freebsd-ports $ports_commit; CFLAGS: $ffcflags"
-        echo "x264, dav1d and libwebp: the static libraries of $L (az-libs)"
+        echo "x264, dav1d and libwebp: the static libraries of $L (azsupport)"
         echo
         while read -r n pkgname port; do
             printf '%-8s %-24s %s\n' "$n" "$pkgname" "$port"
@@ -282,7 +282,7 @@ manifest() {
         conf_opts | sed 's/^/    /'
         echo
         echo "Licence: GPL version 2 or later (FFmpeg with --enable-gpl, x264); the licences are in"
-        echo "share/licenses/ffmpeg/ (x264, dav1d and webp: LICENSES/ of /usr/local/az, az-libs)."
+        echo "share/licenses/ffmpeg/ (x264, dav1d and webp: LICENSES/ of /usr/local/azsupport, azsupport)."
         echo "Sources: the distfiles above (their SHA-256), the patches of the port at the commit above,"
         echo "freebsd/ffmpeg/ and tools/build-ffmpeg.sh of https://github.com/azsupport/php-src (freebsd/ffmpeg.conf)."
     } > "$res/VERSIONS"

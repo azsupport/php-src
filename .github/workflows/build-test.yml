@@ -31,7 +31,7 @@ on:
         options: [imagick, gmagick, none]
         default: imagick
       az:
-        description: 'Build against the static libraries of the repository az (az-libs, ImageMagick7), in the layout of the packages, instead of pkg libraries'
+        description: 'Build against the static libraries of the repository az (azsupport, ImageMagick7), in the layout of the packages, instead of pkg libraries'
         type: boolean
         default: false
       az_release:

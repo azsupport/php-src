@@ -45,7 +45,7 @@
 #   CFLAGS='-O3 -pipe -march=<of /etc/make.conf> -fstack-protector-strong -fno-strict-aliasing'
 #   CXXFLAGS=<the same; -std=c++17 first only for intl when c++ defaults to an older standard>
 #   LIBS='-lpthread'
-# and no LDFLAGS (the libraries of /usr/local/az add their own), whatever the old build had: the
+# and no LDFLAGS (the libraries of /usr/local/azsupport add their own), whatever the old build had: the
 # CFLAGS, CXXFLAGS, LDFLAGS, LIBS, CPPFLAGS, CC, CXX, CPP of config.nice and every
 # NAME=value option of the installed build (the environment of its configure run,
 # which autoconf records: PHP 5.6 keeps CFLAGS and the like there, the ports leave
@@ -83,20 +83,20 @@ set -u
 out="${OUT:-./config.installed.sh}"
 mk_conf="${MAKE_CONF:-/etc/make.conf}"
 
-# The static libraries PHP is built against: those of /usr/local/az (the package
-# az-libs, with libcurl of az-curl and ImageMagick 7 of az-imagemagick7: the
+# The static libraries PHP is built against: those of /usr/local/azsupport (the package
+# azsupport, with libcurl of az-curl and ImageMagick 7 of az-imagemagick7: the
 # repository of pkg of the fork, tools/build-az.sh; its list of versions in
-# share/doc/az-libs/VERSIONS), else /usr/local/phpdeps of before (the release
+# share/doc/azsupport/VERSIONS), else /usr/local/phpdeps of before (the release
 # phpdeps-fbsd<major>-latest; VERSIONS). PHPDEPS names another directory. When they
 # are there, the options of the libraries they have point there, pkg-config is
 # their wrapper (them first, static link lines) and LDFLAGS put them first and keep
 # their symbols hidden, so that php, php-fpm and libphp.so need no library of
 # /usr/local/lib (deps_opts).
 if [ -z "${PHPDEPS:-}" ]; then
-    PHPDEPS=/usr/local/az
-    [ -f "$PHPDEPS/share/doc/az-libs/VERSIONS" ] || [ ! -f /usr/local/phpdeps/VERSIONS ] || PHPDEPS=/usr/local/phpdeps
+    PHPDEPS=/usr/local/azsupport
+    [ -f "$PHPDEPS/share/doc/azsupport/VERSIONS" ] || [ ! -f /usr/local/phpdeps/VERSIONS ] || PHPDEPS=/usr/local/phpdeps
 fi
-DEPS_VERSIONS="$PHPDEPS/share/doc/az-libs/VERSIONS"
+DEPS_VERSIONS="$PHPDEPS/share/doc/azsupport/VERSIONS"
 [ -f "$DEPS_VERSIONS" ] || DEPS_VERSIONS="$PHPDEPS/VERSIONS"
 deps_there() { [ -f "$DEPS_VERSIONS" ] && [ -x "$PHPDEPS/bin/pkg-config" ]; }
 
@@ -169,7 +169,7 @@ cpu_lacks() {
 # PKG_CONFIG_PATH in the environment lines of file $2 and pkg-config; else the
 # base system.
 ossl_incdir() {
-    # with the static libraries of /usr/local/az installed, its OpenSSL (see deps_opts)
+    # with the static libraries of /usr/local/azsupport installed, its OpenSSL (see deps_opts)
     if deps_there; then
         echo "$PHPDEPS/include"; return
     fi
@@ -234,7 +234,7 @@ ossl_opts() {
 # curl_note.
 curl_note=""
 curl_opts() {
-    # with the static libraries of /usr/local/az installed, its libcurl (deps_opts)
+    # with the static libraries of /usr/local/azsupport installed, its libcurl (deps_opts)
     deps_there && return 0
     [ -f ext/curl/build-libcurl.sh ] && [ -f ext/curl/libcurl/include/curl/curlver.h ] || return 0
     co="$(grep -E -m 1 '^--with-curl(=|$)' "$1")" || return 0
@@ -466,7 +466,7 @@ deps_opts() {
 # (NAME='value' lines), run from inside the PHP source tree; prints the note.
 if [ "${1:-}" = "--deps-rewrite" ]; then
     [ $# -eq 3 ] || { echo "config-check: --deps-rewrite <options file> <env file>" >&2; exit 2; }
-    deps_there || { echo "config-check: no static libraries in $PHPDEPS (az-libs: share/doc/az-libs/VERSIONS, bin/pkg-config)" >&2; exit 2; }
+    deps_there || { echo "config-check: no static libraries in $PHPDEPS (azsupport: share/doc/azsupport/VERSIONS, bin/pkg-config)" >&2; exit 2; }
     touch "$3"
     tmp="$(mktemp -d)" || exit 2
     deps_opts "$2" "$3"
