@@ -1,2 +1,0 @@
-leak:acommon::DictInfoList::elements
-leak:netsnmp_init_mib_internals
