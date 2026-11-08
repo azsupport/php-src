@@ -96,6 +96,21 @@ jobs:
           sudo docker system prune --all --force > /dev/null 2>&1 || true
           df -h /
 
+      # the key of the repository az (the secret PKG_SIGNING_KEY, PEM) in one line for envs:
+      # of the VM, masked; tools/pkg-repo-sign.sh signs with it there (no key: unsigned)
+      - name: The signing key of the repository, for the VM
+        id: key
+        env:
+          PKG_SIGNING_KEY: ${{ secrets.PKG_SIGNING_KEY }}
+        run: |
+          if [ -n "$PKG_SIGNING_KEY" ]; then
+            b64="$(printf '%s\n' "$PKG_SIGNING_KEY" | base64 -w0)"
+            echo "::add-mask::$b64"
+            echo "b64=$b64" >> "$GITHUB_OUTPUT"
+          else
+            echo "no PKG_SIGNING_KEY: the repository will not be signed"
+          fi
+
       - name: Build, package and install in FreeBSD ${{ inputs.release }}
         id: build
         uses: vmactions/freebsd-vm@v1
@@ -106,13 +121,18 @@ jobs:
           AZ_CPUTYPE: ${{ matrix.cputype }}
           AZ_BUNDLE: '1'
           AZ_PACKAGE: '1'
+          AZ_PKG_KEY: ${{ steps.key.outputs.b64 }}
         with:
           release: ${{ inputs.release }}
-          envs: 'TARGETS SWOOLE MAGICK AZ_CPUTYPE AZ_BUNDLE AZ_PACKAGE'
+          envs: 'TARGETS SWOOLE MAGICK AZ_CPUTYPE AZ_BUNDLE AZ_PACKAGE AZ_PKG_KEY'
           prepare: |
+            if [ -n "${AZ_PKG_KEY:-}" ]; then (umask 077 && printf '%s' "$AZ_PKG_KEY" > /root/.az-pkg-key.b64); fi; unset AZ_PKG_KEY
             sh tools/build-test.sh --deps $TARGETS
             sh tools/build-test.sh --az az-repo
           run: |
+            if [ -n "${AZ_PKG_KEY:-}" ]; then (umask 077 && printf '%s' "$AZ_PKG_KEY" > /root/.az-pkg-key.b64); fi; unset AZ_PKG_KEY
+            trap 'rm -f /root/.az-pkg-key.b64' EXIT
+            if [ -s /root/.az-pkg-key.b64 ]; then export AZ_PKG_KEY_FILE=/root/.az-pkg-key.b64; fi
             sh tools/build-test.sh $TARGETS || true
             # the new packages into the repository, in the place of those of the same versions
             for f in dist/az-php/php*-[0-9]*.pkg; do
@@ -121,7 +141,7 @@ jobs:
               rm -f az-repo/"${n%%-[0-9]*}"-[0-9]*.pkg
               cp "$f" az-repo/
             done
-            pkg repo az-repo > build-test-results/pkg-repo.log 2>&1 || echo "pkg repo failed" >> build-test-results/pkg-repo.log
+            sh tools/pkg-repo-sign.sh az-repo build-test-results/pkg-repo.log || echo "pkg repo failed" >> build-test-results/pkg-repo.log
 
       - name: Report
         id: report
@@ -133,6 +153,9 @@ jobs:
           : > report.md
           rc=0
           sh tools/build-test-report.sh build-test-results || rc=1
+          # the catalog: signed and checked, or not (the last line of tools/pkg-repo-sign.sh)
+          l=build-test-results/pkg-repo.log
+          [ -s "$l" ] && printf '\n%s: %s\n' "${l##*/}" "$(grep -v '^pkg repo failed$' "$l" | tail -n 1)" | tee -a report.md
           cat report.md >> "$summary"
           exit $rc
 

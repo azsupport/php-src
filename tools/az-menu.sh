@@ -1404,6 +1404,7 @@ done
 AZ="${AZ_PREFIX:-/usr/local/azsupport}"
 AZ_URL="${AZ_URL:-https://github.com/azsupport/php-src}"
 AZ_REPO_CONF="${AZ_REPO_CONF:-/usr/local/etc/pkg/repos/az.conf}"
+AZ_REPO_KEY="${AZ_REPO_KEY:-/usr/local/etc/pkg/keys/az.pub}"
 work="${AZ_MENU_WORK:-/var/tmp/az-menu}"
 say() { echo "az-menu: $*"; }
 # the x86-64 level this CPU runs (the packages are built for x86-64-v3 and -v2)
@@ -1415,16 +1416,66 @@ cpu_level() {
     echo v3
 }
 # the repository of the packages of /usr/local/azsupport for this FreeBSD and this CPU (the
-# files of a release of the fork; AZ_CANDIDATE=1: the candidate)
+# files of a release of the fork; AZ_CANDIDATE=1: the candidate); with the public key of
+# the repository in $AZ_REPO_KEY pkg checks the signature of its catalog with it
 repo_conf() {
-    printf 'az: {\n    url: "%s/releases/download/az-fbsd%s-amd64-%s%s",\n    signature_type: "none",\n    priority: 100,\n    enabled: yes\n}\n' \
-        "$AZ_URL" "$(uname -r | cut -d. -f1)" "$(cpu_level)" "${AZ_CANDIDATE:+-candidate}"
+    _rc_u="$AZ_URL/releases/download/az-fbsd$(uname -r | cut -d. -f1)-amd64-$(cpu_level)${AZ_CANDIDATE:+-candidate}"
+    if [ -s "$AZ_REPO_KEY" ]; then
+        printf 'az: {\n    url: "%s",\n    signature_type: "pubkey",\n    pubkey: "%s",\n    priority: 100,\n    enabled: yes\n}\n' "$_rc_u" "$AZ_REPO_KEY"
+    else
+        printf 'az: {\n    url: "%s",\n    signature_type: "none",\n    priority: 100,\n    enabled: yes\n}\n' "$_rc_u"
+    fi
+}
+# repo_key: the public key of the repository az, freebsd/az.pub of the fork (az.pub next
+# to this script, that of the checkout of the fork it is in, else that of master,
+# fetched into $work), into $AZ_REPO_KEY; none: the one there before stays, and with no
+# key at all az.conf has signature_type "none"
+repo_key() {
+    _rk_d="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+    _rk_k=""
+    for _rk_f in "$_rk_d/az.pub" "$_rk_d/../freebsd/az.pub"; do
+        [ -f "$_rk_f" ] && { _rk_k="$_rk_f"; break; }
+    done
+    if [ -z "$_rk_k" ]; then
+        _rk_u="https://raw.githubusercontent.com/azsupport/php-src/master/freebsd/az.pub"
+        mkdir -p "$work" || return 1
+        if fetch -q -o "$work/az.pub.new" "$_rk_u" 2>/dev/null; then
+            mv "$work/az.pub.new" "$work/az.pub" && _rk_k="$work/az.pub"
+        else
+            rm -f "$work/az.pub.new"
+            say "cannot fetch $_rk_u: no public key of the repository az there"
+        fi
+    fi
+    if [ -n "$_rk_k" ] && ! openssl pkey -pubin -in "$_rk_k" -noout > /dev/null 2>&1; then
+        say "$_rk_k: not a public key in PEM, not taken"
+        _rk_k=""
+    fi
+    if [ -n "$_rk_k" ]; then
+        if cmp -s "$_rk_k" "$AZ_REPO_KEY"; then
+            say "the public key of az: $AZ_REPO_KEY, the same as $_rk_k"
+        elif mkdir -p "$(dirname "$AZ_REPO_KEY")" && install -m 644 "$_rk_k" "$AZ_REPO_KEY"; then
+            say "the public key of az: $_rk_k into $AZ_REPO_KEY"
+        else
+            say "cannot write $AZ_REPO_KEY"
+            return 1
+        fi
+        return 0
+    fi
+    if [ -s "$AZ_REPO_KEY" ]; then
+        say "no other public key of az: $AZ_REPO_KEY as it was"
+        return 0
+    fi
+    say "no public key of az: the repository without the check of the signature (signature_type \"none\")"
+    return 1
 }
 if [ -n "$repo" ]; then
     [ "$(id -u)" = 0 ] || die "--repo writes $AZ_REPO_CONF: as root"
+    repo_key
     mkdir -p "$(dirname "$AZ_REPO_CONF")" || exit 2
     repo_conf > "$AZ_REPO_CONF" || exit 2
     say "wrote $AZ_REPO_CONF:"; cat "$AZ_REPO_CONF"
+    if [ -s "$AZ_REPO_KEY" ]; then say "pkg checks the signature of the catalog of az with $AZ_REPO_KEY"
+    else say "the repository az is without the check of the signature: no $AZ_REPO_KEY"; fi
     pkg update -r az || exit 1
     exit 0
 fi
@@ -1708,6 +1759,7 @@ az_packages_menu() {
         dlg --title "The repository az" --yesno "There is no repository az ($AZ_REPO_CONF). Write it, for this CPU (x86-64-$(cpu_level))?
 
 $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
+        repo_key
         mkdir -p "$(dirname "$AZ_REPO_CONF")" && repo_conf > "$AZ_REPO_CONF" || die "cannot write $AZ_REPO_CONF"
     fi
     pkg update -r az > /dev/null 2>&1 || say "pkg update -r az failed: the list of the repository may be old"

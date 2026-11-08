@@ -480,7 +480,7 @@ sh config.menu.sh
 | The choices | saved the way the ports save theirs, in `/var/db/az-menu/phpXY.options` (those of `php-menu.sh`, its name before 04.11.2026, in `/var/db/php-menu` are read when there are none), and the start of the next run (`--reset` starts over) |
 | At the end | the packages the choices need |
 | Without dialogs | `sh az-menu.sh --batch +GD -CGI` writes the script; an item of a screen of its own turns on its extension too (`+PDO_MYSQL`: PDO); `--batch --build` also builds the package, `--batch --build --install` installs it |
-| `--repo` | `sh az-menu.sh --repo` writes `/usr/local/etc/pkg/repos/az.conf` for the x86-64 level of the CPU and updates the catalog of az |
+| `--repo` | `sh az-menu.sh --repo` writes `/usr/local/etc/pkg/repos/az.conf` for the x86-64 level of the CPU (with the public key `freebsd/az.pub`, when there is one, in `/usr/local/etc/pkg/keys/az.pub`: the signature of the catalog is checked) and updates the catalog of az |
 | `--list` | `sh az-menu.sh --list` shows the items, the paths, their state and the templates |
 
 **Templates.** The menu first asks where to start: what it found (the saved choices,
@@ -843,16 +843,46 @@ sh az-menu.sh --repo
 pkg install -r az curl ffmpeg ImageMagick6 ImageMagick7
 ```
 
-`az.conf` on a CPU with AVX2 (`v2` without it):
+`az.conf` on a CPU with AVX2 (`v2` without it), with the public key of the repository:
 
 ```
 az: {
     url: "https://github.com/azsupport/php-src/releases/download/az-fbsd15-amd64-v3",
-    signature_type: "none",
+    signature_type: "pubkey",
+    pubkey: "/usr/local/etc/pkg/keys/az.pub",
     priority: 100,
     enabled: yes
 }
 ```
+
+The catalog is signed, as those of the FreeBSD repositories: the workflows run
+`pkg repo <directory> <key>` (pkg-repo(8); [`tools/pkg-repo-sign.sh`](tools/pkg-repo-sign.sh))
+with the RSA key of the secret `PKG_SIGNING_KEY` of this fork, and the catalog holds the
+SHA-256 of each package, so the signature covers them all. The key goes into the build VM
+in one line (base64, masked in the log), into a file of mode 600 outside the directory
+that comes back to the runner, and is removed right after `pkg repo`; then the
+signature is checked there without the network (`pkg update -f` of the directory as a
+`file://` repository with the public key of that key), and the report of the build
+says so, with the SHA-256 of the public key. Without the secret the catalog is not
+signed: the build says so with a warning and goes on.
+
+On a server `az-menu.sh --repo` takes the public key [`freebsd/az.pub`](freebsd/az.pub)
+(next to the script, in the checkout of the fork it runs from, else fetched from
+`master`), puts it into `/usr/local/etc/pkg/keys/az.pub` and writes `signature_type:
+"pubkey"`: `pkg update -r az` then refuses a catalog whose signature does not verify.
+With no key anywhere it writes `signature_type: "none"`, as before, and says that the
+repository is without the check of the signature. `sha256 /usr/local/etc/pkg/keys/az.pub`
+is the SHA-256 in the report of the build.
+
+| A new key | |
+|---|---|
+| 1 | a new RSA key: `openssl genrsa -out az.key 4096`, `openssl rsa -in az.key -pubout -out az.pub` |
+| 2 | the secret `PKG_SIGNING_KEY` (the whole of `az.key`): https://github.com/azsupport/php-src/settings/secrets/actions |
+| 3 | `az.yml`, then `az-php.yml`, published: the catalogs are signed with the new key (the servers with the old one now refuse them) |
+| 4 | `az.pub` into the fork as `freebsd/az.pub`, then on each server `sh az-menu.sh --repo` (it puts the new key in the place of the old one) and `pkg update -f -r az` |
+
+The first key goes the same way: the secret and the signed catalogs first, `freebsd/az.pub`
+after them, since a server with the key refuses a catalog without a signature.
 
 | | |
 |---|---|
