@@ -15,7 +15,7 @@
 # The core: the release tarball unpacked into build-pkg/<target>/core, configured
 # with the layout of the static packages (/usr/local, bin/php74, sbin/php-fpm74,
 # etc/php74, lib/php74, include/php74), --disable-all, CLI, FPM, the Apache module,
-# OPcache built in (--enable-opcache-static), libxml and argon2 of azsupport, and
+# libxml and argon2 of azsupport (json and OPcache are modules, as in the ports), and
 # with extension loading (no --disable-extension-loading); EXTENSION_DIR
 # /usr/local/lib/php/<API> (that of the ports: 20190902 for 7.4), so that php-config74
 # --extension-dir and every module take it. main/php_config.h includes
@@ -106,7 +106,7 @@ core_options() {
                 --localstatedir=/var "--with-config-file-path=/usr/local/etc/php$2" \
                 "--with-config-file-scan-dir=/usr/local/etc/php$2/conf.d" --disable-all --enable-cli \
                 --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-apxs2=/usr/local/sbin/apxs \
-                --enable-opcache --enable-opcache-static --with-libxml --enable-json \
+                --with-libxml \
                 "--with-password-argon2=$AZ"
             ;;
         *) return 1 ;;
@@ -270,12 +270,13 @@ build_module() {
     msg=""
     case "$ini_mode" in
         on) echo "extension=$mod.so" > "$mst$ini.sample" ;;
+        zend) echo "zend_extension=$mod.so" > "$mst$ini.sample" ;;
         off:*)
             other="${ini_mode#off:}"
             msg="PHP stops when $mod.so and $other.so are loaded together (they define the same classes), so $ini comes with its line commented out. To load $mod: comment out the line of $other in its ext-*-$other.ini in ${ini%/*}, remove the ';' before extension=$mod.so in $ini, then restart php-fpm$short or Apache."
             { echo "; $msg"; echo ";extension=$mod.so"; } > "$mst$ini.sample"
             ;;
-        *) echo "ini $ini_mode in freebsd/ext.conf: neither on nor off:<module>" > "$mo/error.txt"; return 1 ;;
+        *) echo "ini $ini_mode in freebsd/ext.conf: not on, zend or off:<module>" > "$mo/error.txt"; return 1 ;;
     esac
     # azsupport when the module links one of its libraries
     readelf -d "$so" > "$mo/readelf.txt" 2>&1
@@ -341,6 +342,8 @@ build_module() {
 # exits 0 when the module works (and prints what it found)
 smoke_lines() {
     cat <<'EOF'
+opcache	$s = opcache_get_status(false); exit(is_array($s) && $s["opcache_enabled"] ? 0 : 1);
+json	exit(json_decode(json_encode(["a" => 1, "b" => [true, null]]), true) === ["a" => 1, "b" => [true, null]] ? 0 : 1);
 bcmath	exit(bcadd("1.5", "2.25", 2) === "3.75" ? 0 : 1);
 bz2	$s = str_repeat("az", 100); exit(bzdecompress(bzcompress($s)) === $s ? 0 : 1);
 calendar	exit(cal_days_in_month(CAL_GREGORIAN, 2, 2024) === 29 ? 0 : 1);
@@ -440,12 +443,16 @@ checks() {
     smoke_lines > "$work/$t/smoke-lines"
     while read -r bm bp bprio bf; do
         case "$bm" in openswoole) continue ;; esac
-        grep -qix "$bm" "$res/$t/php-m.txt" || { echo "FAIL $bm: not in php$short -m" >> "$tt"; nfail=$((nfail + 1)); continue; }
+        # the name php -m prints: OPcache is "Zend OPcache" (under [Zend Modules] too)
+        mn="$bm"; dopt=""
+        [ "$bm" = opcache ] && { mn="Zend OPcache"; dopt="-d opcache.enable_cli=1"; }
+        grep -qix "$mn" "$res/$t/php-m.txt" || { echo "FAIL $bm: not in php$short -m" >> "$tt"; nfail=$((nfail + 1)); continue; }
         code="$(awk -F '\t' -v m="$bm" '$1 == m { print $2; exit }' "$work/$t/smoke-lines")"
         if [ -z "$code" ]; then echo "--   $bm: loaded, no smoke check of its own" >> "$tt"; continue; fi
         # the second kind of openssl is checked in the swap below
         [ "$bp" = "php$short-openssl-legacy" ] && continue
-        check "$bm" "$php" -r "$code" < /dev/null
+        # shellcheck disable=SC2086
+        check "$bm" "$php" $dopt -r "$code" < /dev/null
     done < "$work/$t/built"
     # openswoole: its ini is off; on its own it loads (with the modules it needs)
     if grep -q '^openswoole ' "$work/$t/built"; then
