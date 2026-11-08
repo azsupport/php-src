@@ -1164,15 +1164,24 @@ for n in "$@"; do
 done
 ports_checkout || { echo "build-deps: cannot check out freebsd-ports $ports_commit" > "$res/summary.txt"; exit 1; }
 mkdir -p "$P" "$S"
-rc=0
+# build_one and build_bundle set rc for the line of their library: the libraries
+# that failed are kept apart, so that one built after them does not hide them
+failed=""
 for n in "$@"; do
     say "$n ($(port_of "$n"))"
-    build_one "$n" || rc=1
+    build_one "$n" || failed="$failed $n"
 done
+rc=0
+if [ -n "$failed" ]; then
+    rc=1
+    say "failed:$failed"
+fi
 # the curl program first: it links with the .la files of curl's libraries, which finish removes
 if grep -q '^program curl' "$conf" && grep -q '^curl ' "$res/built.txt" 2>/dev/null; then
-    build_curl_program || rc=1
+    build_curl_program || failed="$failed curl-program"
 fi
+# build_curl_program sets rc itself too
+[ -z "$failed" ] || rc=1
 finish
 finish_so
 if [ -s "$res/shared-bad.txt" ]; then
