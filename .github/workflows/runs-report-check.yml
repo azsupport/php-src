@@ -1,0 +1,31 @@
+name: runs report check
+
+# Checks that the secret RUNS_TOKEN still commits the reports of the runs into the
+# branch runs of the private azsupport/azsupport (tools/runs-report.sh, which
+# az.yml and az-php.yml call at their end): a short report of this run lands
+# there, or the run fails. Started by hand: Actions, "runs report check",
+# "Run workflow" (after a new token, or when a report did not come).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: A report of this run into azsupport/azsupport (branch runs)
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: check
+          RUNS_STEPS: check=success
+        run: |
+          [ -n "$RUNS_TOKEN" ] || { echo "::error title=runs report check::the secret RUNS_TOKEN is not set"; exit 1; }
+          printf '### runs report check\n\nRUNS_TOKEN commits into azsupport/azsupport: this file came from the run.\n' > report.md
+          sh tools/runs-report.sh report.md check | tee out.txt
+          grep -q '^runs report: ' out.txt || { echo "::error title=runs report check::the report was not committed"; exit 1; }
