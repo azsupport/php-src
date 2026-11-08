@@ -233,8 +233,14 @@ names="azsupport curl ffmpeg ImageMagick6 ImageMagick7"
 rd="$res/repos"
 mkdir -p "$rd"
 printf 'aztest: { url: "file://%s", signature_type: "none", priority: 100, enabled: yes }\n' "$repo" > "$rd/aztest.conf"
-if pkg repo "$repo" > "$res/repo.log" 2>&1; then
+# signed with the key of AZ_PKG_KEY when it is there (tools/pkg-repo-sign.sh): the
+# warning of an unsigned one to the screen, its last line into the tests
+sign="$(sh "$top/tools/pkg-repo-sign.sh" "$repo" "$res/repo.log")"
+src=$?
+printf '%s\n' "$sign"
+if [ "$src" = 0 ]; then
     tpass "pkg repo: $(cd "$repo" && ls | grep -v -E '^(azsupport|curl|ffmpeg|ImageMagick[67])-[0-9].*\.pkg$' | tr '\n' ' ')"
+    tpass "$(printf '%s\n' "$sign" | tail -n 1)"
     root="/var/tmp/az-pkg-root"
     rm -rf "$root"; mkdir -p "$root"
     abi="$(pkg config ABI)"
@@ -258,7 +264,7 @@ if pkg repo "$repo" > "$res/repo.log" 2>&1; then
         tfail "pkg install here: $(tail -n 3 "$res/install.log" | tr '\n' ' ')"
     fi
 else
-    tfail "pkg repo: $(tail -n 2 "$res/repo.log" | tr '\n' ' ')"
+    tfail "$(printf '%s\n' "$sign" | tail -n 1)"
 fi
 
 # --- the tests of the installed programs --------------------------------------------

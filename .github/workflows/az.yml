@@ -79,22 +79,42 @@ jobs:
       - name: The files of the take lines, fetched on the runner (it reaches GitHub better than the VM)
         run: sh tools/take-fetch.sh
 
+      # the key of the repository az (the secret PKG_SIGNING_KEY, PEM) in one line for envs:
+      # of the VM, masked; tools/pkg-repo-sign.sh signs with it there (no key: unsigned)
+      - name: The signing key of the repository, for the VM
+        id: key
+        env:
+          PKG_SIGNING_KEY: ${{ secrets.PKG_SIGNING_KEY }}
+        run: |
+          if [ -n "$PKG_SIGNING_KEY" ]; then
+            b64="$(printf '%s\n' "$PKG_SIGNING_KEY" | base64 -w0)"
+            echo "::add-mask::$b64"
+            echo "b64=$b64" >> "$GITHUB_OUTPUT"
+          else
+            echo "no PKG_SIGNING_KEY: the repository will not be signed"
+          fi
+
       - name: Build, test and package in FreeBSD ${{ inputs.release }}
         id: build
         uses: vmactions/freebsd-vm@v1
         env:
           AZ_CPUTYPE: ${{ matrix.cputype }}
           AZ_CFLAGS: ${{ inputs.cflags }}
+          AZ_PKG_KEY: ${{ steps.key.outputs.b64 }}
         with:
           release: ${{ inputs.release }}
-          envs: 'AZ_CPUTYPE AZ_CFLAGS'
+          envs: 'AZ_CPUTYPE AZ_CFLAGS AZ_PKG_KEY'
           prepare: |
+            if [ -n "${AZ_PKG_KEY:-}" ]; then (umask 077 && printf '%s' "$AZ_PKG_KEY" > /root/.az-pkg-key.b64); fi; unset AZ_PKG_KEY
             sh tools/build-az.sh --tools
           run: |
+            if [ -n "${AZ_PKG_KEY:-}" ]; then (umask 077 && printf '%s' "$AZ_PKG_KEY" > /root/.az-pkg-key.b64); fi; unset AZ_PKG_KEY
+            trap 'rm -f /root/.az-pkg-key.b64' EXIT
+            if [ -s /root/.az-pkg-key.b64 ]; then export AZ_PKG_KEY_FILE=/root/.az-pkg-key.b64; fi
             sh tools/build-az.sh || true
             r="dist/az-fbsd$(uname -r | cut -d. -f1)-amd64-${AZ_CPUTYPE#x86-64-}"
             if [ -f "$r/meta.conf" ] && ls php-keep/php*.pkg > /dev/null 2>&1; then
-              cp php-keep/php*.pkg "$r/" && pkg repo "$r" > az-results/repo-php.log 2>&1
+              cp php-keep/php*.pkg "$r/" && sh tools/pkg-repo-sign.sh "$r" az-results/repo-php.log
             fi
             # not back to the runner a second time
             rm -rf php-keep distfiles
@@ -113,6 +133,12 @@ jobs:
           sh tools/build-ffmpeg-report.sh imagemagick-results "ImageMagick 6 and 7" || rc=1
           sh tools/build-ffmpeg-report.sh curl-results "curl" || rc=1
           sh tools/build-ffmpeg-report.sh az-results "the packages of /usr/local/azsupport" || rc=1
+          # the catalog: signed and checked, or not (the last line of tools/pkg-repo-sign.sh)
+          for l in az-results/repo.log az-results/repo-php.log; do
+            [ -s "$l" ] || continue
+            printf '\n%s: %s\n' "${l##*/}" "$(tail -n 1 "$l")" | tee -a report.md
+            tail -n 1 "$l" | grep -q '^pkg repo failed' && rc=1
+          done
           cat report.md >> "$summary"
           exit $rc
 
@@ -145,7 +171,7 @@ jobs:
           tag="az-fbsd$major-amd64-$level"
           if [ -n "$CANDIDATE" ]; then tag="$tag-candidate"; fi
           url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
-          notes="A repository of pkg for FreeBSD $major (amd64, -march=$CPUTYPE) of the static packages of azsupport/php-src: azsupport (the libraries of /usr/local/azsupport PHP is built against), and in the place of those of the ports curl (bin/curl, libcurl.so.4), ffmpeg, ImageMagick6 (convert6, identify6, ...) and ImageMagick7 (magick, and its libraries for imagick); the PHP packages php56 ... php84 of az-menu.sh come into it too. Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, PIE, RELRO and BIND_NOW. On a server, /usr/local/etc/pkg/repos/az.conf: az: { url: \"$url\", signature_type: \"none\", priority: 100, enabled: yes } (sh tools/az-menu.sh --repo writes it), then: pkg update -r az, pkg install -r az ffmpeg ImageMagick7 (and the others). Versions and options: /usr/local/share/doc/<package>/VERSIONS (azsupport: /usr/local/azsupport/share/doc/azsupport/VERSIONS)."
+          notes="A repository of pkg for FreeBSD $major (amd64, -march=$CPUTYPE) of the static packages of azsupport/php-src: azsupport (the libraries of /usr/local/azsupport PHP is built against), and in the place of those of the ports curl (bin/curl, libcurl.so.4), ffmpeg, ImageMagick6 (convert6, identify6, ...) and ImageMagick7 (magick, and its libraries for imagick); the PHP packages php56 ... php84 of az-menu.sh come into it too. Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, PIE, RELRO and BIND_NOW. On a server, /usr/local/etc/pkg/repos/az.conf: az: { url: \"$url\", signature_type: \"pubkey\", pubkey: \"/usr/local/etc/pkg/keys/az.pub\", priority: 100, enabled: yes } with the key freebsd/az.pub of the fork (sh tools/az-menu.sh --repo writes both; the catalog is signed with the key of aZ), then: pkg update -r az, pkg install -r az ffmpeg ImageMagick7 (and the others). Versions and options: /usr/local/share/doc/<package>/VERSIONS (azsupport: /usr/local/azsupport/share/doc/azsupport/VERSIONS)."
           if [ -n "$CANDIDATE" ]; then
             notes="A candidate, for a check on a server before the packages go to az-fbsd$major-amd64-$level. $notes"
           fi

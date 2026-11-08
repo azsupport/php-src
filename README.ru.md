@@ -477,7 +477,7 @@ sh config.menu.sh
 | Выбор | сохраняется так же, как его сохраняют порты, — в `/var/db/az-menu/phpXY.options` (выбор `php-menu.sh`, как скрипт назывался до 04.11.2026, читается из `/var/db/php-menu`, если своего нет) — и становится началом следующего запуска (`--reset` начинает заново) |
 | В конце | пакеты, которые нужны выбору |
 | Без диалогов | `sh az-menu.sh --batch +GD -CGI` пишет скрипт; пункт со своего экрана включает и своё расширение (`+PDO_MYSQL` — PDO); `--batch --build` ещё и собирает пакет, `--batch --build --install` и ставит его |
-| `--repo` | `sh az-menu.sh --repo` пишет `/usr/local/etc/pkg/repos/az.conf` под уровень x86-64 процессора и обновляет каталог az |
+| `--repo` | `sh az-menu.sh --repo` пишет `/usr/local/etc/pkg/repos/az.conf` под уровень x86-64 процессора (с открытым ключом `freebsd/az.pub`, если он есть, в `/usr/local/etc/pkg/keys/az.pub`: подпись каталога проверяется) и обновляет каталог az |
 | `--list` | `sh az-menu.sh --list` показывает пункты, пути, их состояние и шаблоны |
 
 **Шаблоны.** Сначала меню спрашивает, с чего начать: с того, что оно нашло (сохранённый
@@ -831,16 +831,44 @@ sh az-menu.sh --repo
 pkg install -r az curl ffmpeg ImageMagick6 ImageMagick7
 ```
 
-`az.conf` на процессоре с AVX2 (без него — `v2`):
+`az.conf` на процессоре с AVX2 (без него — `v2`), с открытым ключом репозитория:
 
 ```
 az: {
     url: "https://github.com/azsupport/php-src/releases/download/az-fbsd15-amd64-v3",
-    signature_type: "none",
+    signature_type: "pubkey",
+    pubkey: "/usr/local/etc/pkg/keys/az.pub",
     priority: 100,
     enabled: yes
 }
 ```
+
+Каталог подписан, как у репозиториев FreeBSD: workflow запускают
+`pkg repo <каталог> <ключ>` (pkg-repo(8); [`tools/pkg-repo-sign.sh`](tools/pkg-repo-sign.sh))
+с RSA-ключом из секрета `PKG_SIGNING_KEY` этого форка, а в каталоге — SHA-256 каждого
+пакета, так что подпись покрывает их все. Ключ попадает в VM сборки одной строкой (base64,
+в логе замаскирован), в файл с правами 600 вне каталога, который возвращается на раннер, и
+удаляется сразу после `pkg repo`; потом подпись там же проверяется без сети (`pkg update -f`
+каталога как репозитория `file://` с открытым ключом этого ключа), и отчёт сборки пишет
+об этом строкой, с SHA-256 открытого ключа. Без секрета каталог не подписан: сборка пишет
+предупреждение и идёт дальше.
+
+На сервере `az-menu.sh --repo` берёт открытый ключ [`freebsd/az.pub`](freebsd/az.pub)
+(рядом со скриптом, из клона форка, откуда он запущен, иначе — с `master`), кладёт его в
+`/usr/local/etc/pkg/keys/az.pub` и пишет `signature_type: "pubkey"`: `pkg update -r az`
+тогда не примет каталог, подпись которого не сходится. Ключа нигде нет — пишет
+`signature_type: "none"`, как раньше, и строку, что репозиторий без проверки подписи.
+`sha256 /usr/local/etc/pkg/keys/az.pub` — тот же SHA-256, что в отчёте сборки.
+
+| Новый ключ | |
+|---|---|
+| 1 | новый RSA-ключ: `openssl genrsa -out az.key 4096`, `openssl rsa -in az.key -pubout -out az.pub` |
+| 2 | секрет `PKG_SIGNING_KEY` (весь `az.key`): https://github.com/azsupport/php-src/settings/secrets/actions |
+| 3 | `az.yml`, потом `az-php.yml`, с публикацией: каталоги подписаны новым ключом (серверы со старым их теперь не примут) |
+| 4 | `az.pub` в форк как `freebsd/az.pub`, потом на каждом сервере `sh az-menu.sh --repo` (кладёт новый ключ на место старого) и `pkg update -f -r az` |
+
+Первый ключ — так же: сначала секрет и подписанные каталоги, потом `freebsd/az.pub`, потому
+что сервер с ключом не примет каталог без подписи.
 
 | | |
 |---|---|
