@@ -647,6 +647,7 @@ build_one() {
         fi
         # shellcheck disable=SC2086
         pmake "$port" $targs clean >/dev/null 2>&1
+        [ -n "$wd" ] && [ -n "$src" ] || { echo "== no WRKDIR or WRKSRC of $port (make -V)"; exit 1; }
         rm -rf "$wd.so"
         # shellcheck disable=SC2086
         pmake "$port" $targs patch || { echo "make patch failed"; exit 1; }
