@@ -12,7 +12,8 @@
 #                  pkg mode), VERSIONS and LICENSES/; only there, since those of
 #                  the packages (png, pcre2, libxml2, expat...) stay in /usr/local
 #                  for the others (apache24, git...). The libraries of ImageMagick 7
-#                  in it belong to the package ImageMagick7
+#                  under /usr/local/azsupport are not in it: they belong to the
+#                  package ImageMagick7 (its stage, tools/build-imagemagick.sh)
 #   curl           in the place of ftp/curl: bin/curl (static) and lib/libcurl.so.4
 #                  (the libraries of curl and OpenSSL inside it, only curl_*
 #                  exported), so that git and the other packages that link libcurl
