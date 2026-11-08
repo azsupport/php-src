@@ -939,7 +939,7 @@ magick -version
 [`tools/imagemagick-test.sh`](tools/imagemagick-test.sh): образцы всех форматов
 (сделаны пакетом `ImageMagick7` из FreeBSD), identify, миниатюры, WebP, анимации,
 промежуточный BMP, водяной знак, текст, CMYK; отвергаются SVG, MVG, MSL, PostScript,
-PDF, TIFF, MNG, `text:`, `label:@`, `@файл`, `inline:`, URL, `/etc`, `../` и стандартный ввод.
+PDF, TIFF, MNG, `text:`, `label:@`, `-comment @`, `@файл`, `inline:`, URL, `/etc`, `../` и стандартный ввод.
 [Проверка апстрима](#проверка-апстрима) следит за релизами ImageMagick 6 и 7 и их
 библиотек и за коммитами в их порты.
 
