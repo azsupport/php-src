@@ -147,8 +147,9 @@ old="$(pkg query %n ffmpeg ffmpeg-nox11 ImageMagick7 ImageMagick7-nox11 ImageMag
 [ -n "$old" ] && pkg delete -y $old > "$res/pkg-delete.log" 2>&1
 
 # --- the packages -------------------------------------------------------------------
-# version and epoch of a port, from the built.txt of a part ("<name> <pkgname> <port>")
-pv() { awk -v n="$2" '$1 == n { v = $2; sub(/^.*-/, "", v); e = ""; if (index(v, ",")) e = substr(v, index(v, ",")); sub(/[_,].*$/, "", v); print v "|" e }' "$1"; }
+# version and epoch of a port, from the built.txt of a part ("<name> <pkgname> <port>");
+# a version taken with a dash (7.1.2-35) as the port writes it (7.1.2.35)
+pv() { awk -v n="$2" '$1 == n { v = $2; if (match(v, /-[0-9]/)) v = substr(v, RSTART + 1); e = ""; if (index(v, ",")) e = substr(v, index(v, ",")); sub(/[_,].*$/, "", v); gsub(/-/, ".", v); print v "|" e }' "$1"; }
 v_curl="$(pv "$top/deps-results/built.txt" curl)"
 v_ffmpeg="$(pv "$top/ffmpeg-results/built.txt" ffmpeg)"
 v_im6="$(pv "$top/imagemagick-results/built.txt" imagemagick6)"
