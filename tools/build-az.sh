@@ -2,12 +2,17 @@
 # build-az.sh - build the static programs of the fork for FreeBSD as packages
 # that take the place of those of the ports, and the static libraries they and
 # PHP are built against, with a repository of pkg made of them:
-#   azsupport      the static libraries of /usr/local/azsupport (tools/build-deps.sh,
-#                  freebsd/deps.conf): lib/, include/, lib/pkgconfig/, the
-#                  *-config scripts and bin/pkg-config, for builds against them
-#                  (PHP: tools/az-menu.sh, tools/config-check.sh); only there,
-#                  since those of the packages (png, pcre2, libxml2, expat...) stay
-#                  in /usr/local for the others (apache24, git...)
+#   azsupport      all of /usr/local/azsupport (tools/build-deps.sh,
+#                  freebsd/deps.conf): the static tree static/ (lib/, include/,
+#                  lib/pkgconfig/, the *-config scripts and bin/pkg-config, for
+#                  the static builds against them: PHP with tools/az-menu.sh,
+#                  tools/config-check.sh, the programs) and the shared tree at the
+#                  top (lib/*.so with the run path /usr/local/azsupport/lib,
+#                  include/, lib/pkgconfig/, bin/pkg-config, for the PHP modules of
+#                  pkg mode), VERSIONS and LICENSES/; only there, since those of
+#                  the packages (png, pcre2, libxml2, expat...) stay in /usr/local
+#                  for the others (apache24, git...). The libraries of ImageMagick 7
+#                  in it belong to the package ImageMagick7
 #   curl           in the place of ftp/curl: bin/curl (static) and lib/libcurl.so.4
 #                  (the libraries of curl and OpenSSL inside it, only curl_*
 #                  exported), so that git and the other packages that link libcurl
@@ -18,8 +23,9 @@
 #   ImageMagick6   bin/convert6, identify6, mogrify6, composite6... with
 #                  etc/ImageMagick-6, share/ImageMagick-6, lib/ImageMagick-6.*
 #   ImageMagick7   in the place of graphics/ImageMagick7: bin/magick and the
-#                  names linked to it, etc/ImageMagick-7...; its static libraries,
-#                  headers and MagickWand-config in /usr/local/azsupport, for imagick
+#                  names linked to it, etc/ImageMagick-7...; its libraries,
+#                  headers and MagickWand-config in /usr/local/azsupport (static
+#                  under static/, shared at the top), for imagick
 #                  (tools/build-imagemagick.sh, freebsd/imagemagick.conf)
 # The names, origins and epochs are those of the ports, the versions those of the
 # ports with a revision of the build (AZ_STAMP, default the time of the build,
@@ -181,8 +187,8 @@ print(json.dumps({
 }, indent=1))
 EOF
 }
-manifest azsupport az/azsupport "$(date -u +%Y%m%d)|" "$A" "Static libraries of /usr/local/azsupport, for builds of PHP and the programs" \
-    MULTI devel "The static, position independent libraries of $A (freebsd/deps.conf of https://github.com/azsupport/php-src), with the curl of PHP (the static libcurl, only what PHP needs): PHP built against them (az-menu.sh, config-check.sh) and the programs of the fork need no library of /usr/local/lib. Versions: $A/share/doc/azsupport/VERSIONS."
+manifest azsupport az/azsupport "$(date -u +%Y%m%d)|" "$A" "Static and shared libraries of /usr/local/azsupport, for PHP and the programs" \
+    MULTI devel "The libraries of $A (freebsd/deps.conf of https://github.com/azsupport/php-src) in two trees. $A/static: static, position independent libraries with the curl of PHP (the static libcurl, only what PHP needs) and the OpenSSL of the port: the static PHP built against them (az-menu.sh, config-check.sh) and the programs of the fork need no library of /usr/local/lib. $A: shared libraries with the run path $A/lib and the OpenSSL of the base system (libcurl, libzip), for the PHP modules of pkg mode (also sqlite3, gmp, libxslt, libffi, tidy). Versions: $A/share/doc/azsupport/VERSIONS."
 manifest curl ftp/curl "$v_curl" /usr/local "Command line tool and library for transferring data with URLs (static, of azsupport/php-src)" \
     MIT ftp "curl ${v_curl%|*} with the options of the port ftp/curl (HTTP/2, the protocols of the port, NTLM, IDN, the Public Suffix List, brotli, zstd, the threaded resolver; no SCP and SFTP, no GSSAPI), the OpenSSL of azsupport inside: bin/curl (static) and lib/libcurl.so.4 in the place of those of the port. Versions: share/doc/curl/VERSIONS."
 manifest ffmpeg multimedia/ffmpeg "$v_ffmpeg" /usr/local "FFmpeg for the video sites, static (ffmpeg, ffprobe)" \
@@ -279,7 +285,8 @@ if grep -q '^ok .*pkg install here' "$res/tests.txt"; then
     echo "installed: the package curl, /usr/local/bin/curl and lib/libcurl.so.4" >> "$top/curl-results/summary.txt"
 fi
 # imagick of PHP links the static libraries of ImageMagick 7 in, with the line of
-# MagickWand-config of /usr/local/azsupport: a program (and a shared object, as libphp.so)
+# MagickWand-config of the static tree /usr/local/azsupport/static: a program (and a
+# shared object, as libphp.so)
 # that does so, run once; it has to find HEIC among the formats (libheif, the policy)
 t="$work/imagick-link"
 rm -rf "$t"; mkdir -p "$t"
@@ -304,7 +311,7 @@ EOF
 # environ comes from the program that loads a shared object (crt1.o of httpd, php),
 # not from libc.so: for the link of the shared object with --no-undefined, a weak one
 printf '%s\n' 'char **environ __attribute__((weak));' > "$t/env.c"
-if cf="$("$A/bin/MagickWand-config" --cflags)" && lf="$("$A/bin/MagickWand-config" --libs)" &&
+if cf="$("$A/static/bin/MagickWand-config" --cflags)" && lf="$("$A/static/bin/MagickWand-config" --libs)" &&
     {
         echo "MagickWand-config --cflags: $cf"
         echo "MagickWand-config --libs: $lf"
