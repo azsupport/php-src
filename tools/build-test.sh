@@ -10,10 +10,12 @@
 #                                                the repository of pkg in <dir> (az.yml)
 #   sh tools/build-test.sh [--tests] 5.6 7.4     build dist/php-<target>-fbsd-latest.tar.xz
 #
-# AZ_BUNDLE=1: build against the static libraries of /usr/local/azsupport (azsupport; curl
-# and imagick with those of curl and ImageMagick7 there), in the layout of the
-# packages of tools/az-menu.sh (/usr/local, bin/php84, etc/php84...) instead of
-# the prefix of the preset; AZ_PACKAGE=1 then also makes the package phpXY of each
+# AZ_BUNDLE=1: build against the static libraries of /usr/local/azsupport/static (the
+# static tree of azsupport; curl and imagick with its libcurl and the ImageMagick 7 of
+# the package ImageMagick7 there; the shared libraries of /usr/local/azsupport/lib are for the
+# packages of pkg mode, not for these builds), in the layout of the packages of
+# tools/az-menu.sh (/usr/local, bin/php84, etc/php84...) instead of the prefix of the
+# preset; AZ_PACKAGE=1 then also makes the static package phpXY-static of each
 # build (make install into a stage, tools/az-menu.sh --package) into dist/az-php/,
 # installs it and starts its php-fpm with the rc.d script (php_fpmXY onestart),
 # all versions side by side. AZ_CPUTYPE: the -march (x86-64-v3, x86-64-v2) instead
@@ -45,7 +47,7 @@ deps() {
     # ext/curl/deps)
     pkgs="pkgconf libmemcached zstd ImageMagick7-nox11 GraphicsMagick-nox11 libmcrypt memcached redis"
     if [ "${AZ_BUNDLE:-0}" = 1 ]; then
-        # PHP against the static libraries of /usr/local/azsupport (--az): none of the
+        # PHP against the static libraries of /usr/local/azsupport/static (--az): none of the
         # libraries they have, so that configure cannot take one of pkg by mistake;
         # imagick takes ImageMagick 7 of the tree (the package ImageMagick7 of az)
         pkgs="pkgconf memcached redis apache24 perl5"
@@ -235,7 +237,8 @@ trap stop_servers EXIT INT TERM
 say() { printf '[build-test %s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
 # az_package <target> <source tree> <results dir>: make install into a stage, the
-# package phpXY of it (tools/az-menu.sh --package) into dist/az-php/, then pkg add,
+# package phpXY-static of it (tools/az-menu.sh --package prints the file it wrote,
+# whatever its name) into dist/az-php/, then pkg add,
 # php -v, and with FPM its rc.d script: onestart (the pool on its own socket, next
 # to the other versions), onestop
 az_package() {
@@ -302,9 +305,10 @@ for target in "$@"; do
     cd "$src" || exit 1
 
     # shellcheck disable=SC2046
-    # PHP against the static libraries of /usr/local/azsupport (AZ_BUNDLE=1): the layout of
-    # the packages of az-menu.sh instead of the prefix of the preset, the options and
-    # LDFLAGS as config-check.sh writes them with the libraries installed, their pkg-config.
+    # PHP against the static libraries of /usr/local/azsupport/static (AZ_BUNDLE=1): the
+    # layout of the packages of az-menu.sh instead of the prefix of the preset, the options
+    # and LDFLAGS as config-check.sh writes them with the libraries installed, their
+    # pkg-config (static/bin/pkg-config); the list of versions is at the root of azsupport.
     pkgconfig="${PKG_CONFIG:-pkg-config}"
     short="$(echo "$target" | tr -d .)"
     if [ "${AZ_BUNDLE:-0}" = 1 ]; then
@@ -321,7 +325,7 @@ for target in "$@"; do
             cat "$out/configure-options.new"
         } > "$out/configure-options.txt"
         printf "LDFLAGS='%s'\n" "$LDFLAGS" > "$out/env.txt"
-        PHPDEPS=/usr/local/azsupport sh "$top/tools/config-check.sh" --deps-rewrite "$out/configure-options.txt" "$out/env.txt" > "$out/az-note.txt"
+        PHPDEPS=/usr/local/azsupport/static sh "$top/tools/config-check.sh" --deps-rewrite "$out/configure-options.txt" "$out/env.txt" > "$out/az-note.txt"
         LDFLAGS="$(sed -n "s/^LDFLAGS='\(.*\)'\$/\1/p" "$out/env.txt")"
         pkgconfig="$(sed -n "s/^PKG_CONFIG='\(.*\)'\$/\1/p" "$out/env.txt")"
         echo "azsupport: $(pkg query '%v' azsupport) ($(head -n 1 /usr/local/azsupport/share/doc/azsupport/VERSIONS | sed 's/, built.*//'))" >> "$sum"
@@ -373,7 +377,7 @@ for target in "$@"; do
         echo "ldd:      $(ldd sapi/cli/php sapi/fpm/php-fpm libs/libphp*.so 2>/dev/null | awk '/=>/ { print $3 }' |
             grep '^/usr/local/' | sort -u | tr '\n' ' ' | sed 's/ *$//' | grep . || echo 'no library of /usr/local')"
         if [ "${AZ_BUNDLE:-0}" = 1 ]; then
-            echo "curl:     $("$pkgconfig" --modversion libcurl) of /usr/local/azsupport"
+            echo "curl:     $("$pkgconfig" --modversion libcurl) of /usr/local/azsupport/static"
         fi
         if [ -f ext/curl/libcurl-build/VERSION ]; then
             echo "curl:     bundled $(cat ext/curl/libcurl-build/VERSION) (ext/curl/libcurl-build.log)"

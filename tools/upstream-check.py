@@ -28,7 +28,8 @@ have. So a release issue says what the release notes name (CVE and GHSA ids, on
 GitHub) and what the commit messages since the tag of the version built name (any
 git repository), and it stays open as a note until the port has the version.
 
-The static libraries of /usr/local/azsupport built from ports (freebsd/deps.conf), and
+The libraries of /usr/local/azsupport built from ports (freebsd/deps.conf: static in
+/usr/local/azsupport/static, shared in /usr/local/azsupport/lib), and
 the packages built against them (FFmpeg, freebsd/ffmpeg.conf; ImageMagick,
 freebsd/imagemagick.conf; tools/build-az.sh):
 their upstream releases ("upstream" lines: tags or a directory listing) newer than

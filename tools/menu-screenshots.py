@@ -41,21 +41,23 @@ KEYS = {'enter': b'\r', 'down': b'\x1bOB', 'up': b'\x1bOA', 'pgdn': b'\x1b[6~', 
 
 
 # pkg for the session of the packages: the catalog of the repository az as a server
-# reads it (the versions of a build of az.yml and az-php.yml of 05.11.2026)
+# reads it (the versions of a build of az.yml and az-php.yml of 05.11.2026; the static
+# packages of PHP named phpXY-static and the libraries of azsupport in the layout of
+# 08.11.2026: static ones in /usr/local/azsupport/static, shared ones in lib/)
 FAKE_PKG = r"""#!/bin/sh
 cat_az() {
     printf '%s\t%s\t%s\n' \
-        azsupport 20261105_26110500 'Static libraries of /usr/local/azsupport, for builds of PHP and the programs' \
+        azsupport 20261105_26110500 'Libraries of /usr/local/azsupport: static ones in static/, for builds of PHP and the programs; shared ones in lib/, for the packages of PHP of pkg mode' \
         curl 8.23.0_26110500 'Command line tool and library for transferring data with URLs (static, of azsupport/php-src)' \
         ffmpeg 9.0.2_26110500,1 'FFmpeg for the video sites, static (ffmpeg, ffprobe)' \
         ImageMagick6 6.9.13.59_26110500,1 'ImageMagick 6 for the video sites, static (convert6, identify6, ...)' \
         ImageMagick7 7.1.2.34_26110500 'ImageMagick 7 for the video sites, static (magick), and its libraries for imagick' \
-        php56 5.6.40_26110500 'PHP 5.6 of azsupport/php-src (php56, php-fpm56, libphp56.so), static' \
-        php74 7.4.33_26110500 'PHP 7.4 of azsupport/php-src (php74, php-fpm74, libphp74.so), static' \
-        php81 8.1.34_26110500 'PHP 8.1 of azsupport/php-src (php81, php-fpm81, libphp81.so), static' \
-        php82 8.2.30_26110500 'PHP 8.2 of azsupport/php-src (php82, php-fpm82, libphp82.so), static' \
-        php83 8.3.29_26110500 'PHP 8.3 of azsupport/php-src (php83, php-fpm83, libphp83.so), static' \
-        php84 8.4.27_26110500 'PHP 8.4 of azsupport/php-src (php84, php-fpm84, libphp84.so), static'
+        php56-static 5.6.40_26110500 'PHP 5.6 of azsupport/php-src (php56, php-fpm56, libphp56.so), static' \
+        php74-static 7.4.33_26110500 'PHP 7.4 of azsupport/php-src (php74, php-fpm74, libphp74.so), static' \
+        php81-static 8.1.34_26110500 'PHP 8.1 of azsupport/php-src (php81, php-fpm81, libphp81.so), static' \
+        php82-static 8.2.30_26110500 'PHP 8.2 of azsupport/php-src (php82, php-fpm82, libphp82.so), static' \
+        php83-static 8.3.29_26110500 'PHP 8.3 of azsupport/php-src (php83, php-fpm83, libphp83.so), static' \
+        php84-static 8.4.27_26110500 'PHP 8.4 of azsupport/php-src (php84, php-fpm84, libphp84.so), static'
 }
 case "$1" in
     update) exit 0 ;;
@@ -67,11 +69,11 @@ case "$1" in
         case "$fmt" in
             '%n-%v: %c') cat_az | awk -F '\t' -v n="$n" '$1 == n { print $1 "-" $2 ": " $3 }' ;;
             '%e')
-                v="${n#php}"; b="${v%?}.${v#?}"
-                echo "PHP $b of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/azsupport." ;;
+                v="${n#php}"; v="${v%-static}"; b="${v%?}.${v#?}"
+                echo "PHP $b of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/azsupport/static." ;;
             '%At%Av'|'%At	%Av')
-                v="${n#php}"
-                printf 'configure\t%s\n' "--prefix=/usr/local --program-suffix=$v --sysconfdir=/usr/local/etc/php$v --libdir=/usr/local/lib/php$v --includedir=/usr/local/include/php$v --datadir=/usr/local/share/php$v --mandir=/usr/local/share/man --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-curl=/usr/local/azsupport --enable-dom --enable-filter --enable-mbstring --enable-opcache --enable-session --enable-gd --enable-mysqlnd --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-zip --enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd --enable-memcached --with-libmemcached-dir=/usr/local/azsupport --disable-memcached-sasl --with-imagick=/usr/local/azsupport"
+                v="${n#php}"; v="${v%-static}"
+                printf 'configure\t%s\n' "--prefix=/usr/local --program-suffix=$v --sysconfdir=/usr/local/etc/php$v --libdir=/usr/local/lib/php$v --includedir=/usr/local/include/php$v --datadir=/usr/local/share/php$v --mandir=/usr/local/share/man --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-curl=/usr/local/azsupport/static --enable-dom --enable-filter --enable-mbstring --enable-opcache --enable-session --enable-gd --enable-mysqlnd --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-zip --enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd --enable-memcached --with-libmemcached-dir=/usr/local/azsupport/static --disable-memcached-sasl --with-imagick=/usr/local/azsupport/static"
                 printf 'cflags\t%s\n' '-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing'
                 printf 'built_by\t%s\n' 'az-menu.sh r16 (b28c3f4391, 05.11.2026 00:34 CET)' ;;
             '%dn-%dv') printf '%s\n' azsupport-20261105_26110500 curl-8.23.0_26110500 ImageMagick7-7.1.2.34_26110500 ;;
