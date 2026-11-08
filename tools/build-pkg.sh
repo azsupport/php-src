@@ -334,6 +334,219 @@ build_module() {
     return 0
 }
 
+# The smoke checks of the modules: one line each, <module><TAB><code of php -r> that
+# exits 0 when the module works (and prints what it found)
+smoke_lines() {
+    cat <<'EOF'
+bcmath	exit(bcadd("1.5", "2.25", 2) === "3.75" ? 0 : 1);
+bz2	$s = str_repeat("az", 100); exit(bzdecompress(bzcompress($s)) === $s ? 0 : 1);
+calendar	exit(cal_days_in_month(CAL_GREGORIAN, 2, 2024) === 29 ? 0 : 1);
+ctype	exit(ctype_digit("123") && !ctype_digit("1a") ? 0 : 1);
+curl	$v = curl_version(); echo $v["version"], " ", $v["ssl_version"]; exit(stripos($v["ssl_version"], "OpenSSL") !== false ? 0 : 1);
+dba	echo implode(",", dba_handlers()); $f = tempnam("/tmp", "dba"); $d = dba_open($f, "n", "cdb_make"); dba_insert("k", "v", $d); dba_close($d); $d = dba_open($f, "r", "cdb"); $v = dba_fetch("k", $d); unlink($f); exit($v === "v" ? 0 : 1);
+dom	$d = new DOMDocument(); $d->loadXML("<a><b>x</b></a>"); exit($d->getElementsByTagName("b")->item(0)->textContent === "x" ? 0 : 1);
+exif	exit(function_exists("exif_read_data") ? 0 : 1);
+fileinfo	$f = new finfo(FILEINFO_MIME_TYPE); exit($f->buffer("GIF89a") === "image/gif" ? 0 : 1);
+filter	exit(filter_var("a@b.cz", FILTER_VALIDATE_EMAIL) === "a@b.cz" ? 0 : 1);
+ftp	exit(function_exists("ftp_ssl_connect") ? 0 : 1);
+gd	$i = imagecreatetruecolor(8, 8); ob_start(); imagepng($i); imagejpeg($i); imagewebp($i); $o = ob_get_clean(); $g = gd_info(); echo $g["GD Version"]; exit(strlen($o) > 100 && !empty($g["FreeType Support"]) ? 0 : 1);
+gettext	exit(_("x") === "x" ? 0 : 1);
+gmp	exit(gmp_strval(gmp_pow(2, 100)) === "1267650600228229401496703205376" ? 0 : 1);
+iconv	echo ICONV_IMPL, " ", ICONV_VERSION; exit(iconv("UTF-8", "ISO-8859-2", "\xc5\xa1") === "\xb9" ? 0 : 1);
+intl	$f = new NumberFormatter("cs_CZ", NumberFormatter::DECIMAL); echo INTL_ICU_VERSION, " ", $f->format(1234.5); exit($f->format(1234.5) !== false ? 0 : 1);
+mbstring	echo MB_ONIGURUMA_VERSION; exit(mb_ereg_replace("[0-9]+", "#", "a1b22") === "a#b#" && mb_strtoupper("\xc5\xbe") === "\xc5\xbd" ? 0 : 1);
+mysqlnd	exit(extension_loaded("mysqlnd") ? 0 : 1);
+mysqli	exit(class_exists("mysqli") && function_exists("mysqli_fetch_all") ? 0 : 1);
+openssl	echo OPENSSL_VERSION_TEXT; exit(openssl_encrypt("x", "aes-128-cbc", "k", 0, str_repeat("i", 16)) !== false ? 0 : 1);
+pcntl	exit(function_exists("pcntl_fork") ? 0 : 1);
+pdo	exit(class_exists("PDO") ? 0 : 1);
+pdo_mysql	exit(in_array("mysql", PDO::getAvailableDrivers()) ? 0 : 1);
+sqlite3	$d = new SQLite3(":memory:"); echo SQLite3::version()["versionString"]; exit($d->querySingle("select 2 * 3") == 6 ? 0 : 1);
+pdo_sqlite	$p = new PDO("sqlite::memory:"); exit($p->query("select 1 + 1")->fetchColumn() == 2 ? 0 : 1);
+phar	exit(class_exists("PharData") ? 0 : 1);
+posix	exit(posix_getpid() === getmypid() ? 0 : 1);
+readline	echo READLINE_LIB; exit(is_array(readline_info()) ? 0 : 1);
+session	exit(session_status() === PHP_SESSION_NONE ? 0 : 1);
+shmop	exit(function_exists("shmop_open") ? 0 : 1);
+simplexml	exit((string) simplexml_load_string("<a><b>x</b></a>")->b === "x" ? 0 : 1);
+soap	exit(class_exists("SoapClient") ? 0 : 1);
+sockets	exit(socket_create(AF_INET, SOCK_STREAM, SOL_TCP) !== false ? 0 : 1);
+sodium	$k = sodium_crypto_secretbox_keygen(); $n = random_bytes(24); exit(sodium_crypto_secretbox_open(sodium_crypto_secretbox("x", $n, $k), $n, $k) === "x" ? 0 : 1);
+sysvmsg	exit(function_exists("msg_get_queue") ? 0 : 1);
+sysvsem	exit(function_exists("sem_get") ? 0 : 1);
+sysvshm	exit(function_exists("shm_attach") ? 0 : 1);
+tidy	$t = tidy_parse_string("<p>x"); $t->cleanRepair(); exit(strpos((string) $t, "</p>") !== false ? 0 : 1);
+tokenizer	exit(count(token_get_all("<?php echo 1;")) > 2 ? 0 : 1);
+xml	$p = xml_parser_create(); exit(xml_parse($p, "<a/>", true) === 1 ? 0 : 1);
+xmlreader	$r = new XMLReader(); $r->XML("<a><b>x</b></a>"); $n = null; while ($r->read()) { if ($r->name === "b") { $n = $r->expand(); break; } } exit($n instanceof DOMNode ? 0 : 1);
+xmlrpc	exit(xmlrpc_decode(xmlrpc_encode(5)) === 5 ? 0 : 1);
+xmlwriter	$w = new XMLWriter(); $w->openMemory(); $w->writeElement("a", "x"); exit($w->outputMemory() === "<a>x</a>" ? 0 : 1);
+xsl	$x = new DOMDocument(); $x->loadXML("<a>x</a>"); $s = new DOMDocument(); $s->loadXML('<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output method="text"/><xsl:template match="/">[<xsl:value-of select="a"/>]</xsl:template></xsl:stylesheet>'); $p = new XSLTProcessor(); $p->importStylesheet($s); exit($p->transformToXML($x) === "[x]" ? 0 : 1);
+zip	$f = tempnam("/tmp", "zip"); $z = new ZipArchive(); $z->open($f, ZipArchive::OVERWRITE); $z->addFromString("a", "x"); $z->close(); $z->open($f); $v = $z->getFromName("a"); unlink($f); exit($v === "x" ? 0 : 1);
+zlib	exit(gzdecode(gzencode("x")) === "x" ? 0 : 1);
+ffi	$c = FFI::cdef("int abs(int);", "libc.so.7"); exit($c->abs(-5) === 5 ? 0 : 1);
+igbinary	exit(igbinary_unserialize(igbinary_serialize([1, "a"])) === [1, "a"] ? 0 : 1);
+memcache	$m = new Memcache(); $m->addServer("127.0.0.1", 11211); $m->set("k", "v"); exit($m->get("k") === "v" ? 0 : 1);
+memcached	$m = new Memcached(); $m->addServer("127.0.0.1", 11211); $m->setOption(Memcached::OPT_SERIALIZER, Memcached::SERIALIZER_IGBINARY); $m->set("k", [1]); exit($m->get("k") === [1] ? 0 : 1);
+redis	$r = new Redis(); $r->connect("127.0.0.1", 6379); $r->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY); $r->setOption(Redis::OPT_COMPRESSION, Redis::COMPRESSION_ZSTD); $r->set("k", [1]); exit($r->get("k") === [1] ? 0 : 1);
+imagick	$f = Imagick::queryFormats(); echo implode(",", array_values(array_intersect(["HEIC", "WEBP", "JPEG", "PNG"], $f))); exit(in_array("HEIC", $f) ? 0 : 1);
+mcrypt	exit(in_array("blowfish", mcrypt_list_algorithms()) ? 0 : 1);
+excimer	exit(class_exists("ExcimerProfiler") ? 0 : 1);
+swoole	echo SWOOLE_VERSION; exit(class_exists("Swoole\\Coroutine") ? 0 : 1);
+EOF
+}
+
+# check <name> <command...>: its result as a line of tests.txt (ok or FAIL, with the
+# first line of its output, or the last ones when it failed)
+check() {
+    _n="$1"; shift
+    if _o="$("$@" 2>&1)"; then
+        echo "ok   $_n${_o:+: $(printf '%s\n' "$_o" | head -n 1)}" >> "$tt"
+    else
+        echo "FAIL $_n: $(printf '%s\n' "$_o" | tail -n 3 | tr '\n' ' ')" >> "$tt"
+        nfail=$((nfail + 1))
+    fi
+}
+# no_ports_lib <so>: the .so loads no library of the ports (/usr/local/lib) and finds
+# every library; with one of /usr/local/azsupport/lib its RUNPATH is that directory
+no_ports_lib() {
+    _l="$(ldd "$1" 2>&1)" || { echo "ldd: $_l"; return 1; }
+    if printf '%s\n' "$_l" | grep -E '=> /usr/local/lib/|not found'; then return 1; fi
+    if printf '%s\n' "$_l" | grep -q "=> $AZ/lib/"; then
+        readelf -d "$1" | grep -E '\((RUNPATH|RPATH)\)' | grep -q "\[$AZ/lib\]" ||
+            { echo "links $AZ/lib without the run path $AZ/lib"; return 1; }
+    fi
+    printf '%s\n' "$_l" | awk '/=>/ { print $3 }' | sed "s|^$AZ/lib/||" | tr '\n' ' '
+}
+
+# checks: the packages of the target installed together and checked (tests.txt):
+# links, php -m without warnings, php --ini, a smoke check per module, the swap of
+# openssl for openssl-legacy (RC4), build-test-smoke.php, php-fpm, mod_php
+checks() {
+    tt="$res/$t/tests.txt"; : > "$tt"; nfail=0
+    php="/usr/local/bin/php$short"
+    while read -r bm bp bprio bf; do
+        check "links of $bp ($bm.so)" no_ports_lib "$work/$t/stage-$bp/usr/local/lib/php/$api/$bm.so" < /dev/null
+    done < "$work/$t/built"
+    "$php" -m > "$res/$t/php-m.txt" 2> "$res/$t/php-m-stderr.txt"
+    check "php$short -m prints no warning" test ! -s "$res/$t/php-m-stderr.txt"
+    [ -s "$res/$t/php-m-stderr.txt" ] && head -n 5 "$res/$t/php-m-stderr.txt" >> "$tt"
+    "$php" --ini > "$res/$t/php-ini.txt" 2>&1
+    check "php$short --ini lists $(grep -c 'conf.d/ext-' "$res/$t/php-ini.txt") ini files of conf.d" \
+        grep -q "/usr/local/etc/php$short/conf.d/ext-" "$res/$t/php-ini.txt"
+    smoke_lines > "$work/$t/smoke-lines"
+    while read -r bm bp bprio bf; do
+        case "$bm" in openswoole) continue ;; esac
+        grep -qix "$bm" "$res/$t/php-m.txt" || { echo "FAIL $bm: not in php$short -m" >> "$tt"; nfail=$((nfail + 1)); continue; }
+        code="$(awk -F '\t' -v m="$bm" '$1 == m { print $2; exit }' "$work/$t/smoke-lines")"
+        if [ -z "$code" ]; then echo "--   $bm: loaded, no smoke check of its own" >> "$tt"; continue; fi
+        # the second kind of openssl is checked in the swap below
+        [ "$bp" = "php$short-openssl-legacy" ] && continue
+        check "$bm" "$php" -r "$code" < /dev/null
+    done < "$work/$t/built"
+    # openswoole: its ini is off; on its own it loads (with the modules it needs)
+    if grep -q '^openswoole ' "$work/$t/built"; then
+        check "openswoole on its own (its ini is off)" "$php" -n -d "extension_dir=/usr/local/lib/php/$api" \
+            -d extension=sockets.so -d extension=mysqlnd.so -d extension=openswoole.so -r 'exit(extension_loaded("openswoole") ? 0 : 1);'
+    fi
+    # RC4: only with the legacy provider, so not with php74-openssl
+    if pkg info -e "php$short-openssl"; then
+        check "RC4 unavailable with php$short-openssl" "$php" -r 'exit(@openssl_encrypt("x", "rc4", "k") === false ? 0 : 1);'
+    fi
+    lf="$(awk -v p="php$short-openssl-legacy" '$2 == p { print $4; exit }' "$work/$t/built")"
+    if [ -n "$lf" ]; then
+        # php74-openssl-legacy in the place of php74-openssl: by pkg install of a
+        # repository of the packages of this run, which should see the conflict of the
+        # files and remove php74-openssl; else pkg delete, then pkg add
+        pkg repo "$pkgdir" > "$res/$t/pkg-repo-test.log" 2>&1
+        printf 'azpkgtest: { url: "file://%s", signature_type: "none", priority: 0, enabled: yes }\n' "$pkgdir" \
+            > /usr/local/etc/pkg/repos/azpkgtest.conf
+        pkg update -f -r azpkgtest >> "$res/$t/pkg-repo-test.log" 2>&1
+        env ASSUME_ALWAYS_YES=yes pkg install -y -r azpkgtest "php$short-openssl-legacy" > "$res/$t/openssl-swap.log" 2>&1
+        if pkg info -e "php$short-openssl-legacy" && ! pkg info -e "php$short-openssl"; then
+            echo "ok   pkg install php$short-openssl-legacy removed php$short-openssl (the conflict of their files)" >> "$tt"
+        else
+            echo "--   pkg install php$short-openssl-legacy did not take the place of php$short-openssl: pkg delete, then pkg add (openssl-swap.log)" >> "$tt"
+            pkg delete -y "php$short-openssl" >> "$res/$t/openssl-swap.log" 2>&1
+            pkg add "$lf" >> "$res/$t/openssl-swap.log" 2>&1
+        fi
+        rm -f /usr/local/etc/pkg/repos/azpkgtest.conf
+        check "php$short-openssl-legacy installed" pkg info -e "php$short-openssl-legacy"
+        check "RC4 with php$short-openssl-legacy" "$php" -r 'echo bin2hex(openssl_encrypt("x", "rc4", "k", OPENSSL_RAW_DATA)); exit(openssl_encrypt("x", "rc4", "k") !== false ? 0 : 1);'
+        "$php" -m > /dev/null 2> "$res/$t/php-m-legacy-stderr.txt"
+        check "php$short -m with openssl-legacy prints no warning" test ! -s "$res/$t/php-m-legacy-stderr.txt"
+    fi
+    # build-test-smoke.php of the static build, with every module loaded: its checks
+    # were written for the static build, what fails here is in smoke.txt
+    legacy=0; pkg info -e "php$short-openssl-legacy" && legacy=1
+    env CURL_BUNDLED="$("$PKG_CONFIG" --modversion libcurl 2>/dev/null)" \
+        CURL_BROTLI="$("$PKG_CONFIG" --modversion libbrotlidec 2>/dev/null)" OPENSSL_LEGACY="$legacy" \
+        "$php" "$top/tools/build-test-smoke.php" "$src" > "$res/$t/smoke.txt" 2>&1 < /dev/null
+    echo "smoke:    $(grep -c '^ok ' "$res/$t/smoke.txt") ok, $(grep -c '^FAIL ' "$res/$t/smoke.txt") failed (build-test-smoke.php, smoke.txt)" >> "$res/$t/summary.txt"
+    # php-fpm by its rc.d script
+    rcd="/usr/local/etc/rc.d/php_fpm$short"
+    if sh "$rcd" onestart > "$res/$t/fpm.log" 2>&1 && sleep 2 && [ -S "/var/run/php-fpm$short.sock" ]; then
+        echo "ok   php_fpm$short onestart: /var/run/php-fpm$short.sock" >> "$tt"
+    else
+        echo "FAIL php_fpm$short onestart (fpm.log)" >> "$tt"; nfail=$((nfail + 1))
+    fi
+    sh "$rcd" onestop >> "$res/$t/fpm.log" 2>&1
+    # mod_php in an httpd of its own (127.0.0.1:8074 for 7.4)
+    hd="$work/$t/httpd"; port="80$short"
+    mkdir -p "$hd/www" && echo '<?php echo implode(" ", get_loaded_extensions());' > "$hd/www/index.php"
+    case "$t" in 5.*) mn=php5_module ;; 7.*) mn=php7_module ;; *) mn=php_module ;; esac
+    cat > "$hd/httpd.conf" <<EOF
+ServerRoot "/usr/local"
+Listen 127.0.0.1:$port
+ServerName 127.0.0.1
+LoadModule mpm_prefork_module libexec/apache24/mod_mpm_prefork.so
+LoadModule authz_core_module libexec/apache24/mod_authz_core.so
+LoadModule dir_module libexec/apache24/mod_dir.so
+LoadModule mime_module libexec/apache24/mod_mime.so
+LoadModule unixd_module libexec/apache24/mod_unixd.so
+LoadModule $mn libexec/apache24/libphp$short.so
+User www
+Group www
+PidFile "$hd/httpd.pid"
+ErrorLog "$res/$t/httpd-error.log"
+DocumentRoot "$hd/www"
+<Directory "$hd/www">
+    Require all granted
+</Directory>
+<FilesMatch "\.php\$">
+    SetHandler application/x-httpd-php
+</FilesMatch>
+DirectoryIndex index.php
+EOF
+    check "httpd -t with libphp$short.so" /usr/local/sbin/httpd -t -f "$hd/httpd.conf"
+    if /usr/local/sbin/httpd -f "$hd/httpd.conf" -k start > "$res/$t/httpd.log" 2>&1 && sleep 2 &&
+        fetch -q -o "$res/$t/mod_php-page.txt" "http://127.0.0.1:$port/index.php" 2>> "$res/$t/httpd.log" &&
+        grep -q 'Core' "$res/$t/mod_php-page.txt"; then
+        echo "ok   mod_php: $(wc -w < "$res/$t/mod_php-page.txt" | tr -d ' ') extensions on the page of 127.0.0.1:$port" >> "$tt"
+    else
+        echo "FAIL mod_php: no page of 127.0.0.1:$port (httpd.log, httpd-error.log)" >> "$tt"; nfail=$((nfail + 1))
+    fi
+    /usr/local/sbin/httpd -f "$hd/httpd.conf" -k stop >> "$res/$t/httpd.log" 2>&1
+    echo "tests:    $(grep -c '^ok ' "$tt") ok, $nfail failed (tests.txt)" >> "$res/$t/summary.txt"
+    [ "$nfail" = 0 ]
+}
+
+# Local memcached and redis for the checks of memcache, memcached and redis, as
+# build-test.sh starts them (detached), stopped again at the end
+if command -v memcached > /dev/null 2>&1; then
+    memcached -d -u nobody -l 127.0.0.1 -p 11211 -P /tmp/build-pkg-memcached.pid < /dev/null > /dev/null 2>&1 || true
+fi
+if command -v redis-server > /dev/null 2>&1; then
+    redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --pidfile /tmp/build-pkg-redis.pid < /dev/null > /dev/null 2>&1 || true
+fi
+stop_servers() {
+    for f in /tmp/build-pkg-memcached.pid /tmp/build-pkg-redis.pid; do
+        if [ -f "$f" ]; then kill "$(cat "$f")" 2>/dev/null || true; rm -f "$f"; fi
+    done
+    rm -f /usr/local/etc/pkg/repos/azpkgtest.conf
+}
+trap stop_servers EXIT INT TERM
+
 rc=0
 for target in "$@"; do
     out="$res/$target"
@@ -383,9 +596,14 @@ for target in "$@"; do
         fi
     done < "$work/$t/lines"
     echo "modules:  $nb built${failed:+, failed:$failed}" >> "$sum"
+    say "$t: checks of the packages installed together"
+    if ! checks < /dev/null; then
+        failed="$failed checks($(grep -c '^FAIL ' "$out/tests.txt"))"
+        grep '^FAIL ' "$out/tests.txt" | head -n 5 | sed 's/^/          /' >> "$sum"
+    fi
     if [ -n "$failed" ]; then
-        echo "result:   FAIL (modules:$failed)" >> "$sum"
-        say "$t: FAIL (modules:$failed)"
+        echo "result:   FAIL ($(echo $failed | tr ' ' ','))" >> "$sum"
+        say "$t: FAIL:$failed"
         rc=1; continue
     fi
     echo "result:   OK" >> "$sum"
