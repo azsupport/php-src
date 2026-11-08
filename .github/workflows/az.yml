@@ -1,9 +1,11 @@
 name: az packages for FreeBSD
 
-# Builds the static packages of the fork (tools/build-az.sh) from the FreeBSD
-# ports, with the compiler flags of the servers for an x86-64 level: azsupport (the
-# static libraries of /usr/local/azsupport that PHP and the programs are built against,
-# freebsd/deps.conf), and in the place of the packages of the ports curl (bin/curl,
+# Builds the packages of the fork (tools/build-az.sh) from the FreeBSD ports, with
+# the compiler flags of the servers for an x86-64 level: azsupport (freebsd/deps.conf:
+# the shared libraries of /usr/local/azsupport/lib that PHP of pkg mode and its
+# modules load, and the static ones of /usr/local/azsupport/static that the static
+# PHP packages and the programs are built with), and in the place of the packages of
+# the ports curl (bin/curl,
 # libcurl.so.4), ffmpeg (freebsd/ffmpeg.conf), ImageMagick6 (convert6, ...) and
 # ImageMagick7 (freebsd/imagemagick.conf); installs and tests them, one job per
 # level, and publishes their repository of pkg as the files of the release
@@ -171,7 +173,7 @@ jobs:
           tag="az-fbsd$major-amd64-$level"
           if [ -n "$CANDIDATE" ]; then tag="$tag-candidate"; fi
           url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
-          notes="A repository of pkg for FreeBSD $major (amd64, -march=$CPUTYPE) of the static packages of azsupport/php-src: azsupport (the libraries of /usr/local/azsupport PHP is built against), and in the place of those of the ports curl (bin/curl, libcurl.so.4), ffmpeg, ImageMagick6 (convert6, identify6, ...) and ImageMagick7 (magick, and its libraries for imagick); the PHP packages php56 ... php84 of az-menu.sh come into it too. Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, PIE, RELRO and BIND_NOW. On a server, /usr/local/etc/pkg/repos/az.conf: az: { url: \"$url\", signature_type: \"pubkey\", pubkey: \"/usr/local/etc/pkg/keys/az.pub\", priority: 100, enabled: yes } with the key freebsd/az.pub of the fork (sh tools/az-menu.sh --repo writes both; the catalog is signed with the key of aZ), then: pkg update -r az, pkg install -r az ffmpeg ImageMagick7 (and the others). Versions and options: /usr/local/share/doc/<package>/VERSIONS (azsupport: /usr/local/azsupport/share/doc/azsupport/VERSIONS)."
+          notes="A repository of pkg for FreeBSD $major (amd64, -march=$CPUTYPE) of the packages of azsupport/php-src: azsupport (the shared libraries of /usr/local/azsupport/lib that PHP of pkg mode loads, the static ones of /usr/local/azsupport/static for the static builds), and in the place of those of the ports curl (bin/curl, libcurl.so.4), ffmpeg, ImageMagick6 (convert6, identify6, ...) and ImageMagick7 (magick, and its libraries for imagick); the PHP packages come into it too: phpXY (the core of pkg mode) with its modules phpXY-* and phpXY-pecl-*, and phpXY-static. Built from the FreeBSD ports with $CFLAGS_IN -fstack-protector-strong -fno-strict-aliasing, PIE, RELRO and BIND_NOW. On a server, /usr/local/etc/pkg/repos/az.conf: az: { url: \"$url\", signature_type: \"pubkey\", pubkey: \"/usr/local/etc/pkg/keys/az.pub\", priority: 100, enabled: yes } with the key freebsd/az.pub of the fork (sh tools/az-menu.sh --repo writes both; the catalog is signed with the key of aZ), then: pkg update -r az, pkg install -r az ffmpeg ImageMagick7 (and the others). Versions and options: /usr/local/share/doc/<package>/VERSIONS (azsupport: /usr/local/azsupport/share/doc/azsupport/VERSIONS)."
           if [ -n "$CANDIDATE" ]; then
             notes="A candidate, for a check on a server before the packages go to az-fbsd$major-amd64-$level. $notes"
           fi
@@ -180,10 +182,12 @@ jobs:
               gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes"
-          # the packages first, the catalog of pkg repo last, then away with what this build has not
+          # the packages first, the catalog of pkg repo last (the files that are not
+          # <name>-<version>.pkg; the PHP packages kept from the release are there already),
+          # then away with what this build has not
           pk="$(ls "$dir" | grep -E '^(azsupport|curl|ffmpeg|ImageMagick[67])-[0-9].*\.pkg$' | sed "s#^#$dir/#")"
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $pk
-          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $(ls -d "$dir"/* | grep -v -E '/(azsupport|curl|ffmpeg|ImageMagick[67])-[0-9][^/]*\.pkg$')
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber $(ls -d "$dir"/* | grep -v -E '/[^/]+-[0-9][^/]*\.pkg$')
           for a in $(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'); do
             [ -e "$dir/$a" ] || gh release delete-asset "$tag" "$a" --repo "$GITHUB_REPOSITORY" -y
           done

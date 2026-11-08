@@ -4,10 +4,14 @@
 # built, error when not), so the outcome shows on the run page and in the API.
 #
 # Usage: sh tools/build-test-report.sh [results-dir]   (default: build-test-results)
+# REPORT_TITLE names the kind of the results in the titles (default "build test";
+# the workflow az-php.yml gives "pkg mode" for those of tools/build-pkg.sh, which
+# writes its results in the same form).
 
 set -u
 res="${1:-build-test-results}"
 summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+kind="${REPORT_TITLE:-build test}"
 
 # Workflow commands need %, CR and LF escaped.
 escape() { sed 's/%/%25/g; s/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }'; }
@@ -75,15 +79,15 @@ for dir in "$res"/*/; do
     part=1
     while [ -f "$dir/annot.$part" ]; do
         if [ "$part" -eq 1 ]; then
-            title="PHP $target build test"
+            title="PHP $target $kind"
         else
-            title="PHP $target build test, continued ($part)"
+            title="PHP $target $kind, continued ($part)"
         fi
         printf '::%s title=%s::%s\n' "$level" "$title" "$(escape < "$dir/annot.$part")"
         part=$((part + 1))
     done
     {
-        echo "### PHP $target"
+        echo "### PHP $target ($kind)"
         echo
         echo '```'
         cat "$dir/report.txt"
