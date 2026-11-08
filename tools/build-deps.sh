@@ -714,10 +714,6 @@ summ() {
         printf '%-14s static %-4s shared %-4s %-22s %-24s %4ss\n' "$1" "$st_s" "$st_d" "$2" "$3" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
         printf '%s %s %s\n' "$1" "$pkgname" "$3" >> "$res/built.txt"
     else
-        [ "$st_s" = - ] || [ "$st_s" = OK ] || st_s=FAIL
-        [ "$st_d" = - ] || [ "$st_d" = OK ] || st_d=FAIL
-        # FAIL in the line also when only the source failed
-        [ "$st_s" = FAIL ] || [ "$st_d" = FAIL ] || st_s=FAIL
         printf '%-14s static %-4s shared %-4s %-22s %-24s %4ss (deps-results/%s.log)\n' "$1" "$st_s" "$st_d" "$2" "$3" "$(( $(date +%s) - start ))" "$1" >> "$res/summary.txt"
         tail -n 25 "$log" > "$res/$1.tail"
     fi
