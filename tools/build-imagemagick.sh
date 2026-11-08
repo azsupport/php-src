@@ -123,9 +123,10 @@ ports_checkout() {
         git -C "$ports" checkout -q FETCH_HEAD
 }
 # the ImageMagick ports in their flavor without X11
+# JPEG_PORT as in make.conf of the servers: the ports with USES=jpeg (gd, ImageMagick) take mozjpeg
 pmake() {
     p="$1"; shift
-    make -C "$ports/$p" BATCH=yes NO_DEPENDS=yes DISABLE_VULNERABILITIES=yes FLAVOR=nox11 \
+    make -C "$ports/$p" BATCH=yes NO_DEPENDS=yes DISABLE_VULNERABILITIES=yes JPEG_PORT=graphics/mozjpeg FLAVOR=nox11 \
         PORTSDIR="$ports" WRKDIRPREFIX="$work/wrk" DISTDIR="$work/distfiles" "$@"
 }
 

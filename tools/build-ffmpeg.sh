@@ -115,9 +115,10 @@ ports_checkout() {
             '/lang/perl5*/' '/lang/python3*/' &&
         git -C "$ports" checkout -q FETCH_HEAD
 }
+# JPEG_PORT as in make.conf of the servers: the ports with USES=jpeg (gd, ImageMagick) take mozjpeg
 pmake() {
     p="$1"; shift
-    make -C "$ports/$p" BATCH=yes NO_DEPENDS=yes DISABLE_VULNERABILITIES=yes \
+    make -C "$ports/$p" BATCH=yes NO_DEPENDS=yes DISABLE_VULNERABILITIES=yes JPEG_PORT=graphics/mozjpeg \
         PORTSDIR="$ports" WRKDIRPREFIX="$work/wrk" DISTDIR="$work/distfiles" "$@"
 }
 

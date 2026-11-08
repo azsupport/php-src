@@ -819,7 +819,7 @@ BIND_NOW), под x86-64-v3 (AVX2) и x86-64-v2. У пакета имя, origin 
 | `ImageMagick6` | `graphics/ImageMagick6` | `bin/convert6`, `bin/identify6`, `bin/mogrify6`, `bin/composite6`, …: [ImageMagick 6 и 7](#imagemagick-6-и-7-для-видеосайтов) |
 | `ImageMagick7` | `graphics/ImageMagick7` | `bin/magick` и имена-ссылки на него (`convert`, `identify`, …); в `/usr/local/azsupport` его статические библиотеки — для imagick |
 | `php56` … `php84` | `lang/php56` … `lang/php84` | PHP этого форка в раскладке [`az-menu.sh`](#az-menush-пакеты-и-что-войдёт-в-php) (`bin/php84`, `sbin/php-fpm84`, rc.d `php_fpm84`, `etc/php84`, `libphp84.so`): готовые — с опциями [тестовой сборки](#тестовая-сборка-на-freebsd), или собранные на сервере с его собственными |
-| `azsupport` | `az/azsupport` | статические библиотеки `/usr/local/azsupport` (OpenSSL, curl для PHP только с тем, что нужно PHP ([Встроенный curl](#встроенный-curl)), и его библиотеки, libxml2, ICU, GD и её форматы, x264, dav1d, libheif и остальные из [`freebsd/deps.conf`](freebsd/deps.conf)), с которыми собраны остальные: для сборки PHP на сервере; из него ничего не запускается |
+| `azsupport` | `az/azsupport` | статические библиотеки `/usr/local/azsupport` (OpenSSL, curl для PHP только с тем, что нужно PHP ([Встроенный curl](#встроенный-curl)), и его библиотеки, libxml2, ICU, GD и её форматы (JPEG — mozjpeg: порты с `JPEG_PORT=graphics/mozjpeg`, как в make.conf серверов), x264, dav1d, libheif и остальные из [`freebsd/deps.conf`](freebsd/deps.conf)), с которыми собраны остальные: для сборки PHP на сервере; из него ничего не запускается |
 
 На сервере `az-menu.sh --repo` записывает репозиторий под уровень его процессора
 (`/usr/local/etc/pkg/repos/az.conf`) и обновляет его каталог; дальше пакеты ставятся
