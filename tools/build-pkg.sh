@@ -234,7 +234,9 @@ build_module() {
     # a copy of ext/<module> next to the others (relative includes such as
     # ../dom/xml_common.h resolve), the original stays as it is for the next build
     bd="$esrc/ext/$pn"
-    rm -rf "$bd"; cp -R "$esrc/ext/$mod" "$bd" || return 1
+    # (-p: with the times of the files, so that make does not regenerate the sources
+    # of re2c and bison, pdo_sql_parser.c of pdo: phpize finds no re2c)
+    rm -rf "$bd"; cp -Rp "$esrc/ext/$mod" "$bd" || return 1
     # phpize reads config.m4: the extensions whose file is config0.m4 or config9.m4
     # (so that php-src runs them first or last) get it under that name, as the ports do
     if [ ! -f "$bd/config.m4" ]; then
