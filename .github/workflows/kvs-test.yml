@@ -2,7 +2,8 @@ name: KVS command lines on the az packages
 
 # Runs tools/kvs-test.sh in FreeBSD: the samples with the ffmpeg and ImageMagick 7 of
 # the ports, then the packages ffmpeg, ImageMagick6 and ImageMagick7 of the repository
-# az (the release az-fbsd<major>-amd64-<level>, as the servers read it) in their
+# az (the release az-fbsd<major>-amd64-<level> of azsupport/ports, as the servers read
+# it) in their
 # place, then the command lines the video sites (KVS) give them. Builds nothing.
 # Started by hand: Actions, "KVS command lines on the az packages", "Run workflow".
 
@@ -46,7 +47,7 @@ jobs:
               # the packages of the ports out, those of az in (the same names and paths)
               env ASSUME_ALWAYS_YES=yes pkg delete -y ffmpeg ImageMagick7
               major="$(uname -r | cut -d. -f1)"
-              url="https://github.com/$GITHUB_REPOSITORY/releases/download/az-fbsd$major-amd64-$AZ_LEVEL"
+              url="https://github.com/azsupport/ports/releases/download/az-fbsd$major-amd64-$AZ_LEVEL"
               mkdir -p /usr/local/etc/pkg/repos /usr/local/etc/pkg/keys
               install -m 644 freebsd/az.pub /usr/local/etc/pkg/keys/az.pub
               printf 'az: {\n    url: "%s",\n    signature_type: "pubkey",\n    pubkey: "/usr/local/etc/pkg/keys/az.pub",\n    priority: 100,\n    enabled: yes\n}\n' "$url" > /usr/local/etc/pkg/repos/az.conf
