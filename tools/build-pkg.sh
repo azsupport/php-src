@@ -252,7 +252,10 @@ build_module() {
         ./configure "--with-php-config=/usr/local/bin/php-config$short" $op) > "$mo/configure.log" 2>&1 ||
         { tail -n 30 "$mo/configure.log" > "$mo/error.txt"; return 1; }
     grep -i 'unrecognized option' "$mo/configure.log" > "$mo/configure-unrecognized.txt"
-    (cd "$bd" && make -j"$ncpu") > "$mo/make.log" 2>&1 ||
+    # every source file sees the config.h of the module first, as most include it
+    # themselves: those of mysqlnd do not (php-src builds it into PHP), so without
+    # it mysqlnd.so has no get_module ("not a PHP library") and no SSL code
+    (cd "$bd" && make -j"$ncpu" EXTRA_CFLAGS="-include $bd/config.h") > "$mo/make.log" 2>&1 ||
         { { grep ' error:' "$mo/make.log" | head -n 20; tail -n 20 "$mo/make.log"; } > "$mo/error.txt"; return 1; }
     mst="$work/$t/stage-$pn"
     rm -rf "$mst"
