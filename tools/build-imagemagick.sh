@@ -256,15 +256,22 @@ take_args() {
     mkdir -p "$work/distfiles"
     if [ ! -f "$work/distfiles/$tf" ] || [ "$(sha256 -q "$work/distfiles/$tf")" != "$3" ]; then
         rm -f "$work/distfiles/$tf"
-        # every address up to three times: a release file of GitHub sometimes stalls
-        for try in 1 2 3; do
-            for u in $(echo "$2" | tr ',' ' '); do
-                fetch -q -T 60 -o "$work/distfiles/$tf" "$u" && break 2
-                echo "== fetch $u failed (try $try of 3)" >&2
-                rm -f "$work/distfiles/$tf"
+        if [ -f "$top/distfiles/$tf" ] && [ "$(sha256 -q "$top/distfiles/$tf")" = "$3" ]; then
+            # fetched on the runner before the VM (tools/take-fetch.sh): the runner
+            # reaches GitHub better than the VM does
+            cp "$top/distfiles/$tf" "$work/distfiles/$tf"
+            echo "== $tf: the file fetched on the runner (distfiles/, tools/take-fetch.sh)" >&2
+        else
+            # every address up to three times: a release file of GitHub sometimes stalls
+            for try in 1 2 3; do
+                for u in $(echo "$2" | tr ',' ' '); do
+                    fetch -q -T 60 -o "$work/distfiles/$tf" "$u" && break 2
+                    echo "== fetch $u failed (try $try of 3)" >&2
+                    rm -f "$work/distfiles/$tf"
+                done
+                [ "$try" = 3 ] || sleep $((try * 15))
             done
-            [ "$try" = 3 ] || sleep $((try * 15))
-        done
+        fi
         [ -f "$work/distfiles/$tf" ] || return 1
     fi
     if [ "$(sha256 -q "$work/distfiles/$tf")" != "$3" ]; then

@@ -76,6 +76,9 @@ jobs:
           sudo docker system prune --all --force > /dev/null 2>&1 || true
           df -h /
 
+      - name: The files of the take lines, fetched on the runner (it reaches GitHub better than the VM)
+        run: sh tools/take-fetch.sh
+
       - name: Build, test and package in FreeBSD ${{ inputs.release }}
         id: build
         uses: vmactions/freebsd-vm@v1
@@ -94,7 +97,7 @@ jobs:
               cp php-keep/php*.pkg "$r/" && pkg repo "$r" > az-results/repo-php.log 2>&1
             fi
             # not back to the runner a second time
-            rm -rf php-keep
+            rm -rf php-keep distfiles
 
       - name: Report
         id: report
