@@ -33,6 +33,8 @@
 # the ini etc/php74/conf.d/ext-<prio>-<module>.ini.sample (@sample: pkg copies it to
 # .ini and keeps a changed one), +MANIFEST written by the shell, pkg create into
 # dist/az-php/, pkg add (the next modules need its headers).
+# The package names are phpXY-<module> for the PECL extensions too (no "pecl" in
+# the names and origins: aZ, 08.11.2026), the origins those of freebsd/ext.conf.
 #
 # The compiler flags are those of build-test.sh (-O3 -pipe -march=$AZ_CPUTYPE
 # -fstack-protector-strong -fno-strict-aliasing, LIBS=-lpthread), the libraries the
