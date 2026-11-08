@@ -1,7 +1,18 @@
 #!/bin/sh
-# build-deps.sh - build the libraries of /usr/local/azsupport (lib/, include/), static
-# and position independent, from the FreeBSD ports listed in freebsd/deps.conf,
-# and the curl program (bin/curl). PHP built against them (php, php-fpm, php-cgi,
+# build-deps.sh - build the libraries of /usr/local/azsupport from the FreeBSD ports
+# listed in freebsd/deps.conf, as the kinds of their lib lines say, into two trees:
+# static and position independent into the static tree
+# /usr/local/azsupport/static (lib/, include/, bin/), shared into the shared tree
+# /usr/local/azsupport (lib/*.so with their SONAME and the run path
+# /usr/local/azsupport/lib, include/, lib/pkgconfig/, bin/pkg-config without
+# --static, the *-config scripts; no ldconfig), for the PHP modules of pkg mode;
+# and the curl program (bin/curl). The shared builds take the patched source of
+# the static one (a copy of the work directory of the port, or out of the tree of
+# the bundled curl), the same options, the OpenSSL of the base system and the
+# other libraries of the shared tree; nothing of the static tree (its headers of
+# the OpenSSL of the port, its archives, which the linker would take as they are
+# or leave for a .so of the same name) is seen by them. VERSIONS and LICENSES/
+# are one for both, at the root. PHP built against the static tree (php, php-fpm, php-cgi,
 # libphp.so) and the programs of /usr/local/azsupport (FFmpeg, ImageMagick) need no
 # library of /usr/local/lib: a pkg upgrade or packages of another FreeBSD version
 # cannot break them, and in Apache the copies of the libraries in PHP do not mix
@@ -26,11 +37,13 @@
 # built by freebsd/curl/build-libcurl.sh, with only what PHP needs; the curl
 # program and libcurl.so of the package curl are a build of their own, with the
 # options of the port ftp/curl, into a stage (the line "program curl", see
-# build_curl_program). All: only static libraries, -fPIC, into
-# AZ_PREFIX (default /usr/local/azsupport), in AZ_WORK/deps (default
-# /var/tmp/az-work/deps); the licences go to LICENSES/. Results go to
-# deps-results/ (summary.txt, one log per library, VERSIONS, also installed as
-# share/doc/azsupport/VERSIONS).
+# build_curl_program). The static libraries: -fPIC, into AZ_PREFIX/static
+# (AZ_PREFIX: default /usr/local/azsupport); the shared ones into AZ_PREFIX; in
+# AZ_WORK/deps (default /var/tmp/az-work/deps); the licences go to
+# AZ_PREFIX/LICENSES/. Results go to deps-results/ (summary.txt with the status of
+# the static and of the shared build of every library, one log per library,
+# shared.txt and shared-bad.txt of the checks of the shared tree, see finish_so;
+# VERSIONS, also installed as AZ_PREFIX/share/doc/azsupport/VERSIONS).
 #
 # Compiler flags as on the servers: CPUTYPE and CFLAGS of /etc/make.conf (such as
 # CPUTYPE?=x86-64-v3 and CFLAGS=-O3 -pipe) with -fstack-protector-strong and
@@ -46,7 +59,11 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/deps.conf"
-P="${AZ_PREFIX:-/usr/local/azsupport}"
+# A: the root of the package azsupport (VERSIONS, LICENSES/); P: the static tree,
+# S: the shared tree (see the head comment)
+A="${AZ_PREFIX:-/usr/local/azsupport}"
+P="$A/static"
+S="$A"
 work="${AZ_WORK:-/var/tmp/az-work}/deps"
 res="$top/deps-results"
 dist="$top/dist"
@@ -57,7 +74,7 @@ major="$(uname -r | cut -d. -f1)"
 if [ "${1:-}" = "--tools" ]; then
     # Build tools only; none of their libraries is linked into the bundle (the
     # compiler does not search /usr/local, pkg-config only the bundle and base).
-    tools="git cmake ninja meson python3 gmake nasm perl5 pkgconf lzip bison autoconf automake libtool gettext-tools m4 gperf"
+    tools="git cmake ninja meson python3 gmake nasm perl5 pkgconf lzip bison autoconf automake libtool gettext-tools m4 gperf tcl86"
     # shellcheck disable=SC2086
     env ASSUME_ALWAYS_YES=yes pkg install -y $tools
     rc=$?
@@ -104,6 +121,8 @@ chmod +x "$work/bin/pkg-config-static"
 export PKG_CONFIG="$work/bin/pkg-config-static"
 export PKG_CONFIG_LIBDIR="$P/lib/pkgconfig:$P/libdata/pkgconfig:/usr/libdata/pkgconfig"
 unset PKG_CONFIG_PATH
+# the PATH without the static tree, for the shared builds (so_env)
+path0="$PATH"
 export PATH="$P/bin:$PATH"
 # LTO (x264, as its port) puts LLVM bitcode into static archives: their index
 # needs the ar of LLVM, taken by name when ar of the base system is another one.
@@ -115,6 +134,8 @@ fi
 ports_commit="$(awk '$1 == "ports" { print $2 }' "$conf")"
 libs_all="$(awk '$1 == "lib" { print $2 }' "$conf")"
 port_of() { awk -v n="$1" '$1 == "lib" && $2 == n { print $3 }' "$conf"; }
+# has_kind <name> <static|shared>: the kinds of its lib line name it
+has_kind() { awk -v n="$1" -v k="$2" '$1 == "lib" && $2 == n { m = split($4, t, ","); for (i = 1; i <= m; i++) if (t[i] == k) f = 1 } END { exit !f }' "$conf"; }
 # take_of <name>: "version release-file SHA-256 source-dir" of its take line, if any
 take_of() { awk -v n="$1" '$1 == "take" && $2 == n { print $3, $4, $5, $6 }' "$conf"; }
 
@@ -297,12 +318,255 @@ b_libheif() {
         -DWITH_VVDEC=OFF -DWITH_VVENC=OFF -DWITH_UNCOMPRESSED_CODEC=OFF
 }
 
+# The shared builds (s_<name>, into S): the patched source of the static build, a
+# copy of the work directory (or out of the tree, the libraries of the bundled
+# curl), with the options of b_<name>, so that the headers and the behaviour are
+# the same; the OpenSSL of the base system and the other libraries of S. so_env
+# (in the subshell of the build) leaves nothing of the static tree P to be seen:
+# no -I or -L of it, not its pkgconfig, not its bin/. Every library and what links
+# it gets the run path S/lib (no ldconfig), RELRO and BIND_NOW.
+so_env() {
+    export CPPFLAGS="-I$S/include"
+    export LDFLAGS="-L$S/lib -Wl,-rpath,$S/lib -Wl,-z,relro,-z,now"
+    export PKG_CONFIG=pkgconf
+    export PKG_CONFIG_LIBDIR="$S/lib/pkgconfig:/usr/libdata/pkgconfig"
+    export PATH="$S/bin:$path0"
+}
+at_so() {
+    src="$1"; shift
+    fix_guess "$src"
+    (cd "$src" && ./configure --prefix="$S" --libdir="$S/lib" --includedir="$S/include" \
+        --disable-static --enable-shared --with-pic "$@" && gmake -j"$ncpu" && gmake install)
+}
+# cm_so_in <build dir> <source> <options>: CMake writes the run path itself
+# (CMAKE_INSTALL_RPATH); one in LDFLAGS it would try to rewrite at the install
+cm_so_in() {
+    bd="$1" src="$2"; shift 2
+    LDFLAGS="-L$S/lib -Wl,-z,relro,-z,now" cmake -S "$src" -B "$bd" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$S" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_PREFIX_PATH="$S" \
+        -DCMAKE_IGNORE_PREFIX_PATH="/usr/local;$P" -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_INSTALL_RPATH="$S/lib" -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" "$@" &&
+        cmake --build "$bd" -j "$ncpu" && cmake --install "$bd"
+}
+cm_so() { s="$1"; shift; cm_so_in "$s/_az" "$s" "$@"; }
+ms_so() {
+    src="$1"; shift
+    (cd "$src" && meson setup _az --prefix="$S" --libdir=lib --buildtype=release -Doptimization=plain \
+        --default-library=shared --wrap-mode=nodownload "$@" &&
+        ninja -C _az -j "$ncpu" && ninja -C _az install)
+}
+# The libraries of the bundled curl: out of the tree of tools/curl-sources.sh (it
+# stays as build-libcurl.sh builds it), in $work/obj-so/<name>, with the options
+# of build-libcurl.sh; the make variables of notools there keep the autotools
+# from running.
+so_notools="ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=: MAKEINFO=:"
+so_conf() {
+    o="$work/obj-so/$1" s="$2"; shift 2
+    rm -rf "$o" && mkdir -p "$o" &&
+        (cd "$o" && LIBS= "$s/configure" --prefix="$S" --libdir="$S/lib" --includedir="$S/include" \
+            --disable-static --enable-shared --with-pic --disable-dependency-tracking "$@")
+}
+# shellcheck disable=SC2086
+so_mk() { d="$1"; shift; (cd "$work/obj-so/$d" && gmake $so_notools "$@"); }
+
+s_libiconv() {
+    fix_guess "$1"
+    (cd "$1" && ./configure --prefix="$S" --libdir="$S/lib" --disable-static --enable-shared \
+        --disable-nls --enable-extra-encodings am_cv_func_iconv=no && gmake && gmake install) &&
+        rm -f "$S/lib/preloadable_libiconv.so"
+}
+s_c_ares() {
+    so_conf c-ares "$1" --disable-tests && so_mk c-ares -j"$ncpu" -C src/lib && so_mk c-ares -C src/lib install &&
+        so_mk c-ares -C include install && so_mk c-ares install-pkgconfigDATA
+}
+s_nghttp2() { so_conf nghttp2 "$1" --enable-lib-only && so_mk nghttp2 -j"$ncpu" -C lib && so_mk nghttp2 -C lib install; }
+s_libidn2() {
+    so_conf libidn2 "$1" --disable-nls --with-included-libunistring --with-libiconv-prefix="$S" ac_cv_prog_RONN=true &&
+        so_mk libidn2 -j"$ncpu" -C gl && so_mk libidn2 -j"$ncpu" -C unistring && so_mk libidn2 -j"$ncpu" -C lib &&
+        so_mk libidn2 -C lib install && so_mk libidn2 install-pkgconfigDATA
+}
+# brotli and zstd with their CMake (build-libcurl.sh compiles them by hand, static)
+s_brotli() {
+    rm -rf "$work/obj-so/brotli"
+    cm_so_in "$work/obj-so/brotli" "$1" -DBROTLI_BUILD_TOOLS=OFF -DBUILD_TESTING=OFF -DBROTLI_DISABLE_TESTS=ON
+}
+s_zstd() {
+    # legacy formats from v0.5 on, as the static one; multithreaded, as its shared library is
+    rm -rf "$work/obj-so/zstd"
+    cm_so_in "$work/obj-so/zstd" "$1/build/cmake" -DZSTD_BUILD_SHARED=ON -DZSTD_BUILD_STATIC=OFF \
+        -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_CONTRIB=OFF \
+        -DZSTD_LEGACY_SUPPORT=ON -DZSTD_LEGACY_LEVEL=5 -DZSTD_MULTITHREAD_SUPPORT=ON
+}
+s_libpsl() {
+    # as lib_libpsl of build-libcurl.sh (the built-in list only); HAVE_VISIBILITY gives
+    # PSL_API the visibility default (include/libpsl.h.in), the rest stays hidden
+    s="$1" o="$work/obj-so/libpsl"
+    rm -rf "$o" && mkdir -p "$o/include" "$S/lib/pkgconfig" "$S/include" || return 1
+    v="$(tr -d ' \n' < "$s/version.txt")"
+    IFS=. read -r va vb vc <<EOF
+$v
+EOF
+    sed -e "s/@LIBPSL_VERSION@/$v/" -e "s/@LIBPSL_VERSION_MAJOR@/$va/" -e "s/@LIBPSL_VERSION_MINOR@/$vb/" \
+        -e "s/@LIBPSL_VERSION_PATCH@/$vc/" -e "s/@LIBPSL_VERSION_NUMBER@/$(printf '0x%02x%02x%02x' "$va" "$vb" "$vc")/" \
+        -e "s/@COPYRIGHT_YEAR@/$(date +%Y)/" "$s/include/libpsl.h.in" > "$o/include/libpsl.h" &&
+        printf '%s\n' '#define ENABLE_BUILTIN 1' '#define HAVE_NL_LANGINFO 1' '#define HAVE_VISIBILITY 1' \
+            "#define PACKAGE_VERSION \"$v\"" > "$o/config.h" || return 1
+    for f in psl lookup_string_in_fixed_set; do
+        # shellcheck disable=SC2086
+        cc $CFLAGS -fvisibility=hidden -DHAVE_CONFIG_H -DBUILDING_PSL "-I$o" "-I$o/include" -c "$s/src/$f.c" -o "$o/$f.o" || return 1
+    done
+    # shellcheck disable=SC2086
+    cc -shared -o "$S/lib/libpsl.so.5" -Wl,-soname,libpsl.so.5 "$o/psl.o" "$o/lookup_string_in_fixed_set.o" $LDFLAGS &&
+        ln -sf libpsl.so.5 "$S/lib/libpsl.so" && cp "$o/include/libpsl.h" "$S/include/" &&
+        printf '%s\n' "prefix=$S" 'libdir=${prefix}/lib' 'includedir=${prefix}/include' '' 'Name: libpsl' \
+            'Description: Public Suffix List C library' "Version: $v" 'Libs: -L${libdir} -lpsl' \
+            'Cflags: -I${includedir}' > "$S/lib/pkgconfig/libpsl.pc"
+}
+s_curl() {
+    # libcurl.so.4 with the features of the static libcurl of PHP (build-libcurl.sh
+    # --features), the OpenSSL of the base system; no curl program
+    feats="$(sh "$top/freebsd/curl/build-libcurl.sh" --features)" || return 1
+    o="$work/obj-so/curl"
+    rm -rf "$o" && mkdir -p "$o" || return 1
+    # shellcheck disable=SC2086
+    (cd "$o" && LIBS= ac_cv_func_SSLv2_client_method=no "$1/configure" --prefix="$S" --libdir="$S/lib" \
+        --includedir="$S/include" --enable-shared --disable-static --with-pic --disable-dependency-tracking \
+        --with-openssl=/usr --enable-openssl-auto-load-config --with-ca-path=/etc/ssl/certs --without-ca-bundle \
+        --enable-ares="$S" --disable-threaded-resolver \
+        --with-nghttp2="$S" --with-brotli="$S" --with-zstd="$S" --with-libidn2="$S" --with-libpsl="$S" \
+        $feats) &&
+        so_mk curl -j"$ncpu" -C lib && so_mk curl -C lib install && so_mk curl -C include install &&
+        so_mk curl install-pkgconfigDATA install-binSCRIPTS
+}
+s_lz4() {
+    (cd "$1/lib" && gmake -j"$ncpu" liblz4 liblz4.pc PREFIX="$S" LIBDIR="$S/lib" BUILD_STATIC=no &&
+        gmake install PREFIX="$S" LIBDIR="$S/lib" PKGCONFIGDIR="$S/lib/pkgconfig" BUILD_STATIC=no)
+}
+s_libxml2() { at_so "$1" --sysconfdir="$S/share" --without-python --with-iconv="$S" --with-zlib --without-icu --without-lzma --without-readline --without-history --with-http; }
+s_icu() { at_so "$1" --with-data-packaging=library --disable-layoutex --disable-tests --disable-samples --disable-extras; }
+s_oniguruma() { cm_so "$1" -DBUILD_TEST=OFF -DENABLE_POSIX_API=ON; }
+s_libzip() {
+    cm_so "$1" -DENABLE_OPENSSL=ON -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_COMMONCRYPTO=OFF \
+        -DENABLE_WINDOWS_CRYPTO=OFF -DENABLE_BZIP2=ON -DENABLE_LZMA=OFF -DENABLE_ZSTD=ON \
+        -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_OSSFUZZ=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF \
+        -DOPENSSL_ROOT_DIR=/usr
+}
+s_png() { cm_so "$1" -DPNG_SHARED=ON -DPNG_STATIC=OFF -DPNG_TESTS=OFF -DPNG_TOOLS=OFF -DPNG_DEBUG_POSTFIX=""; }
+s_mozjpeg() {
+    cm_so "$1" -DENABLE_SHARED=ON -DENABLE_STATIC=OFF -DWITH_JPEG8=ON -DWITH_SIMD=ON -DREQUIRE_SIMD=OFF \
+        -DWITH_ARITH_DEC=OFF -DWITH_ARITH_ENC=OFF -DWITH_12BIT=OFF -DWITH_JAVA=OFF -DWITH_JPEG7=OFF \
+        -DWITH_TURBOJPEG=OFF -DPNG_SUPPORTED=OFF -DWITH_MEM_SRCDST=ON -DFORCE_INLINE=ON \
+        -DCMAKE_INSTALL_LIBDIR="$S/lib" -DCMAKE_INSTALL_INCLUDEDIR="$S/include" \
+        -DCMAKE_INSTALL_BINDIR="$S/bin" -DCMAKE_INSTALL_MANDIR="$S/share/man" \
+        -DCMAKE_INSTALL_DOCDIR="$S/share/doc/mozjpeg"
+}
+s_webp() {
+    at_so "$1" --enable-libwebpdecoder --enable-libwebpdemux --enable-libwebpmux --disable-gl --disable-sdl \
+        --disable-png --disable-jpeg --disable-tiff --disable-gif --disable-wic
+}
+s_freetype2() {
+    cm_so "$1" -DFT_REQUIRE_ZLIB=ON -DFT_DISABLE_BZIP2=OFF -DFT_DISABLE_PNG=ON -DFT_DISABLE_HARFBUZZ=ON \
+        -DFT_DISABLE_BROTLI=ON
+}
+s_gd() {
+    (cd "$1" && autoreconf -fi) &&
+        at_so "$1" --enable-gd-formats --with-zlib --with-png="$S" --with-jpeg="$S" --with-webp="$S" \
+            --with-freetype="$S" --without-fontconfig --without-xpm --without-x --without-tiff \
+            --without-avif --without-heif --without-raqm --without-liq --with-libiconv-prefix="$S"
+}
+s_libmcrypt() { at_so "$1"; }
+s_libmemcached() {
+    cm_so "$1" -DENABLE_SASL=OFF -DBUILD_TESTING=OFF -DBUILD_DOCS=OFF -DBUILD_DOCSONLY=OFF \
+        -DENABLE_HASH_FNV64=ON -DENABLE_HASH_HSIEH=ON -DENABLE_HASH_MURMUR=ON -DENABLE_MEMASLAP=OFF
+}
+s_libsodium() { at_so "$1"; }
+s_argon2() {
+    # the shared library as the port security/libargon2 builds it (SO_LDFLAGS with the
+    # soname libargon2.so.0), -march=$cputype as b_argon2
+    (cd "$1" && gmake libargon2.so OPTTARGET="$cputype" SO_LDFLAGS="-shared -Wl,-soname=libargon2.so.0 $LDFLAGS" &&
+        mkdir -p "$S/include" "$S/lib/pkgconfig" && cp include/argon2.h "$S/include/" &&
+        install -m 755 libargon2.so "$S/lib/libargon2.so.0" && ln -sf libargon2.so.0 "$S/lib/libargon2.so" &&
+        printf '%s\n' "prefix=$S" 'libdir=${prefix}/lib' 'includedir=${prefix}/include' '' \
+            'Name: libargon2' 'Description: Argon2 password hashing' 'Version: 20190702' \
+            'Libs: -L${libdir} -largon2' 'Libs.private: -lpthread' 'Cflags: -I${includedir}' > "$S/lib/pkgconfig/libargon2.pc")
+}
+# --with-shared-termcap-library: libreadline.so names libncursesw itself
+s_readline() { at_so "$1" --with-curses --enable-bracketed-paste-default --with-shared-termcap-library; }
+s_gettext() {
+    at_so "$1" --disable-csharp --disable-java --disable-libasprintf --disable-threads --disable-openmp \
+        --disable-acl --with-libiconv-prefix="$S" --without-emacs ac_cv_lib_rt_sched_yield=no
+}
+s_expat() { at_so "$1" --without-docbook --without-examples --without-tests --without-xmlwf; }
+s_fontconfig() {
+    st="$work/stage-fontconfig-so"
+    rm -rf "$st"
+    (cd "$1" && meson setup _az --prefix="$S" --libdir=lib --sysconfdir=/usr/local/etc --localstatedir=/var \
+        --buildtype=release -Doptimization=plain --default-library=shared \
+        --wrap-mode=nodownload -Ddoc=disabled -Dtests=disabled -Dtools=disabled -Dnls=disabled \
+        -Dcache-build=disabled -Dcache-dir=/var/db/fontconfig -Ddefault-fonts-dirs=/usr/local/share/fonts \
+        -Dadditional-fonts-dirs=/usr/local/lib/X11/fonts -Dtemplate-dir=/usr/local/etc/fonts/conf.avail \
+        -Dxml-dir=/usr/local/etc/fonts &&
+        ninja -C _az -j "$ncpu" && DESTDIR="$st" ninja -C _az install) &&
+        cp -R "$st$S/." "$S/"
+}
+s_lcms2() { at_so "$1" --with-fastfloat --with-threaded --without-jpeg --without-tiff; }
+s_dav1d() { ms_so "$1" -Denable_tools=false -Denable_tests=false -Denable_examples=false; }
+s_libde265() {
+    cm_so "$1" -DENABLE_ENCODER=OFF -DENABLE_DECODER=OFF -DENABLE_SDL=OFF -DENABLE_INTERNAL_DEVELOPMENT_TOOLS=OFF
+}
+s_libheif() {
+    cm_so "$1" -DBUILD_TESTING=OFF -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON \
+        -DBUILD_DOCUMENTATION=OFF -DWITH_EXAMPLES=OFF -DWITH_GDK_PIXBUF=OFF -DENABLE_PLUGIN_LOADING=OFF \
+        -DWITH_LIBSHARPYUV=OFF -DWITH_FUZZERS=OFF -DBUILD_DEVELOPMENT_TOOLS=OFF \
+        -DWITH_LIBDE265=ON -DWITH_LIBDE265_PLUGIN=OFF -DWITH_DAV1D=ON -DWITH_DAV1D_PLUGIN=OFF \
+        -DWITH_AOM_DECODER=OFF -DWITH_AOM_ENCODER=OFF -DWITH_X265=OFF -DWITH_X264=OFF -DWITH_RAV1E=OFF \
+        -DWITH_SvtEnc=OFF -DWITH_FFMPEG_DECODER=OFF -DWITH_OpenH264_DECODER=OFF -DWITH_OpenH264_ENCODER=OFF \
+        -DWITH_JPEG_DECODER=OFF -DWITH_JPEG_ENCODER=OFF -DWITH_OpenJPEG_DECODER=OFF -DWITH_OpenJPEG_ENCODER=OFF \
+        -DWITH_OPENJPH_DECODER=OFF -DWITH_OPENJPH_ENCODER=OFF -DWITH_KVAZAAR=OFF -DWITH_UVG266=OFF \
+        -DWITH_VVDEC=OFF -DWITH_VVENC=OFF -DWITH_UNCOMPRESSED_CODEC=OFF
+}
+# Shared only (deps.conf), for the PHP modules sqlite3 and pdo_sqlite, gmp, xsl, ffi, tidy:
+# sqlite3 as the port with its default options (CPPFLAGS and OPTIONS of
+# databases/sqlite3), one make job (MAKE_JOBS_UNSAFE); the library, its headers and
+# sqlite3.pc only (main.mk: the target so, install-dll, install-headers, install-pc).
+# Its code generators run with the tclsh of the port's USES=tcl:build (lang/tcl86
+# of --tools), else with the jimsh it builds itself (B.tclsh of main.mk).
+s_sqlite3() {
+    tclsh=""
+    [ -x /usr/local/bin/tclsh8.6 ] && tclsh="--with-tclsh=/usr/local/bin/tclsh8.6"
+    (CPPFLAGS="$CPPFLAGS -DHAVE_FCHOWN=1 -DHAVE_FDATASYNC=1 -DHAVE_GMTIME_R=1 -DHAVE_ISNAN=1 \
+-DHAVE_LOCALTIME_R=1 -DHAVE_LSTAT=1 -DHAVE_MALLOC_USABLE_SIZE=1 -DHAVE_PREAD=1 -DHAVE_PWRITE=1 \
+-DHAVE_READLINK=1 -DHAVE_STRCHRNUL=1 -DHAVE_STRERROR_R=1 -DHAVE_USLEEP=1 -DSQLITE_DEFAULT_FILE_PERMISSIONS=0644 \
+-DSQLITE_OS_UNIX=1 -DSQLITE_STRICT_SUBTYPE=1 -DSQLITE_ENABLE_DBPAGE_VTAB=1 -DSQLITE_ENABLE_DBSTAT_VTAB=1 \
+-DSQLITE_ENABLE_FTS3_TOKENIZER=1 -DSQLITE_ENABLE_FTS3_PARENTHESIS=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 \
+-DSQLITE_SECURE_DELETE=1 -DSQLITE_ENABLE_UNLOCK_NOTIFY=1 -DSQLITE_USE_URI=1"
+        export CPPFLAGS
+        cd "$1" && ./configure --prefix="$S" --libdir="$S/lib" --includedir="$S/include" \
+            --soname=legacy --linemacros --enable-load-extension --fts3 --fts4 --fts5 --rtree --session \
+            --with-tempstore=no --disable-tcl --disable-static OPTIONS='-lm -lpthread' $tclsh &&
+            gmake so && gmake install-dll install-headers install-pc)
+}
+# gmp for the generic host of the ports (config.guess of fix_guess), fat: with the
+# code of every x86-64 CPU, it takes the one of the CPU it runs on at run time. On
+# a server it is built with CPU_OPTS (code for the CPU of that machine); this one
+# is built on the CPU of the CI runner for every server of the level, so fat is
+# the safe way to the same speed. No C++.
+s_gmp() { at_so "$1" --disable-cxx --enable-fat; }
+s_libxslt() { at_so "$1" --without-python --without-crypto --without-plugins; }
+s_libffi() {
+    (LDFLAGS="$LDFLAGS -Wl,--undefined-version"; export LDFLAGS
+        at_so "$1" --disable-multi-os-directory --disable-docs)
+}
+# tidy: the library only (no program, no manual page); the static libtidy it builds anyway goes in finish
+s_tidy() { cm_so "$1" -DBUILD_SHARED_LIB=ON -DSUPPORT_CONSOLE_APP=OFF; }
+
 # lic <name> <source>: the licence files of a library into LICENSES/ (libpng
 # 1.6.59 has a directory LICENSES too)
 lic() {
-    mkdir -p "$P/LICENSES"
+    mkdir -p "$A/LICENSES"
     for f in "$2"/COPYING* "$2"/LICENSE* "$2"/LICENCE* "$2"/PATENTS* "$2"/COPYRIGHT*; do
-        [ -e "$f" ] && cp -R "$f" "$P/LICENSES/$1-${f##*/}"
+        [ -e "$f" ] && cp -R "$f" "$A/LICENSES/$1-${f##*/}"
     done
     return 0
 }
@@ -352,7 +616,12 @@ take_args() {
     if [ -d "$pd" ]; then printf '%s\n' "PATCHDIR=$pd"; fi
 }
 
-# One library: fetch, check, extract and patch with the ports framework, then build.
+# One library: fetch, check, extract and patch with the ports framework, then build
+# it as its kinds in deps.conf say: static into P (b_<name>), shared into S
+# (s_<name>, in a copy of the work directory made right after the patches, so that
+# both build the same patched source and the static build leaves nothing in it);
+# one log for both, one line of the summary with the status of each ("-": not of
+# that kind).
 build_one() {
     n="$1"
     port="$(port_of "$n")"
@@ -362,6 +631,10 @@ build_one() {
     targs="$(take_args "$n" "$port" 2>"$res/$n.take")"
     trc=$?
     take_of "$n" | grep -q . && take_ver="$(take_of "$n" | awk '{ print $1 }')" || take_ver=""
+    # shellcheck disable=SC2086
+    src="$(pmake "$port" $targs -V WRKSRC 2>/dev/null)"
+    # shellcheck disable=SC2086
+    wd="$(pmake "$port" $targs -V WRKDIR 2>/dev/null)"
     (
         if [ "$trc" != 0 ]; then cat "$res/$n.take"; echo "== $n: the release of the take line could not be had"; exit 1; fi
         if [ -n "$take_ver" ]; then
@@ -374,20 +647,45 @@ build_one() {
         fi
         # shellcheck disable=SC2086
         pmake "$port" $targs clean >/dev/null 2>&1
+        rm -rf "$wd.so"
         # shellcheck disable=SC2086
         pmake "$port" $targs patch || { echo "make patch failed"; exit 1; }
-        # shellcheck disable=SC2086
-        src="$(pmake "$port" $targs -V WRKSRC)"
         echo "== source: $src"
-        : > "$work/stamp-$n"
-        "b_$n" "$src" || exit 1
-        lic "$n" "$src"
-        # every library leaves a static archive of its own in lib/ (mozjpeg did not)
-        if [ -z "$(find "$P/lib" -maxdepth 1 -name '*.a' -newer "$work/stamp-$n" | head -n 1)" ]; then
-            echo "== no new static library of $n in $P/lib"; exit 1
+        if has_kind "$n" shared; then
+            # the whole work directory: relative paths out of WRKSRC (gettext-runtime/../build-aux, icu/source/..)
+            cp -Rp "$wd" "$wd.so" || { echo "== cannot copy $wd to $wd.so"; exit 1; }
+            echo "== source of the shared build: $wd.so${src#"$wd"}"
         fi
+        lic "$n" "$src"
     ) > "$log" 2>&1
-    rc=$?
+    prc=$?
+    st_s=-; st_d=-
+    if has_kind "$n" static; then
+        st_s=FAIL
+        if [ "$prc" = 0 ] && (
+            echo "== static build into $P"
+            : > "$work/stamp-$n"
+            "b_$n" "$src" || exit 1
+            # every library leaves a static archive of its own in lib/ (mozjpeg did not)
+            if [ -z "$(find "$P/lib" -maxdepth 1 -name '*.a' -newer "$work/stamp-$n" | head -n 1)" ]; then
+                echo "== no new static library of $n in $P/lib"; exit 1
+            fi
+        ) >> "$log" 2>&1; then st_s=OK; fi
+    fi
+    if has_kind "$n" shared; then
+        st_d=FAIL
+        if [ "$prc" = 0 ] && (
+            echo "== shared build into $S"
+            so_env
+            : > "$work/stamp-so-$n"
+            "s_$n" "$wd.so${src#"$wd"}" || exit 1
+            if [ -z "$(find "$S/lib" -maxdepth 1 -name '*.so*' -newer "$work/stamp-so-$n" | head -n 1)" ]; then
+                echo "== no new shared library of $n in $S/lib"; exit 1
+            fi
+        ) >> "$log" 2>&1; then st_d=OK; fi
+    fi
+    rc=0
+    [ "$prc" = 0 ] && [ "$st_s" != FAIL ] && [ "$st_d" != FAIL ] || rc=1
     ver="$(pmake "$port" -V PKGVERSION 2>/dev/null)"
     pkgname="$(pmake "$port" -V PKGNAME 2>/dev/null)"
     if [ -n "$take_ver" ]; then
@@ -397,21 +695,32 @@ build_one() {
         pkgname="${pkgname%-*}-$take_ver$epoch"
         ver="$take_ver (port: $ver)"
     fi
-    if [ "$rc" = 0 ]; then
-        printf '%-14s OK    %-22s %-24s %4ss\n' "$n" "$ver" "$port" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
-        printf '%s %s %s\n' "$n" "$pkgname" "$port" >> "$res/built.txt"
-    else
-        printf '%-14s FAIL  %-22s %-24s %4ss (deps-results/%s.log)\n' "$n" "$ver" "$port" "$(( $(date +%s) - start ))" "$n" >> "$res/summary.txt"
-        tail -n 25 "$log" > "$res/$n.tail"
-    fi
-    say "$n: $(tail -n 1 "$res/summary.txt" | awk '{ print $2 }')"
+    summ "$n" "$ver" "$port"
     return "$rc"
+}
+
+# summ <name> <version> <port>: the line of the summary (st_s, st_d, rc, start), the
+# line of built.txt (pkgname) when it built, the end of the log when not
+summ() {
+    if [ "$rc" = 0 ]; then
+        printf '%-14s static %-4s shared %-4s %-22s %-24s %4ss\n' "$1" "$st_s" "$st_d" "$2" "$3" "$(( $(date +%s) - start ))" >> "$res/summary.txt"
+        printf '%s %s %s\n' "$1" "$pkgname" "$3" >> "$res/built.txt"
+    else
+        [ "$st_s" = - ] || [ "$st_s" = OK ] || st_s=FAIL
+        [ "$st_d" = - ] || [ "$st_d" = OK ] || st_d=FAIL
+        # FAIL in the line also when only the source failed
+        [ "$st_s" = FAIL ] || [ "$st_d" = FAIL ] || st_s=FAIL
+        printf '%-14s static %-4s shared %-4s %-22s %-24s %4ss (deps-results/%s.log)\n' "$1" "$st_s" "$st_d" "$2" "$3" "$(( $(date +%s) - start ))" "$1" >> "$res/summary.txt"
+        tail -n 25 "$log" > "$res/$1.tail"
+    fi
+    say "$1: static $st_s, shared $st_d"
 }
 
 # One library of the bundled curl (port "bundle" in deps.conf): the sources of
 # tools/curl-sources.sh (once per run), built by freebsd/curl/build-libcurl.sh as
 # for --with-curl=bundled; curl takes its libraries into libcurl.a with their
-# symbols local (swoole carries a copy of nghttp2, libzip links zstd).
+# symbols local (swoole carries a copy of nghttp2, libzip links zstd). The shared
+# build (s_<name>) runs out of the source tree, which stays as it is.
 bundle_ver() {
     if [ "$1" = curl ]; then
         sed -n 's/^#define LIBCURL_VERSION "\(.*\)"$/\1/p' "$work/curl-src/libcurl/include/curl/curlver.h"
@@ -421,36 +730,51 @@ bundle_ver() {
 }
 build_bundle() {
     n="$1"
+    if [ "$n" = curl ]; then bs="$work/curl-src/libcurl"; else bs="$work/curl-src/deps/$n"; fi
     (
         echo "== $n: the bundled curl (freebsd/curl.conf, freebsd/curl-deps.conf)"
         if [ ! -f "$work/curl-src/deps/VERSIONS" ]; then
             sh "$top/tools/curl-sources.sh" "$work/curl-src" || { echo "tools/curl-sources.sh failed"; exit 1; }
         fi
-        : > "$work/stamp-$n"
-        b="$top/freebsd/curl/build-libcurl.sh"
-        case "$n" in
-            curl) LIBICONV_PREFIX="$P" OBJDIR="$work/obj-curl" sh "$b" --curl "$work/curl-src/libcurl" "$P" "$P" ;;
-            libidn2) LIBICONV_PREFIX="$P" OBJDIR="$work/obj-curl" sh "$b" --lib libidn2 "$work/curl-src/deps/libidn2" "$P" ;;
-            *) OBJDIR="$work/obj-curl" sh "$b" --lib "$n" "$work/curl-src/deps/$n" "$P" ;;
-        esac || exit 1
-        if [ -z "$(find "$P/lib" -maxdepth 1 -name '*.a' -newer "$work/stamp-$n" | head -n 1)" ]; then
-            echo "== no new static library of $n in $P/lib"; exit 1
-        fi
-        if [ "$n" = curl ]; then lic curl "$work/curl-src/libcurl"; else lic "$n" "$work/curl-src/deps/$n"; fi
+        lic "$n" "$bs"
     ) > "$log" 2>&1
-    rc=$?
+    prc=$?
+    st_s=-; st_d=-
+    if has_kind "$n" static; then
+        st_s=FAIL
+        if [ "$prc" = 0 ] && (
+            echo "== static build into $P"
+            : > "$work/stamp-$n"
+            b="$top/freebsd/curl/build-libcurl.sh"
+            case "$n" in
+                curl) LIBICONV_PREFIX="$P" OBJDIR="$work/obj-curl" sh "$b" --curl "$bs" "$P" "$P" ;;
+                libidn2) LIBICONV_PREFIX="$P" OBJDIR="$work/obj-curl" sh "$b" --lib libidn2 "$bs" "$P" ;;
+                *) OBJDIR="$work/obj-curl" sh "$b" --lib "$n" "$bs" "$P" ;;
+            esac || exit 1
+            if [ -z "$(find "$P/lib" -maxdepth 1 -name '*.a' -newer "$work/stamp-$n" | head -n 1)" ]; then
+                echo "== no new static library of $n in $P/lib"; exit 1
+            fi
+        ) >> "$log" 2>&1; then st_s=OK; fi
+    fi
+    if has_kind "$n" shared; then
+        st_d=FAIL
+        if [ "$prc" = 0 ] && (
+            echo "== shared build into $S"
+            so_env
+            : > "$work/stamp-so-$n"
+            "s_$(printf '%s' "$n" | tr - _)" "$bs" || exit 1
+            if [ -z "$(find "$S/lib" -maxdepth 1 -name '*.so*' -newer "$work/stamp-so-$n" | head -n 1)" ]; then
+                echo "== no new shared library of $n in $S/lib"; exit 1
+            fi
+        ) >> "$log" 2>&1; then st_d=OK; fi
+    fi
+    rc=0
+    [ "$prc" = 0 ] && [ "$st_s" != FAIL ] && [ "$st_d" != FAIL ] || rc=1
     ver="$(bundle_ver "$n")"
     # the names of the ports for pkg audit: libnghttp2, and the epoch of archivers/brotli
     # (PORTEPOCH 1: VuXML has "brotli < 1.2.1,1", and 1.2.1 without it would be older)
     case "$n" in nghttp2) pkgname="libnghttp2-$ver" ;; brotli) pkgname="brotli-$ver,1" ;; *) pkgname="$n-$ver" ;; esac
-    if [ "$rc" = 0 ]; then
-        printf '%-14s OK    %-22s %-24s %4ss\n' "$n" "$ver" bundle "$(( $(date +%s) - start ))" >> "$res/summary.txt"
-        printf '%s %s %s\n' "$n" "$pkgname" bundle >> "$res/built.txt"
-    else
-        printf '%-14s FAIL  %-22s %-24s %4ss (deps-results/%s.log)\n' "$n" "$ver" bundle "$(( $(date +%s) - start ))" "$n" >> "$res/summary.txt"
-        tail -n 25 "$log" > "$res/$n.tail"
-    fi
-    say "$n: $(tail -n 1 "$res/summary.txt" | awk '{ print $2 }')"
+    summ "$n" "$ver" bundle
     return "$rc"
 }
 
@@ -540,13 +864,82 @@ finish() {
     fi
 }
 
+# After the builds, the shared tree: only shared libraries in lib/ (with their .pc
+# in lib/pkgconfig, the cmake files), the *-config scripts and bin/pkg-config, the
+# headers; no programs, sbin, manual pages, documentation or translations. Then the
+# checks (deps-results/shared.txt: every library with SONAME, size, DT_NEEDED and run
+# path; a finding goes to shared-bad.txt and fails the build): every library has a
+# SONAME and RELRO, every DT_NEEDED resolves (ldd) from S/lib or the base system
+# (/lib, /usr/lib), never from /usr/local/lib or the static tree, with the run path
+# S/lib where it needs a library of S; libcurl and libzip take libssl and libcrypto
+# of the base system; the .pc files and *-config scripts name neither /usr/local
+# outside S nor the static tree.
+finish_so() {
+    rm -f "$S"/lib/*.a "$S"/lib/*.la
+    if [ -d "$S/libdata/pkgconfig" ]; then
+        mkdir -p "$S/lib/pkgconfig" && mv "$S"/libdata/pkgconfig/*.pc "$S/lib/pkgconfig/" 2>/dev/null
+        rm -rf "$S/libdata"
+    fi
+    mkdir -p "$S/bin"
+    find "$S/bin" -maxdepth 1 ! -type d ! -name '*-config' -delete
+    rm -rf "$S/sbin" "$S/share/man" "$S/share/doc" "$S/share/info" "$S/share/gtk-doc" "$S/share/locale" "$S/share/emacs"
+    # pkg-config for the builds against the shared tree (the PHP modules of pkg mode):
+    # its libraries and the base system, no static link lines
+    printf '%s\n' '#!/bin/sh' "# pkg-config of $S: its shared libraries and the base system." \
+        "PKG_CONFIG_LIBDIR='$S/lib/pkgconfig:/usr/libdata/pkgconfig'" \
+        'export PKG_CONFIG_LIBDIR' 'unset PKG_CONFIG_PATH' 'exec /usr/local/bin/pkgconf "$@"' > "$S/bin/pkg-config"
+    chmod +x "$S/bin/pkg-config"
+    : > "$res/shared.txt"; : > "$res/shared-bad.txt"
+    for f in "$S"/lib/*.so*; do
+        [ -f "$f" ] && [ ! -L "$f" ] || continue
+        b="${f##*/}"
+        readelf -d "$f" > "$work/so-dyn.txt" 2>&1
+        sn="$(sed -n 's/.*(SONAME).*\[\(.*\)\].*/\1/p' "$work/so-dyn.txt")"
+        need="$(sed -n 's/.*(NEEDED).*\[\(.*\)\].*/\1/p' "$work/so-dyn.txt" | tr '\n' ' ' | sed 's/ *$//')"
+        rp="$(sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\].*/\1/p' "$work/so-dyn.txt" | head -n 1)"
+        printf '%s: SONAME %s, %s KB, NEEDED %s%s\n' "$b" "${sn:-none}" "$(du -Ak "$f" | cut -f1)" "${need:-none}" \
+            "${rp:+, run path $rp}" >> "$res/shared.txt"
+        [ -n "$sn" ] || echo "$b: no SONAME" >> "$res/shared-bad.txt"
+        readelf -l "$f" | grep -q GNU_RELRO || echo "$b: no RELRO" >> "$res/shared-bad.txt"
+        ldd "$f" > "$work/so-ldd.txt" 2>&1 || echo "$b: ldd failed: $(head -n 1 "$work/so-ldd.txt")" >> "$res/shared-bad.txt"
+        awk '$2 == "=>" { print $1, $3 }' "$work/so-ldd.txt" | while read -r l lp; do
+            case "$lp" in
+                "$P"/*) echo "$b: $l of the static tree ($lp)" ;;
+                "$S"/lib/*)
+                    case ":$rp:" in *":$S/lib:"*) ;; *) echo "$b: $l of $S/lib without the run path $S/lib (${rp:-none})" ;; esac ;;
+                /usr/local/*) echo "$b: $l of /usr/local ($lp)" ;;
+                /lib/*|/usr/lib/*) ;;
+                *) echo "$b: $l not found in $S/lib or the base system (${lp:-?})" ;;
+            esac
+        done >> "$res/shared-bad.txt"
+        case "$b" in
+            libcurl.so.*|libzip.so.*)
+                for l in libssl libcrypto; do
+                    lp="$(awk -v l="$l" 'index($1, l ".so") == 1 && $2 == "=>" { print $3 }' "$work/so-ldd.txt")"
+                    case "$lp" in /lib/*|/usr/lib/*) ;; *) echo "$b: $l not of the base system (${lp:-not linked})" >> "$res/shared-bad.txt" ;; esac
+                done ;;
+        esac
+    done
+    [ -s "$res/shared.txt" ] || echo "no shared library in $S/lib" >> "$res/shared-bad.txt"
+    # the .pc files and *-config scripts (not the pkg-config wrapper): nothing of the
+    # static tree, nothing of /usr/local outside S but the configuration and fonts of
+    # the system that fontconfig reads
+    for f in "$S"/lib/pkgconfig/*.pc "$S"/bin/*-config; do
+        [ -f "$f" ] && [ "$f" != "$S/bin/pkg-config" ] || continue
+        grep -n "$P" "$f" | sed "s#^#${f##*/}: the static tree: #" >> "$res/shared-bad.txt"
+        sed -e "s#$S##g" -e 's#/usr/local/etc/fonts##g' -e 's#/usr/local/share/fonts##g' \
+            -e 's#/usr/local/lib/X11/fonts##g' -e 's#sysconfdir=/usr/local/etc$##' "$f" |
+            grep -n '/usr/local' | sed "s#^#${f##*/}: /usr/local outside $S: #" >> "$res/shared-bad.txt"
+    done
+}
+
 manifest() {
     {
         echo "az libraries for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
-        echo "freebsd-ports $ports_commit; static libraries, CFLAGS: $CFLAGS"
+        echo "freebsd-ports $ports_commit; static libraries in $P, shared libraries in $S; CFLAGS: $CFLAGS"
         echo
         while read -r n pkgname port; do
-            printf '%-14s %-28s %s\n' "$n" "$pkgname" "$port"
+            printf '%-14s %-28s %-24s %s\n' "$n" "$pkgname" "$port" "$(awk -v n="$n" '$1 == "lib" && $2 == n { print $4 }' "$conf")"
             if [ "$port" = bundle ]; then
                 if [ "$n" = curl ]; then
                     awk '!/^#/ && NF >= 4 { u = $3; s = $4 } END { n = split(u, p, "/"); print "    " p[n] " sha256 " s }' "$top/freebsd/curl.conf"
@@ -577,9 +970,15 @@ manifest() {
         echo "curl above: the static libcurl.a in $P for the builds of PHP, with only what PHP needs. The package"
         echo "curl (tools/build-az.sh): bin/curl and lib/libcurl.so.4 of /usr/local, a build of its own of the same"
         echo "release with the options of the port ftp/curl, against the libraries above."
+        echo
+        echo "The shared tree $S (lib/, include/, lib/pkgconfig/, bin/pkg-config and the *-config"
+        echo "scripts), for the PHP modules of pkg mode: the libraries of the kind shared above, built"
+        echo "from the same patched sources with the same options, with the run path $S/lib and the"
+        echo "OpenSSL of the base system (libcurl, libzip); SONAME and DT_NEEDED of each:"
+        sed 's/^/    /' "$res/shared.txt" 2>/dev/null
     } > "$res/VERSIONS"
-    mkdir -p "$P/share/doc/azsupport"
-    cp "$res/VERSIONS" "$P/share/doc/azsupport/VERSIONS"
+    mkdir -p "$A/share/doc/azsupport"
+    cp "$res/VERSIONS" "$A/share/doc/azsupport/VERSIONS"
 }
 
 # The curl program and libcurl.so (deps.conf: "program curl"), for the package curl
@@ -709,11 +1108,11 @@ if [ $# -eq 0 ]; then
     set -- $libs_all
     # a full build starts from an empty tree; the PHP builds of a server in it
     # (phpXY directories, bin/phpXY) are never removed
-    if [ -n "$(ls -d "$P"/php* "$P"/bin/php* "$P"/etc/php* 2>/dev/null | head -n 1)" ]; then
-        echo "build-deps: $P has PHP builds in it; build into an empty directory (AZ_PREFIX=...)" >&2
+    if [ -n "$(ls -d "$A"/php* "$A"/bin/php* "$A"/etc/php* "$P"/php* "$P"/bin/php* "$P"/etc/php* 2>/dev/null | head -n 1)" ]; then
+        echo "build-deps: $A has PHP builds in it; build into an empty directory (AZ_PREFIX=...)" >&2
         exit 2
     fi
-    rm -rf "$P"
+    rm -rf "$A"
     rm -f "$res"/*.tail "$res/bins-bad.txt"
     : > "$res/summary.txt"; : > "$res/built.txt"
     printf 'flags:    %s\ncpu:      %s\n' "$CFLAGS" "${cpu_model:-?}" >> "$res/summary.txt"
@@ -739,7 +1138,7 @@ for n in "$@"; do
     [ -n "$(port_of "$n")" ] || { echo "build-deps: $n is not in $conf" >&2; exit 2; }
 done
 ports_checkout || { echo "build-deps: cannot check out freebsd-ports $ports_commit" > "$res/summary.txt"; exit 1; }
-mkdir -p "$P"
+mkdir -p "$P" "$S"
 rc=0
 for n in "$@"; do
     say "$n ($(port_of "$n"))"
@@ -750,11 +1149,16 @@ if grep -q '^program curl' "$conf" && grep -q '^curl ' "$res/built.txt" 2>/dev/n
     build_curl_program || rc=1
 fi
 finish
+finish_so
+if [ -s "$res/shared-bad.txt" ]; then
+    printf '%-14s FAIL  %s\n' "shared tree" "$(wc -l < "$res/shared-bad.txt" | tr -d ' ') findings (deps-results/shared-bad.txt): $(head -n 3 "$res/shared-bad.txt" | tr '\n' ' ')" >> "$res/summary.txt"
+    rc=1
+fi
 manifest
 # Known vulnerabilities of these versions (FreeBSD VuXML), for the report.
 pkg audit -F -q $(awk '{ print $2 }' "$res/built.txt") > "$res/audit.txt" 2>&1 || true
 if [ "$rc" = 0 ] && [ ! -s "$res/pic.txt" ] && [ ! -s "$res/links.txt" ] && [ ! -s "$res/bins-bad.txt" ]; then
-    echo "installed: $P ($(du -Ask "$P" | cut -f1) KB)" >> "$res/summary.txt"
+    echo "installed: $A (static tree $P: $(du -Ask "$P" | cut -f1) KB, all: $(du -Ask "$A" | cut -f1) KB)" >> "$res/summary.txt"
     # the work directories of the ports, for the space of what is built after
     rm -rf "$work/wrk"
 else
