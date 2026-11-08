@@ -35,7 +35,7 @@ on:
       candidate:
         description: 'Publish to az-fbsd<major>-amd64-<level>-candidate (a pre-release, for a check on a server), not to the release the servers read'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
