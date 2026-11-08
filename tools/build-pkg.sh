@@ -279,7 +279,8 @@ build_module() {
     esac
     # azsupport when the module links one of its libraries
     readelf -d "$so" > "$mo/readelf.txt" 2>&1
-    for l in $(sed -n 's/.*(NEEDED).*\[\(.*\)\].*/\1/p' "$mo/readelf.txt"); do
+    # the value texts, which the readelf of binutils and that of the ELF Tool Chain both print
+    for l in $(sed -n 's/.*[Ss]hared library: \[\(.*\)\].*/\1/p' "$mo/readelf.txt"); do
         if [ -f "$AZ/lib/$l" ]; then deps="$deps azsupport"; break; fi
     done
     # the plist: the files, the ini as @sample (pkg copies it to .ini and keeps a
@@ -415,7 +416,7 @@ no_ports_lib() {
     _l="$(ldd "$1" 2>&1)" || { echo "ldd: $_l"; return 1; }
     if printf '%s\n' "$_l" | grep -E '=> /usr/local/lib/|not found'; then return 1; fi
     if printf '%s\n' "$_l" | grep -q "=> $AZ/lib/"; then
-        readelf -d "$1" | grep -E '\((RUNPATH|RPATH)\)' | grep -q "\[$AZ/lib\]" ||
+        readelf -d "$1" | sed -n 's/.*[Ll]ibrary r[a-z]*path: \[\(.*\)\].*/\1/p' | tr ':' '\n' | grep -qx "$AZ/lib" ||
             { echo "links $AZ/lib without the run path $AZ/lib"; return 1; }
     fi
     printf '%s\n' "$_l" | awk '/=>/ { print $3 }' | sed "s|^$AZ/lib/||" | tr '\n' ' '
