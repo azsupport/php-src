@@ -97,6 +97,7 @@ jobs:
           df -h /
 
       - name: Build, package and install in FreeBSD ${{ inputs.release }}
+        id: build
         uses: vmactions/freebsd-vm@v1
         env:
           TARGETS: ${{ inputs.targets }}
@@ -123,8 +124,17 @@ jobs:
             pkg repo az-repo > build-test-results/pkg-repo.log 2>&1 || echo "pkg repo failed" >> build-test-results/pkg-repo.log
 
       - name: Report
+        id: report
         if: always()
-        run: sh tools/build-test-report.sh build-test-results
+        run: |
+          # the summary goes to report.md first (tools/runs-report.sh commits it), then to the job summary
+          summary="$GITHUB_STEP_SUMMARY"
+          export GITHUB_STEP_SUMMARY="$PWD/report.md"
+          : > report.md
+          rc=0
+          sh tools/build-test-report.sh build-test-results || rc=1
+          cat report.md >> "$summary"
+          exit $rc
 
       - name: Results
         if: always()
@@ -135,6 +145,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Publish
+        id: publish
         if: ${{ success() && inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -158,3 +169,14 @@ jobs:
           for f in $(ls "$dir"); do
             printf '%s\n' "$have" | grep -qxF "$f" || { echo "not in the release $tag: $f"; exit 1; }
           done
+
+      # the report into the branch runs of the private azsupport/azsupport (secret RUNS_TOKEN)
+      - name: Report to azsupport/azsupport
+        if: always()
+        continue-on-error: true
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: release=${{ inputs.release }} cputype=${{ matrix.cputype }} targets=${{ inputs.targets }} swoole=${{ inputs.swoole }} magick=${{ inputs.magick }} candidate=${{ inputs.candidate }} publish=${{ inputs.publish }}
+          RUNS_STEPS: build=${{ steps.build.outcome }} report=${{ steps.report.outcome }} publish=${{ steps.publish.outcome }}
+          PART: ${{ matrix.cputype }}
+        run: sh tools/runs-report.sh report.md "$PART"
