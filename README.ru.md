@@ -375,7 +375,7 @@ make install
 | Кавычки PHP 5.6 | 5.6 записывает опции с пробелами в сломанных кавычках (`'CFLAGS=-O3 '-pipe' ...''`): скрипт читает их так, как прочитал бы shell, — одной опцией |
 | Бинарник не запускается | опции берутся из `php-config --configure-options`, а он печатает их совсем без кавычек, так что `CFLAGS=-O3 -pipe ...` распадается на отдельные слова: скрипт возвращает слова после `ИМЯ=значение` в его значение |
 | PHP из пакетов | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (или `--pkg php74`, если пакетами стоит несколько версий PHP) пишет `config.installed.sh` для сборки в раскладке пакетов `az-menu.sh` (`/usr/local`, `bin/php74`, `etc/php74`): по опции на каждый установленный пакет расширения плюс опции порта `phpXY`, `CFLAGS` и `CPUTYPE` из `/etc/make.conf`. Он перечисляет то, что не переносит (пакеты PECL, утилиты), и печатает строку `pkg set -A 0`, которая сохранит библиотеки, когда пакеты потом удалят |
-| Пакеты встроенных расширений PECL | сохраняют то, с чем были собраны, — как показывает `php --ri` PHP из пакетов: lz4 и zstd для redis (в `databases/php-redis` включены по умолчанию), SASL, сериализатор JSON и `MemcachedServer` для memcached (умолчания `databases/pecl-memcached`), igbinary, хуки swoole |
+| Пакеты встроенных расширений PECL | сохраняют то, с чем были собраны, — как показывает `php --ri` PHP из пакетов: lz4 и zstd для redis (в `databases/php-redis` включены по умолчанию), SASL, сериализатор JSON и `MemcachedServer` для memcached (умолчания порта `databases/pecl-memcached`), igbinary, хуки swoole |
 | Стоит `mod_phpXY` | одна сборка делает только один модуль SAPI (`./configure`: «You can build only one SAPI module»), а порты собирают модуль Apache (`mod_phpXY`) и embed-библиотеку (опция `EMBED` у `phpXY`, `libphp7.so` в `/usr/local/lib`) отдельно: скрипт оставляет модуль Apache, опускает `--enable-embed` и говорит, линкуется ли с embed-библиотекой какой-нибудь пакет (`pkg shlib -R libphp7.so`) |
 
 Окружение одинаково для каждой сборки PHP, что бы ни было у старой:
@@ -419,7 +419,7 @@ sh az-menu.sh
 `static`, пакеты, от которых он зависит) или, для статического PHP, собранный здесь с
 вашими опциями: **Options** на `phpXY-static` «build here» открывает меню модулей этой
 версии и их опций (ниже) и запоминает выбор. На каждую версию в списке — ядро `phpXY`
-из [pkg mode](#php-в-pkg-mode) с пакетами его расширений (`phpXY-*`, `phpXY-pecl-*`),
+из [pkg mode](#php-в-pkg-mode) с пакетами его расширений (`phpXY-<модуль>`),
 какие есть в репозитории, и `phpXY-static`; ядро и статический PHP одной версии вместе
 не принимаются, как и `phpXY-openssl` вместе с `phpXY-openssl-legacy`. По OK готовые
 ставятся через `pkg install -r az`, пакет `phpXY-static` каждого PHP, который надо
@@ -682,7 +682,7 @@ igbinary как сериализатор (`--enable-memcached-igbinary`, `--enab
 |---|---|
 | Вручную | допишите опции после `sh config.installed.sh`, например `sh config.installed.sh --enable-redis --enable-memcache`, и уберите из `php.ini` строки `extension=redis.so` старых отдельных модулей |
 | Скрипт | `config-check.sh` сам не добавляет их в `config.installed.sh`: для отдельных модулей установленного PHP, которые есть в дереве, он в конце печатает готовую к копированию полную команду — `sh config.installed.sh` с их опциями. Опции несут то, с чем модули были собраны (`php --ri`: сериализатор igbinary, lzf/zstd/lz4, SASL, curl у swoole, c-ares, pgsql), плюс `--enable-json`, `--enable-hash` или `--enable-session`, если в установленной сборке нет того, что им нужно; отчёт перечисляет строки `extension=` (файл и строку), которые надо убрать после `make install` |
-| Пакеты | `config-check.sh --pkg` превращает установленные пакеты `phpXY-pecl-*` в опции, как и прочие пакеты расширений |
+| Пакеты | `config-check.sh --pkg` превращает установленные пакеты портов расширений PECL в опции, как и прочие пакеты расширений |
 
 Новые релизы этих расширений находит ежедневная [проверка апстрима](#проверка-апстрима).
 
@@ -828,7 +828,7 @@ BIND_NOW), под x86-64-v3 (AVX2) и x86-64-v2. У пакета имя, origin 
 | `ImageMagick6` | `graphics/ImageMagick6` | `bin/convert6`, `bin/identify6`, `bin/mogrify6`, `bin/composite6`, …: [ImageMagick 6 и 7](#imagemagick-6-и-7-для-видеосайтов) |
 | `ImageMagick7` | `graphics/ImageMagick7` | `bin/magick` и имена-ссылки на него (`convert`, `identify`, …); в `/usr/local/azsupport/static` его статические библиотеки и `static/bin/MagickWand-config` — для imagick |
 | `php56-static` … `php84-static` | `az/php56-static` … `az/php84-static` | статический PHP этого форка в раскладке [`az-menu.sh`](#az-menush-пакеты-и-что-войдёт-в-php) (`bin/php84`, `sbin/php-fpm84`, rc.d `php_fpm84`, `etc/php84`, `libphp84.so`), всё вшито в один PHP: готовые — с опциями [тестовой сборки](#тестовая-сборка-на-freebsd), или собранные на сервере с его собственными. До сих пор это были пакеты `php56` … `php84`; на версию — либо `phpXY-static`, либо `phpXY` из pkg mode (файлы те же: pkg не поставит оба) |
-| `php74`, `php74-*`, `php74-pecl-*` | `lang/php74`, `graphics/php74-gd`, `databases/pecl-redis`, … | [pkg mode](#php-в-pkg-mode): ядро `php74` и по пакету на расширение, как в портах; первым — PHP 7.4 под x86-64-v3 |
+| `php74`, `php74-<модуль>` | `lang/php74`, `graphics/php74-gd`, `databases/php-redis`, … | [pkg mode](#php-в-pkg-mode): ядро `php74` и по пакету на расширение, как в портах; первым — PHP 7.4 под x86-64-v3 |
 | `azsupport` | `az/azsupport` | библиотеки, с которыми собраны остальные, в двух деревьях ([ниже](#azsupport-два-дерева)): статические в `/usr/local/azsupport/static` (OpenSSL, curl для PHP только с тем, что нужно PHP ([Встроенный curl](#встроенный-curl)), и его библиотеки, libxml2, ICU, GD и её форматы (JPEG — mozjpeg: порты с `JPEG_PORT=graphics/mozjpeg`, как в make.conf серверов), x264, dav1d, libheif и остальные из [`freebsd/deps.conf`](freebsd/deps.conf)) — для сборки PHP на сервере, и разделяемые в `/usr/local/azsupport/lib`, с которыми линкуются пакеты pkg mode |
 
 ### azsupport: два дерева
@@ -851,20 +851,22 @@ PHP так, как он устроен в портах: ядро `phpXY` (origin
 `phpizeXY` против установленного ядра и слинковано с разделяемыми библиотеками
 `azsupport` или базовой системы ([`tools/build-pkg.sh`](tools/build-pkg.sh); ядро — это
 `az-menu.sh --package … core`). Первым — PHP 7.4 под x86-64-v3; остальные версии и
-x86-64-v2 запланированы.
+x86-64-v2 запланированы. Модули версии — это расширения портов FreeBSD этой версии:
+`lang/phpXY-extensions` и порты расширений PECL на коммите портов этой версии из
+[`freebsd/targets.conf`](freebsd/targets.conf).
 
 | | |
 |---|---|
-| Имена | как в портах: `phpXY-<модуль>` (`php74-gd`, origin `graphics/php74-gd`) и `phpXY-pecl-<модуль>` (`php74-pecl-redis`, origin `databases/pecl-redis` с flavor `php74`) |
+| Имена | один шаблон, `phpXY-<модуль>`, и для встроенных расширений, и для PECL: `php74-gd` (origin `graphics/php74-gd`, как у порта), `php74-redis` и `php74-swoole` (origin `databases/php-redis` и `devel/php-swoole`, как у портов с тех пор, как их в 2026 году увели из PECL), и по той же схеме, без «pecl», для PECL, чьи порты его ещё носят (`converters/pecl-igbinary` и т. д.): `php74-igbinary`, `php74-memcached`, `php74-memcache`, `php74-imagick`, `php74-mcrypt`, `php74-excimer`, `php74-openswoole` (`converters/php-igbinary`, `databases/php-memcached`, `databases/php-memcache`, `graphics/php-imagick`, `security/php-mcrypt`, `devel/php-excimer`, `devel/php-openswoole`). Расширения PECL собираются из `ext/` ветки, как и остальные ([Встроенные расширения PECL](#встроенные-расширения-pecl)) |
 | Модули | `/usr/local/lib/php/<API>/<модуль>.so`, путь портов (API: 5.6 `20131226`, 7.4 `20190902`, 8.1 `20210902`, 8.2 `20220829`, 8.3 `20230831`, 8.4 `20240924`) |
 | ini | `/usr/local/etc/phpXY/conf.d/ext-<NN>-<модуль>.ini` — из своего `.ini.sample` через `@sample`, как в портах (изменённый сохраняется); `php.ini` остаётся `/usr/local/etc/phpXY/php.ini`. Именно `conf.d`, потому что PHP читает все `*.ini` каталога сканирования и прочитал бы там `php.ini` дважды |
 | openssl | двух видов, на версию один из двух (файлы те же): `phpXY-openssl` и `phpXY-openssl-legacy` (с legacy provider: RC4, Blowfish, DES, CAST5, MD4) |
-| swoole | `phpXY-pecl-swoole` и `phpXY-pecl-openswoole` можно поставить оба; ini у openswoole выключен |
-| Пока не собираются | модули, которым нужны порты (pgsql, ldap, odbc, …): вопрос открыт |
+| swoole | `phpXY-swoole` и `phpXY-openswoole` можно поставить оба; ini у openswoole выключен |
+| Пока не собираются | модули, которым нужна библиотека из портов: enchant, imap, ldap, odbc, pdf, pdo_dblib, pdo_firebird, pdo_odbc, pdo_pgsql, pgsql, pspell, snmp |
 | Статический PHP | на версию — либо `phpXY-static`, либо `phpXY` со своими модулями: файлы у них те же, pkg не поставит оба |
 
 ```sh
-pkg install -r az php74 php74-gd php74-openssl-legacy
+pkg install -r az php74 php74-gd php74-redis php74-openssl-legacy
 pkg install -r az php74-static
 ```
 

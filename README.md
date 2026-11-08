@@ -375,7 +375,7 @@ the same result with and without it (build tests of 29.10.2026). Without it:
 | The quoting of PHP 5.6 | 5.6 records options with spaces in a broken quoting (`'CFLAGS=-O3 '-pipe' ...''`): the script reads them as the shell would, as one option |
 | The binary does not run | the options come from `php-config --configure-options`, which prints them without any quotes, so `CFLAGS=-O3 -pipe ...` comes out as separate words: the script puts the words after a `NAME=value` back into its value |
 | PHP from packages | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (or `--pkg php74` when several PHP versions are installed as packages) writes `config.installed.sh` for a build in the layout of the packages of `az-menu.sh` (`/usr/local`, `bin/php74`, `etc/php74`): one option per installed extension package and the port options of `phpXY`, `CFLAGS` and `CPUTYPE` from `/etc/make.conf`. It lists what it does not carry over (PECL packages, tools) and prints the `pkg set -A 0` line that keeps the libraries when the packages are removed later |
-| Packages of the bundled PECL extensions | keep what they were built with, as `php --ri` of the package PHP shows it: lz4 and zstd for redis (on by default in `databases/php-redis`), SASL, the JSON serializer and `MemcachedServer` for memcached (the defaults of `databases/pecl-memcached`), igbinary, swoole's hooks |
+| Packages of the bundled PECL extensions | keep what they were built with, as `php --ri` of the package PHP shows it: lz4 and zstd for redis (on by default in `databases/php-redis`), SASL, the JSON serializer and `MemcachedServer` for memcached (the defaults of the port `databases/pecl-memcached`), igbinary, swoole's hooks |
 | `mod_phpXY` installed | one build makes only one SAPI module (`./configure`: "You can build only one SAPI module"), and the ports build the Apache module (`mod_phpXY`) and the embed library (the `EMBED` option of `phpXY`, `libphp7.so` in `/usr/local/lib`) separately: the script keeps the Apache module, leaves `--enable-embed` out and says whether a package links against the embed library (`pkg shlib -R libphp7.so`) |
 
 The environment is the same for every PHP build, whatever the old build had:
@@ -421,7 +421,7 @@ of the build, its mode `pkg` or `static`, the packages it depends on) or, for th
 static PHP, built here with your options: **Options** on `phpXY-static` "build here"
 opens the menu of the modules of that version and their options (below) and keeps the
 choices. Per version it lists the core `phpXY` of [pkg mode](#php-in-pkg-mode) with
-the packages of its extensions (`phpXY-*`, `phpXY-pecl-*`) the repository has, and
+the packages of its extensions (`phpXY-<module>`) the repository has, and
 `phpXY-static`; it refuses the core and the static PHP of one version together, and
 `phpXY-openssl` with `phpXY-openssl-legacy`. OK then installs the ready ones with
 `pkg install -r az`, builds the package `phpXY-static` of each PHP to build with its
@@ -692,7 +692,7 @@ Adding them to a rebuild:
 |---|---|
 | By hand | put the options after `sh config.installed.sh`, for example `sh config.installed.sh --enable-redis --enable-memcache`, and remove the `extension=redis.so` lines of the old shared modules from `php.ini` |
 | Script | `config-check.sh` does not add them to `config.installed.sh` on its own: for the shared modules of the installed PHP that the tree bundles, it ends with the full command, `sh config.installed.sh` plus their options, ready to copy. The options carry what the modules were built with (`php --ri`: the igbinary serializer, lzf/zstd/lz4, SASL, swoole's curl, c-ares, pgsql), plus `--enable-json`, `--enable-hash` or `--enable-session` when the installed build lacks what they need; the report lists the `extension=` lines (file and line) to remove after `make install` |
-| Packages | `config-check.sh --pkg` converts the installed `phpXY-pecl-*` packages like the other extension packages |
+| Packages | `config-check.sh --pkg` converts the installed packages of the PECL ports like the other extension packages |
 
 New releases of these extensions are found by the daily [upstream check](#upstream-check).
 
@@ -841,7 +841,7 @@ of the release `az-fbsd15-amd64-v3` (or `-v2`) of this fork.
 | `ImageMagick6` | `graphics/ImageMagick6` | `bin/convert6`, `bin/identify6`, `bin/mogrify6`, `bin/composite6`, ...: [ImageMagick 6 and 7](#imagemagick-6-and-7-for-the-video-sites) |
 | `ImageMagick7` | `graphics/ImageMagick7` | `bin/magick` and the names linked to it (`convert`, `identify`, ...); in `/usr/local/azsupport/static` its static libraries and `static/bin/MagickWand-config`, for imagick |
 | `php56-static` ... `php84-static` | `az/php56-static` ... `az/php84-static` | the static PHP of this fork in the layout of [`az-menu.sh`](#az-menush-the-packages-and-what-goes-into-php) (`bin/php84`, `sbin/php-fpm84`, rc.d `php_fpm84`, `etc/php84`, `libphp84.so`), everything built into one PHP: ready ones with the options of the [build test](#build-test-on-freebsd), or built on the server with its own. Until now these were the packages `php56` ... `php84`; per version either `phpXY-static` or `phpXY` of pkg mode (the same files: pkg does not install both) |
-| `php74`, `php74-*`, `php74-pecl-*` | `lang/php74`, `graphics/php74-gd`, `databases/pecl-redis`, ... | [pkg mode](#php-in-pkg-mode): the core `php74` and one package per extension, as the ports; PHP 7.4 for x86-64-v3 first |
+| `php74`, `php74-<module>` | `lang/php74`, `graphics/php74-gd`, `databases/php-redis`, ... | [pkg mode](#php-in-pkg-mode): the core `php74` and one package per extension, as the ports; PHP 7.4 for x86-64-v3 first |
 | `azsupport` | `az/azsupport` | the libraries the others are built with, in two trees ([below](#azsupport-two-trees)): the static ones of `/usr/local/azsupport/static` (OpenSSL, the curl of PHP with only what PHP needs ([Bundled curl](#bundled-curl)) and its libraries, libxml2, ICU, GD and its formats (JPEG of mozjpeg: the ports with `JPEG_PORT=graphics/mozjpeg`, as in make.conf of the servers), x264, dav1d, libheif and the others of [`freebsd/deps.conf`](freebsd/deps.conf)), for a build of PHP on the server, and the shared ones of `/usr/local/azsupport/lib` the packages of pkg mode link |
 
 ### azsupport: two trees
@@ -864,20 +864,22 @@ with `extension=`) and one package per extension, each built on its own with
 `phpizeXY` against the installed core and linked with the shared libraries of
 `azsupport` or of the base system ([`tools/build-pkg.sh`](tools/build-pkg.sh); the core is
 `az-menu.sh --package ... core`). PHP 7.4 for x86-64-v3 comes first; the other versions
-and x86-64-v2 are planned.
+and x86-64-v2 are planned. The modules of a version are the extensions of the FreeBSD
+ports of that version: `lang/phpXY-extensions` and the ports of the PECL extensions, at
+the ports commit of that version in [`freebsd/targets.conf`](freebsd/targets.conf).
 
 | | |
 |---|---|
-| Names | as the ports: `phpXY-<module>` (`php74-gd`, origin `graphics/php74-gd`) and `phpXY-pecl-<module>` (`php74-pecl-redis`, origin `databases/pecl-redis` with the flavor `php74`) |
+| Names | one pattern, `phpXY-<module>`, for the bundled and the PECL extensions alike: `php74-gd` (origin `graphics/php74-gd`, as the port), `php74-redis` and `php74-swoole` (origins `databases/php-redis` and `devel/php-swoole`, as the ports since they moved from PECL in 2026), and in the same scheme, without "pecl", for the PECL ones whose ports still have it (`converters/pecl-igbinary` and so on): `php74-igbinary`, `php74-memcached`, `php74-memcache`, `php74-imagick`, `php74-mcrypt`, `php74-excimer`, `php74-openswoole` (`converters/php-igbinary`, `databases/php-memcached`, `databases/php-memcache`, `graphics/php-imagick`, `security/php-mcrypt`, `devel/php-excimer`, `devel/php-openswoole`). The PECL ones are built from `ext/` of the branch like the others ([Bundled PECL extensions](#bundled-pecl-extensions)) |
 | Modules | `/usr/local/lib/php/<API>/<module>.so`, the path of the ports (API: 5.6 `20131226`, 7.4 `20190902`, 8.1 `20210902`, 8.2 `20220829`, 8.3 `20230831`, 8.4 `20240924`) |
 | ini | `/usr/local/etc/phpXY/conf.d/ext-<NN>-<module>.ini`, from its `.ini.sample` with `@sample` as the ports do (changed, it is kept); `php.ini` stays `/usr/local/etc/phpXY/php.ini`. `conf.d`, since PHP reads every `*.ini` of the scan directory and would read `php.ini` twice there |
 | openssl | in two kinds, one of the two per version (the same files): `phpXY-openssl` and `phpXY-openssl-legacy` (with the legacy provider: RC4, Blowfish, DES, CAST5, MD4) |
-| swoole | `phpXY-pecl-swoole` and `phpXY-pecl-openswoole` can both be installed; the ini of openswoole is off |
-| Not built yet | the modules that need ports (pgsql, ldap, odbc, ...): an open question |
+| swoole | `phpXY-swoole` and `phpXY-openswoole` can both be installed; the ini of openswoole is off |
+| Not built yet | the modules that need a library of the ports: enchant, imap, ldap, odbc, pdf, pdo_dblib, pdo_firebird, pdo_odbc, pdo_pgsql, pgsql, pspell, snmp |
 | The static PHP | per version either `phpXY-static` or `phpXY` with its modules: they have the same files, pkg does not install both |
 
 ```sh
-pkg install -r az php74 php74-gd php74-openssl-legacy
+pkg install -r az php74 php74-gd php74-redis php74-openssl-legacy
 pkg install -r az php74-static
 ```
 
