@@ -600,6 +600,35 @@ if have v_vp9_aac.mp4; then
     c=1; [ "$(probe "$O/vp9_temp.mp4" | cut -d' ' -f2)" = vp9,aac ] && c=0
     v conv-fast-vp9 ok "conv: +faststart of an MP4 with VP9 (copies: vp9_superframe)" "$c"
 fi
+# the option lines of the formats of live sites that differ from the defaults (from
+# tools/php-security/kvs-formats.sh of azsupport, 08.11.2026), as remote_cron.php gives
+# them (its -pix_fmt yuv420p and the scale of the format; a copy without them); KVS takes
+# the quotes off ("volume=8dB"). libfdk_aac is not free software (FFmpeg with it and
+# libx264 needs --enable-nonfree: "unredistributable"); libfaac left FFmpeg in 3.2 (2016)
+if have v_h264_aac.mp4; then
+    i=0
+    while IFS='|' read -r w k l o; do
+        i=$((i + 1)); id="conv-live-$i"; rm -f "$O/$id.mp4"
+        # -nostdin: ffmpeg would read the lines of the list from its standard input
+        # shellcheck disable=SC2086
+        case "$k" in
+            copy) x "$id" "$FF" -nostdin -y -i "$S/v_h264_aac.mp4" $o "$O/$id.mp4" ;;
+            *) x "$id" "$FF" -nostdin -y -i "$S/v_h264_aac.mp4" -pix_fmt yuv420p $o -vf 'scale=480:270' "$O/$id.mp4" ;;
+        esac
+        c=1; [ -n "$(dur "$O/$id.mp4")" ] && c=0
+        v "$id" "$w" "conv: a live format, $l" "$c" "$(probe "$O/$id.mp4")"
+    done <<'LIVE'
+gap:no libfdk_aac in the build (not free software): -c:a aac -b:a 128k instead, or a build with it that is not published|enc|libfdk_aac, -minrate and -maxrate|-vcodec libx264 -movflags +faststart -threads 0 -r 25 -g 50 -crf 22 -me_method hex -trellis 0 -minrate 1000k -maxrate 2500k -bf 8 -c:a libfdk_aac -b:a 128k -ar 44100
+ok|enc|the same with -c:a aac|-vcodec libx264 -movflags +faststart -threads 0 -r 25 -g 50 -crf 22 -me_method hex -trellis 0 -minrate 1000k -maxrate 2500k -bf 8 -c:a aac -b:a 128k -ar 44100
+bug:no FFmpeg has libfaac since 3.2 (2016): the format fails with any build, -c:a aac -b:a 128k instead|enc|libfaac|-vcodec libx264 -threads 0 -r 25 -g 50 -crf 28 -me_method hex -trellis 0 -bf 8 -acodec libfaac -ar 44100 -ab 128k -f mp4
+ok|enc|-af volume=8dB (with -acodec aac)|-vcodec libx264 -threads 8 -r 25 -g 50 -crf 20 -me_method hex -trellis 0 -movflags +faststart -acodec aac -ar 44100 -ab 128k -af volume=8dB -f mp4
+ok|enc|-x264-params nal-hrd=cbr, constant bitrate (with -c:a aac)|-vcodec libx264 -movflags +faststart -threads 0 -r 25 -g 50 -me_method hex -trellis 0 -bf 8 -c:a aac -b:a 128k -ar 44100 -x264-params nal-hrd=cbr -b:v 2500k -minrate 2500k -maxrate 2500k -bufsize 3M -ab 64k -f mp4
+bug:the format fails with any build (libvpx-vp9 wants -b:v with -minrate and -maxrate), and the build of az has no VP9 encoder|enc|-vcodec vp9 into .mp4 (with -c:a aac)|-vcodec vp9 -movflags +faststart -threads 0 -r 25 -g 50 -crf 22 -me_method hex -trellis 0 -minrate 1000k -maxrate 2500k -bf 8 -c:a aac -b:a 128k -ar 44100
+ok|enc|-preset medium, no -f|-c:v libx264 -crf 20 -preset medium -c:a aac -b:a 128k -movflags +faststart
+ok|enc|-preset fast -bf 3|-vcodec libx264 -preset fast -movflags +faststart -threads 0 -r 25 -g 50 -crf 23 -bf 3 -c:a aac -b:a 128k -f mp4
+ok|copy|a copy without metadata, +bitexact|-c copy -movflags +faststart -map_metadata:g -1 -map_metadata:s:v -1 -map_metadata:s:a -1 -fflags +bitexact
+LIVE
+fi
 # our master format: the source copied (-c copy -movflags +faststart) into _o.mp4
 for s in v_h264_aac.mp4 v_h264_10.mp4 v_hevc10.mov v_av1_opus.mkv v_av1_aac.mp4 v_h264_mp3.mp4 v_h264_ac3.mkv \
     v_h264_sub.mp4 v_vp9_opus.webm v_vp8_vorbis.webm v_mjpeg_pcm.mov; do
