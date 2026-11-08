@@ -660,14 +660,18 @@ build_one() {
         rm -rf "$wd.so"
         # shellcheck disable=SC2086
         pmake "$port" $targs patch || { echo "make patch failed"; exit 1; }
+        # what the configure stage of the framework fixes in the sources before configure,
+        # which make patch does not do: FreeBSD 1x taken for 1.x by old autotools
+        # (run-autotools-fixup) and the libtool fixes of USES=libtool (patch-libtool);
+        # without them the old libtool of libmcrypt builds no shared library
+        for fx in run-autotools-fixup patch-libtool; do
+            # shellcheck disable=SC2086
+            pmake "$port" $targs "$fx" 2> /dev/null || true
+        done
         echo "== source: $src"
         if has_kind "$n" shared; then
             # the whole work directory: relative paths out of WRKSRC (gettext-runtime/../build-aux, icu/source/..)
             cp -Rp "$wd" "$wd.so" || { echo "== cannot copy $wd to $wd.so"; exit 1; }
-            # the libtool fixes of the framework (USES=libtool, its configure stage): without
-            # them an old libtool takes FreeBSD for a.out and builds no shared library (libmcrypt)
-            # shellcheck disable=SC2086
-            pmake "$port" $targs WRKDIR="$wd.so" patch-libtool > /dev/null 2>&1 || true
             echo "== source of the shared build: $wd.so${src#"$wd"}"
         fi
         lic "$n" "$src"

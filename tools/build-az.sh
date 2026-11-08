@@ -389,7 +389,12 @@ if cf="$("$A/bin/pkg-config" --cflags $spc)" && lf="$("$A/bin/pkg-config" --libs
     } > "$res/shared-link.txt" 2>&1; then
     tpass "shared libraries of $A: $(grep -m 1 '^libxml2 ' "$res/shared-link.txt"), from $A/lib and the base system"
 else
-    tfail "shared libraries of $A: a program does not link or run as a PHP module of pkg mode would: $(tail -n 3 "$res/shared-link.txt" | tr '\n' ' ')"
+    # a library the linker cannot find: which .pc names it, what of it is in $A/lib
+    why=""
+    for l in $(sed -n 's/.*unable to find library -l\([^ ]*\).*/\1/p' "$res/shared-link.txt" | sort -u); do
+        why="$why -l$l named by: $(grep -l -w -e "-l$l" "$A"/lib/pkgconfig/*.pc 2> /dev/null | sed 's#.*/##' | tr '\n' ' ')in $A/lib: $(ls "$A/lib" | grep "^lib$l[.]" | tr '\n' ' ');"
+    done
+    tfail "shared libraries of $A: a program does not link or run as a PHP module of pkg mode would: $(grep -m 1 '^pkg-config --libs:' "$res/shared-link.txt") $(tail -n 3 "$res/shared-link.txt" | tr '\n' ' ')$why"
 fi
 
 echo "tests: $pok ok, $pbad failed" >> "$res/tests.txt"
