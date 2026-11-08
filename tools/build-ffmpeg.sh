@@ -3,9 +3,9 @@
 # ffmpeg of tools/build-az.sh, in the place of that of the ports:
 # /usr/local/bin/ffmpeg, /usr/local/bin/ffprobe) from the FreeBSD port of
 # freebsd/ffmpeg.conf, with only the formats, codecs and protocols listed there
-# (see the head of that file for why), against the static libraries of
-# /usr/local/azsupport (tools/build-deps.sh first; tools/build-az.sh runs both, the tests
-# and the packages).
+# (see the head of that file for why), against the static libraries of the static
+# tree of azsupport, /usr/local/azsupport/static (tools/build-deps.sh first;
+# tools/build-az.sh runs both, the tests and the packages).
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master):
 #   sh tools/build-ffmpeg.sh --tools    install the build tools (pkg)
@@ -17,7 +17,8 @@
 # freebsd/ffmpeg/; this script then builds the source tree with its own options.
 # A take line gives a new upstream release instead (with the port's patches, or
 # those of freebsd/deps/<name>-<version>/). FFmpeg links x264, dav1d and libwebp
-# of AZ_PREFIX (default /usr/local/azsupport) in, so that ffmpeg and ffprobe need no
+# of AZ_PREFIX/static (AZ_PREFIX: default /usr/local/azsupport; the shared libraries
+# of AZ_PREFIX itself are not used) in, so that ffmpeg and ffprobe need no
 # library of /usr/local (only libc, libm, libthr and libz of the base system), and
 # is installed (prefix /usr/local) into the stage AZ_STAGE/ffmpeg (default
 # AZ_WORK/stage/ffmpeg): usr/local/bin/ffmpeg, usr/local/bin/ffprobe,
@@ -38,7 +39,8 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/ffmpeg.conf"
-L="${AZ_PREFIX:-/usr/local/azsupport}"
+# the static tree of azsupport (static archives, their .pc files and headers)
+L="${AZ_PREFIX:-/usr/local/azsupport}/static"
 work="${AZ_WORK:-/var/tmp/az-work}/ffmpeg"
 F=/usr/local
 stage="${AZ_STAGE:-${AZ_WORK:-/var/tmp/az-work}/stage}/ffmpeg"
@@ -251,7 +253,7 @@ manifest() {
     {
         echo "FFmpeg for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
         echo "freebsd-ports $ports_commit; CFLAGS: $ffcflags"
-        echo "x264, dav1d and libwebp: the static libraries of $L (azsupport)"
+        echo "x264, dav1d and libwebp: the static libraries of $L (azsupport, the static tree)"
         echo
         while read -r n pkgname port; do
             printf '%-8s %-24s %s\n' "$n" "$pkgname" "$port"
@@ -331,7 +333,7 @@ if [ ! -s "$work/cpu-need" ] || [ -n "$lacks" ]; then
 fi
 for pc in x264 dav1d libwebp; do
     if [ ! -f "$L/lib/pkgconfig/$pc.pc" ]; then
-        printf '%-8s FAIL  no %s of the libraries in %s/lib/pkgconfig: build them first (tools/build-deps.sh)\n' libs "$pc" "$L" >> "$res/summary.txt"
+        printf '%-8s FAIL  no %s of the static libraries in %s/lib/pkgconfig: build them first (tools/build-deps.sh)\n' libs "$pc" "$L" >> "$res/summary.txt"
         echo "build-ffmpeg: no $L/lib/pkgconfig/$pc.pc; build the libraries first (tools/build-deps.sh)" >&2
         exit 1
     fi
