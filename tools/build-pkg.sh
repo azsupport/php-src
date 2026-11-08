@@ -6,7 +6,7 @@
 #
 # Usage (from the top of a php-src checkout of master, as root):
 #   sh tools/build-test.sh --deps 7.4      the packages of the build (apache24, memcached, redis, ...)
-#   sh tools/build-test.sh --az <dir>      azsupport and ImageMagick7 of the repository of pkg in <dir>
+#   sh tools/build-test.sh --az <dir>      az and ImageMagick7 of the repository of pkg in <dir>
 #   sh tools/build-pkg.sh 7.4 ...          build dist/php-<target>-fbsd-latest.tar.xz in pkg mode
 #
 # phpize needs autoconf and GNU m4: without them build-pkg.sh installs the
@@ -15,7 +15,7 @@
 # The core: the release tarball unpacked into build-pkg/<target>/core, configured
 # with the layout of the static packages (/usr/local, bin/php74, sbin/php-fpm74,
 # etc/php74, lib/php74, include/php74), --disable-all, CLI, FPM, the Apache module,
-# libxml and argon2 of azsupport (json and OPcache are modules, as in the ports), and
+# libxml and argon2 of az (json and OPcache are modules, as in the ports), and
 # with extension loading (no --disable-extension-loading); EXTENSION_DIR
 # /usr/local/lib/php/<API> (that of the ports: 20190902 for 7.4), so that php-config74
 # --extension-dir and every module take it. main/php_config.h includes
@@ -38,8 +38,8 @@
 #
 # The compiler flags are those of build-test.sh (-O3 -pipe -march=$AZ_CPUTYPE
 # -fstack-protector-strong -fno-strict-aliasing, LIBS=-lpthread), the libraries the
-# shared ones of /usr/local/azsupport/lib (its pkg-config, run path
-# /usr/local/azsupport/lib) or those of the base system.
+# shared ones of /usr/local/az/lib (its pkg-config, run path
+# /usr/local/az/lib) or those of the base system.
 #
 # Results go to build-pkg-results/<target>/: summary.txt (its last line "result:
 # OK" or "result:   FAIL (...)", as build-test.sh writes it), the logs of the core
@@ -56,7 +56,7 @@ res="$top/build-pkg-results"
 work="$top/build-pkg"
 dist="$top/dist"
 pkgdir="$dist/az-php"
-AZ=/usr/local/azsupport
+AZ=/usr/local/az
 conf="$top/freebsd/ext.conf"
 peclconf="$top/freebsd/pecl.conf"
 
@@ -65,8 +65,8 @@ say() { printf '[build-pkg %s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 [ $# -gt 0 ] || { sed -n 's/^# \{0,1\}//; 7,10p' "$0" >&2; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "build-pkg: as root (pkg add of the packages it builds)" >&2; exit 2; }
 [ -f "$conf" ] || { echo "build-pkg: no $conf (run it from the top of a checkout of master)" >&2; exit 2; }
-if [ ! -x "$AZ/bin/pkg-config" ] || ! pkg info -e azsupport; then
-    echo "build-pkg: no azsupport with $AZ/bin/pkg-config: sh tools/build-test.sh --az <dir> first" >&2
+if [ ! -x "$AZ/bin/pkg-config" ] || ! pkg info -e az; then
+    echo "build-pkg: no az with $AZ/bin/pkg-config: sh tools/build-test.sh --az <dir> first" >&2
     exit 2
 fi
 if ! command -v autoconf > /dev/null 2>&1 || ! command -v autoheader > /dev/null 2>&1; then
@@ -283,11 +283,11 @@ build_module() {
             ;;
         *) echo "ini $ini_mode in freebsd/ext.conf: not on, zend or off:<module>" > "$mo/error.txt"; return 1 ;;
     esac
-    # azsupport when the module links one of its libraries
+    # az when the module links one of its libraries
     readelf -d "$so" > "$mo/readelf.txt" 2>&1
     # the value texts, which the readelf of binutils and that of the ELF Tool Chain both print
     for l in $(sed -n 's/.*[Ss]hared library: \[\(.*\)\].*/\1/p' "$mo/readelf.txt"); do
-        if [ -f "$AZ/lib/$l" ]; then deps="$deps azsupport"; break; fi
+        if [ -f "$AZ/lib/$l" ]; then deps="$deps az"; break; fi
     done
     # the plist: the files, the ini as @sample (pkg copies it to .ini and keeps a
     # changed one), the include of its config.h in ext/php_config.h (the ports' lines)
@@ -419,7 +419,7 @@ check() {
     fi
 }
 # no_ports_lib <so>: the .so loads no library of the ports (/usr/local/lib) and finds
-# every library; with one of /usr/local/azsupport/lib its RUNPATH is that directory
+# every library; with one of /usr/local/az/lib its RUNPATH is that directory
 no_ports_lib() {
     _l="$(ldd "$1" 2>&1)" || { echo "ldd: $_l"; return 1; }
     if printf '%s\n' "$_l" | grep -E '=> /usr/local/lib/|not found'; then return 1; fi
@@ -573,7 +573,7 @@ for target in "$@"; do
         echo "host:     $(uname -sr), $(cc --version | head -n 1)"
         echo "cpu:      $(sysctl -n hw.model 2>/dev/null); -march=$march"
         echo "openssl:  $(openssl version 2>/dev/null)"
-        echo "azsupport: $(pkg query '%v' azsupport)"
+        echo "az: $(pkg query '%v' az)"
         echo "CFLAGS:   $CFLAGS"
     } > "$sum"
     say "$target: the core php$(echo "$target" | tr -d .)"

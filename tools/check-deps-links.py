@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """check-deps-links.py - look for missing libraries in the static link lines of
-the static tree of azsupport (/usr/local/azsupport/static, tools/build-deps.sh) or
+the static tree of az (/usr/local/az/static, tools/build-deps.sh) or
 of an extracted /usr/local/phpdeps bundle of before.
 
 For every .pc file of the bundle, the archives that `pkgconf --static --libs`

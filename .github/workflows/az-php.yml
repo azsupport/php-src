@@ -6,15 +6,15 @@ name: az PHP packages for FreeBSD
 #           test (tools/build-test.sh: the configure options of our servers) in the
 #           layout of the packages of tools/az-menu.sh (/usr/local, bin/php84,
 #           sbin/php-fpm84, etc/php84...), everything built into one PHP against the
-#           static libraries of the static tree of the packages azsupport (with the
+#           static libraries of the static tree of the packages az (with the
 #           curl of PHP) and ImageMagick7 (AZ_BUNDLE=1); the smoke checks of the build
 #           test, then the package of each version (AZ_PACKAGE=1: tools/az-menu.sh
 #           --package) installed, all versions side by side, with php-fpm started by
 #           its rc.d script php_fpmXY
-#   pkg     the core phpXY and one package per module (phpXY-gd, phpXY-pecl-imagick,
+#   pkg     the core phpXY and one package per module (phpXY-gd, phpXY-imagick,
 #           ...; freebsd/ext.conf): tools/build-pkg.sh, each module built on its own
 #           with phpizeXY against the installed core, linking the shared libraries of
-#           /usr/local/azsupport/lib and of the base system; all installed together
+#           /usr/local/az/lib and of the base system; all installed together
 #           and checked (php -m, a check per module, php-fpm, mod_php)
 # both runs the two in one VM, the static one first (its packages removed before the
 # core of the same version, which has the same files). The packages then go into

@@ -12,7 +12,7 @@
 # output to <prefix>.log: the libraries of ext/curl/deps (tools/curl-sources.sh
 # of the fork puts them there; ext/curl/deps/VERSIONS lists them) go into
 # <prefix>.deps, curl into <prefix>. The other two forms are for
-# tools/build-deps.sh (/usr/local/azsupport): one library from an unpacked source
+# tools/build-deps.sh (/usr/local/az): one library from an unpacked source
 # into <prefix>, and curl against the libraries in <libraries>; --features prints
 # the feature options of curl (curl_features), one per line, for the shared
 # libcurl.so that tools/build-deps.sh builds with the same ones.
@@ -242,7 +242,7 @@ openssl_opt() {
 
 # The features of the bundled libcurl: the configure options of build_curl after
 # those of the libraries, one per line. "build-libcurl.sh --features" prints them
-# for tools/build-deps.sh, whose shared libcurl.so of /usr/local/azsupport gets the
+# for tools/build-deps.sh, whose shared libcurl.so of /usr/local/az gets the
 # same ones as the static libcurl of PHP.
 curl_features() {
     printf '%s\n' --enable-http --enable-ftp --enable-file \

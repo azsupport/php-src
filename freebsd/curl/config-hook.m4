@@ -1,4 +1,4 @@
-  dnl azsupport: --with-curl=bundled builds ext/curl/libcurl (the curl release,
+  dnl az: --with-curl=bundled builds ext/curl/libcurl (the curl release,
   dnl static and position independent, with the OpenSSL of this PHP build) and
   dnl the libraries it needs (ext/curl/deps: c-ares, nghttp2, brotli, zstd,
   dnl libidn2, libpsl) with ext/curl/build-libcurl.sh and links it into PHP

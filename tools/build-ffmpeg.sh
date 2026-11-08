@@ -4,7 +4,7 @@
 # /usr/local/bin/ffmpeg, /usr/local/bin/ffprobe) from the FreeBSD port of
 # freebsd/ffmpeg.conf, with only the formats, codecs and protocols listed there
 # (see the head of that file for why), against the static libraries of the static
-# tree of azsupport, /usr/local/azsupport/static (tools/build-deps.sh first;
+# tree of az, /usr/local/az/static (tools/build-deps.sh first;
 # tools/build-az.sh runs both, the tests and the packages).
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master):
@@ -17,7 +17,7 @@
 # freebsd/ffmpeg/; this script then builds the source tree with its own options.
 # A take line gives a new upstream release instead (with the port's patches, or
 # those of freebsd/deps/<name>-<version>/). FFmpeg links x264, dav1d and libwebp
-# of AZ_PREFIX/static (AZ_PREFIX: default /usr/local/azsupport; the shared libraries
+# of AZ_PREFIX/static (AZ_PREFIX: default /usr/local/az; the shared libraries
 # of AZ_PREFIX itself are not used) in, so that ffmpeg and ffprobe need no
 # library of /usr/local (only libc, libm, libthr and libz of the base system), and
 # is installed (prefix /usr/local) into the stage AZ_STAGE/ffmpeg (default
@@ -39,8 +39,8 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/ffmpeg.conf"
-# the static tree of azsupport (static archives, their .pc files and headers)
-L="${AZ_PREFIX:-/usr/local/azsupport}/static"
+# the static tree of az (static archives, their .pc files and headers)
+L="${AZ_PREFIX:-/usr/local/az}/static"
 work="${AZ_WORK:-/var/tmp/az-work}/ffmpeg"
 F=/usr/local
 stage="${AZ_STAGE:-${AZ_WORK:-/var/tmp/az-work}/stage}/ffmpeg"
@@ -253,7 +253,7 @@ manifest() {
     {
         echo "FFmpeg for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
         echo "freebsd-ports $ports_commit; CFLAGS: $ffcflags"
-        echo "x264, dav1d and libwebp: the static libraries of $L (azsupport, the static tree)"
+        echo "x264, dav1d and libwebp: the static libraries of $L (az, the static tree)"
         echo
         while read -r n pkgname port; do
             printf '%-8s %-24s %s\n' "$n" "$pkgname" "$port"
@@ -285,7 +285,7 @@ manifest() {
         conf_opts | sed 's/^/    /'
         echo
         echo "Licence: GPL version 2 or later (FFmpeg with --enable-gpl, x264); the licences are in"
-        echo "share/licenses/ffmpeg/ (x264, dav1d and webp: LICENSES/ of /usr/local/azsupport, azsupport)."
+        echo "share/licenses/ffmpeg/ (x264, dav1d and webp: LICENSES/ of /usr/local/az, az)."
         echo "Sources: the distfiles above (their SHA-256), the patches of the port at the commit above,"
         echo "freebsd/ffmpeg/ and tools/build-ffmpeg.sh of https://github.com/azsupport/php-src (freebsd/ffmpeg.conf)."
     } > "$res/VERSIONS"
