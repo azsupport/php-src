@@ -568,7 +568,12 @@ s_libffi() {
         at_so "$1" --disable-multi-os-directory --disable-docs)
 }
 # tidy: the library only (no program, no manual page); the static libtidy it builds anyway goes in finish
-s_tidy() { cm_so "$1" -DBUILD_SHARED_LIB=ON -DSUPPORT_CONSOLE_APP=OFF; }
+# lib/libtidy5.so as the port names it (its post-install renames libtidy.so; its patch makes
+# tidy.pc say -ltidy5, and ext/tidy of PHP takes libtidy5 first); libtidy.so stays too
+s_tidy() {
+    cm_so "$1" -DBUILD_SHARED_LIB=ON -DSUPPORT_CONSOLE_APP=OFF &&
+        ln -sf "$(readlink "$S/lib/libtidy.so")" "$S/lib/libtidy5.so"
+}
 
 # lic <name> <source>: the licence files of a library into LICENSES/ (libpng
 # 1.6.59 has a directory LICENSES too)
