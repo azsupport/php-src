@@ -26,10 +26,10 @@
 #   sh az-menu.sh                   outside a PHP source tree: the packages of the
 #                                   repository az (curl, ffmpeg, ImageMagick6 and 7;
 #                                   azsupport; per version of PHP the core phpXY of
-#                                   pkg mode with its packages phpXY-* and
-#                                   phpXY-pecl-*, or phpXY-static), each the ready
-#                                   one (Options: what it is built with) or, for
-#                                   phpXY-static, built here with your options;
+#                                   pkg mode with its packages phpXY-<module>, or
+#                                   phpXY-static), each the ready one (Options:
+#                                   what it is built with) or, for phpXY-static,
+#                                   built here with your options;
 #                                   inside one: the menu for the branch of this tree
 #   sh az-menu.sh 8.4               the menu for that branch (outside a tree)
 #   sh az-menu.sh --reset           start from the defaults, not the saved choices
@@ -100,8 +100,9 @@
 # the empty directories etc/phpXY/conf.d (the ini files of the extensions) and
 # lib/php/<API> (their modules; <API> the ZEND_MODULE_API_NO of the source); it
 # depends on azsupport (the shared libraries of /usr/local/azsupport/lib), its
-# extensions are the packages phpXY-* of the repository. The annotation "mode" of
-# a package says which: pkg or static.
+# extensions are the packages phpXY-<module> of the repository (the bundled and
+# the PECL ones alike). The annotation "mode" of a package says which: pkg or
+# static.
 #
 # The choices are saved as the ports save theirs, in
 # /var/db/az-menu/phpXY.options (AZ_MENU_DB to change; those of php-menu.sh in
@@ -1664,8 +1665,8 @@ fetch_source() {
 # the stage, with the files of the package added (see the head); the prefix and
 # the options are those of the configure script $out_abs. The kind $pkg_kind:
 # static, the package phpXY-static (everything built into one PHP); core, the
-# package phpXY of pkg mode (its extensions are the packages phpXY-*), with the
-# empty directories etc/phpXY/conf.d and lib/php/<API> for them
+# package phpXY of pkg mode (its extensions are the packages phpXY-<module>),
+# with the empty directories etc/phpXY/conf.d and lib/php/<API> for them
 package_php() {
     php_prefix="$(sed -n "s/^'--prefix=\([^']*\)' \\\\\$/\1/p" "$out_abs" | tail -n 1)"
     [ -n "$php_prefix" ] || { say "no --prefix in $out_abs"; return 1; }
@@ -1743,7 +1744,7 @@ package_php() {
     files="bin/php$short, sbin/php-fpm$short with the rc.d script php_fpm$short, etc/php$short, the Apache module libphp$short.so"
     if [ "$pkg_kind" = core ]; then
         comment="PHP $branch of azsupport/php-src (php$short, php-fpm$short, libphp$short.so), the core of pkg mode"
-        desc="PHP $branch of https://github.com/azsupport/php-src, built by az-menu.sh: the core of pkg mode, $files, phpize$short and the headers, in the place of the package of the port. Its extensions are the packages php$short-* and php$short-pecl-* of the repository az (pkg install php$short-gd ...): their modules in $php_prefix/lib/php/$api, their ini files in $php_prefix/etc/php$short/conf.d. Linked with the shared libraries of $AZ/lib. configure: $opts"
+        desc="PHP $branch of https://github.com/azsupport/php-src, built by az-menu.sh: the core of pkg mode, $files, phpize$short and the headers, in the place of the package of the port. Its extensions are the packages php$short-<module> of the repository az (pkg install php$short-gd php$short-redis ...): their modules in $php_prefix/lib/php/$api, their ini files in $php_prefix/etc/php$short/conf.d. Linked with the shared libraries of $AZ/lib. configure: $opts"
     else
         comment="PHP $branch of azsupport/php-src (php$short, php-fpm$short, libphp$short.so), static"
         desc="PHP $branch of https://github.com/azsupport/php-src, built by az-menu.sh: $files, in the place of the package of the port. Static: its extensions are built into it, linked with the static libraries of $AZS; it takes the place of php$short of pkg mode (the core with the packages php$short-*), pkg installs one of the two. configure: $opts"
@@ -1813,7 +1814,7 @@ dlg() { "$DIALOG" --backtitle "$backtitle" "$@" 2>&1 >/dev/tty; }
 # Every package of the repository az: the ready one (its version; Options: what it
 # is built with, for PHP the configure options of its annotation "configure"); for
 # each version of PHP the core phpXY of pkg mode with the packages of its extensions
-# (phpXY-*, phpXY-pecl-*) the repository has, and phpXY-static, ready or built here
+# (phpXY-<module>) the repository has, and phpXY-static, ready or built here
 # with the menu of the branch and its own options (one of the two: phpXY or
 # phpXY-static); then pkg install of the ready ones, and the menu of each build (its
 # BUILD makes the package phpXY-static and offers to install it).
@@ -1834,7 +1835,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     for b in $BRANCHES; do
         s_="$(echo "$b" | tr -d .)"
         # pkg mode: the core phpXY, the packages of its extensions of the repository
-        # (phpXY-*, phpXY-pecl-*); then the static PHP phpXY-static
+        # (phpXY-<module>); then the static PHP phpXY-static
         names="$names php$s_ $(awk -F '	' -v p="php$s_-" 'index($1, p) == 1 && $1 != p "static" { print $1 }' "$mt/ready" |
             LC_ALL=C sort | tr '\n' ' ')php$s_-static"
     done
@@ -1862,7 +1863,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
         [ -n "$focus" ] || focus="$1"
         res="$(dlg --title "The packages of az" --item-help --separate-output --default-item "$focus" \
             --help-button --help-label Options --help-status --help-tags --checklist \
-            "Space chooses: the ready package, or for phpXY-static a build here (one of the two); per version phpXY of pkg mode (with its packages phpXY-*) or phpXY-static. Options: what the ready one under the cursor is built with." \
+            "Space chooses: the ready package, or for phpXY-static a build here (one of the two); per version phpXY of pkg mode (with its packages phpXY-<module>) or phpXY-static. Options: what the ready one under the cursor is built with." \
             0 0 0 "$@")"
         rc=$?
         case "$rc" in
@@ -1924,7 +1925,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             continue
         fi
         if [ -n "$mixed" ]; then
-            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with its packages phpXY-*) or phpXY-static, and php-openssl or php-openssl-legacy, not both:$mixed" 0 0
+            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with its packages phpXY-<module>) or phpXY-static, and phpXY-openssl or phpXY-openssl-legacy, not both:$mixed" 0 0
             continue
         fi
         break
