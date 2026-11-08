@@ -917,7 +917,7 @@ HLS и скрипт concat с именем `.mp4`, и любой протоко�
 
 | | |
 |---|---|
-| Читает и пишет | JPEG (mozjpeg), PNG, WebP, GIF, HEIC и AVIF (libheif с libde265 и dav1d; чтение); `xc:`, `canvas:`, `label:`, `caption:` |
+| Читает и пишет | JPEG (mozjpeg), PNG, WebP, GIF, HEIC и AVIF (libheif с libde265 и dav1d; чтение), BMP (промежуточный файл скриншотов сайтов); `xc:`, `canvas:`, `label:`, `caption:` |
 | Ещё | текст (FreeType; fontconfig с настройками и шрифтами системы, `/usr/local/etc/fonts`), цветовые профили (lcms2) |
 | Не собрано | SVG, PDF, PostScript (без Ghostscript), RAW, EXR, JPEG 2000, JPEG XL, DjVu, WMF, TIFF, X11, Perl, подгружаемые модули, libxml2 (MSL, URL) |
 | Политика | политика ImageMagick `websafe` с форматами выше: без внешних программ, без `@файл`, без чтения из `/etc` и через `../`, без стандартного ввода; картинки до 20000 точек в ширину и высоту, 1 ГиБ памяти, 120 секунд |
@@ -938,8 +938,8 @@ magick -version
 ([`tools/build-imagemagick.sh`](tools/build-imagemagick.sh)) и проверяет
 [`tools/imagemagick-test.sh`](tools/imagemagick-test.sh): образцы всех форматов
 (сделаны пакетом `ImageMagick7` из FreeBSD), identify, миниатюры, WebP, анимации,
-водяной знак, текст, CMYK; отвергаются SVG, MVG, MSL, PostScript, PDF, TIFF, BMP, MNG,
-`text:`, `label:@`, `@файл`, `inline:`, URL, `/etc`, `../` и стандартный ввод.
+промежуточный BMP, водяной знак, текст, CMYK; отвергаются SVG, MVG, MSL, PostScript,
+PDF, TIFF, MNG, `text:`, `label:@`, `@файл`, `inline:`, URL, `/etc`, `../` и стандартный ввод.
 [Проверка апстрима](#проверка-апстрима) следит за релизами ImageMagick 6 и 7 и их
 библиотек и за коммитами в их порты.
 
