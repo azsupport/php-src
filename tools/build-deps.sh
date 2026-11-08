@@ -389,7 +389,7 @@ s_libidn2() {
 # brotli and zstd with their CMake (build-libcurl.sh compiles them by hand, static)
 s_brotli() {
     rm -rf "$work/obj-so/brotli"
-    cm_so_in "$work/obj-so/brotli" "$1" -DBROTLI_BUILD_TOOLS=OFF -DBUILD_TESTING=OFF -DBROTLI_DISABLE_TESTS=ON
+    cm_so_in "$work/obj-so/brotli" "$1" -DBROTLI_BUILD_TOOLS=OFF -DBROTLI_DISABLE_TESTS=ON
 }
 s_zstd() {
     # legacy formats from v0.5 on, as the static one; multithreaded, as its shared library is
@@ -491,8 +491,15 @@ s_argon2() {
             'Name: libargon2' 'Description: Argon2 password hashing' 'Version: 20190702' \
             'Libs: -L${libdir} -largon2' 'Libs.private: -lpthread' 'Cflags: -I${includedir}' > "$S/lib/pkgconfig/libargon2.pc")
 }
-# --with-shared-termcap-library: libreadline.so names libncursesw itself
-s_readline() { at_so "$1" --with-curses --enable-bracketed-paste-default --with-shared-termcap-library; }
+# SHLIB_LIBS, the libraries that shlib/Makefile of readline links libreadline.so
+# with, gets libncursesw of the base system (the curses of b_readline), so that
+# libreadline.so names it itself and a module that links only -lreadline loads
+s_readline() {
+    fix_guess "$1"
+    (cd "$1" && ./configure --prefix="$S" --libdir="$S/lib" --includedir="$S/include" \
+        --disable-static --enable-shared --with-curses --enable-bracketed-paste-default &&
+        gmake -j"$ncpu" SHLIB_LIBS=-lncursesw && gmake install SHLIB_LIBS=-lncursesw)
+}
 s_gettext() {
     at_so "$1" --disable-csharp --disable-java --disable-libasprintf --disable-threads --disable-openmp \
         --disable-acl --with-libiconv-prefix="$S" --without-emacs ac_cv_lib_rt_sched_yield=no
@@ -895,19 +902,23 @@ finish_so() {
         [ -f "$f" ] && [ ! -L "$f" ] || continue
         b="${f##*/}"
         readelf -d "$f" > "$work/so-dyn.txt" 2>&1
-        sn="$(sed -n 's/.*(SONAME).*\[\(.*\)\].*/\1/p' "$work/so-dyn.txt")"
-        need="$(sed -n 's/.*(NEEDED).*\[\(.*\)\].*/\1/p' "$work/so-dyn.txt" | tr '\n' ' ' | sed 's/ *$//')"
-        rp="$(sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\].*/\1/p' "$work/so-dyn.txt" | head -n 1)"
+        # the value texts, which the readelf of binutils and that of the ELF Tool Chain both print
+        sn="$(sed -n 's/.*[Ll]ibrary soname: \[\(.*\)\].*/\1/p' "$work/so-dyn.txt")"
+        need="$(sed -n 's/.*[Ss]hared library: \[\(.*\)\].*/\1/p' "$work/so-dyn.txt" | tr '\n' ' ' | sed 's/ *$//')"
+        rp="$(sed -n 's/.*[Ll]ibrary r[a-z]*path: \[\(.*\)\].*/\1/p' "$work/so-dyn.txt" | tr '\n' ':' | sed 's/:*$//')"
         printf '%s: SONAME %s, %s KB, NEEDED %s%s\n' "$b" "${sn:-none}" "$(du -Ak "$f" | cut -f1)" "${need:-none}" \
             "${rp:+, run path $rp}" >> "$res/shared.txt"
         [ -n "$sn" ] || echo "$b: no SONAME" >> "$res/shared-bad.txt"
+        # every part of the run path is S/lib (libtool adds its own -rpath to ours: twice is fine)
+        for part in $(printf '%s\n' "$rp" | tr ':' ' '); do
+            [ "$part" = "$S/lib" ] || echo "$b: run path $part (only $S/lib belongs there: $rp)" >> "$res/shared-bad.txt"
+        done
         readelf -l "$f" | grep -q GNU_RELRO || echo "$b: no RELRO" >> "$res/shared-bad.txt"
         ldd "$f" > "$work/so-ldd.txt" 2>&1 || echo "$b: ldd failed: $(head -n 1 "$work/so-ldd.txt")" >> "$res/shared-bad.txt"
         awk '$2 == "=>" { print $1, $3 }' "$work/so-ldd.txt" | while read -r l lp; do
             case "$lp" in
                 "$P"/*) echo "$b: $l of the static tree ($lp)" ;;
-                "$S"/lib/*)
-                    case ":$rp:" in *":$S/lib:"*) ;; *) echo "$b: $l of $S/lib without the run path $S/lib (${rp:-none})" ;; esac ;;
+                "$S"/lib/*) [ -n "$rp" ] || echo "$b: $l of $S/lib without the run path $S/lib" ;;
                 /usr/local/*) echo "$b: $l of /usr/local ($lp)" ;;
                 /lib/*|/usr/lib/*) ;;
                 *) echo "$b: $l not found in $S/lib or the base system (${lp:-?})" ;;
