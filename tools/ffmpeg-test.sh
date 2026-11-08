@@ -19,11 +19,13 @@
 # remote_cron.php and the plugins of KVS: joins with -f concat -safe 0 and -c copy
 # into mp4, mov (-f mov) and mkv (-f matroska), subtitles left out, not failed on,
 # silence from -f lavfi -i anullsrc, a video from pictures (task-%d.jpg).
-# Refused, by content: other containers and playlists named .mp4 (AVI, FLV,
-# MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip, HLS, and a concat script: the
-# concat demuxer is built, but only for -f concat), and every protocol but file
-# and pipe. The lists of demuxers (with the lavfi device), decoders and protocols
-# must be those of ffmpeg.conf.
+# VP9 copied into MKV and MP4 (the muxers put vp9_superframe on it); MPEG-TS in an
+# .mp4 (an HLS download of yt-dlp) read like the others and copied into MP4 as
+# yt-dlp fixes it. Refused, by content: other containers and playlists named .mp4
+# (AVI, FLV, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip, HLS; a concat script too: its
+# demuxer is built, but only for -f concat), and every protocol but file and pipe.
+# The lists of demuxers (with the lavfi device), decoders and protocols must be
+# those of ffmpeg.conf.
 #
 # Results: ffmpeg-results/tests.txt (one line per check, the summary at the end);
 # exit status 0 when every check passed.
@@ -150,6 +152,8 @@ if "$ref" -hide_banner -encoders 2>/dev/null | grep -q ' libsvtav1 '; then av1="
     mk av1_opus.webm $av1 -c:a libopus
     mk vp9_opus.webm $vp9 -c:a libopus
     mk vp8_vorbis.webm $vp8 -c:a libvorbis
+    # an HLS download of yt-dlp before its fix: MPEG-TS in an .mp4
+    mk h264_aac_ts.mp4 $x264 -c:a aac -f mpegts
 }
 printf '1\n00:00:00,000 --> 00:00:02,000\nsubtitle\n\n' > "$T/sub.srt"
 # shellcheck disable=SC2086
@@ -177,7 +181,6 @@ done
 {
     "$ref" -hide_banner -loglevel error -y $av -c:v mpeg4 -c:a pcm_s16le -f avi "$T/no_avi.mp4"
     "$ref" -hide_banner -loglevel error -y $av $x264 -c:a aac -f flv "$T/no_flv.mp4"
-    "$ref" -hide_banner -loglevel error -y $av $x264 -c:a aac -f mpegts "$T/no_ts.mp4"
     "$ref" -hide_banner -loglevel error -y $av -c:v mpeg2video -c:a mp2 -f mpeg "$T/no_ps.mp4"
     "$ref" -hide_banner -loglevel error -y $av -vn -c:a libvorbis -f ogg "$T/no_ogg.mp4"
     "$ref" -hide_banner -loglevel error -y $av -vn -c:a libmp3lame -f mp3 "$T/no_mp3.mp4"
@@ -220,7 +223,7 @@ while read -r s; do
     f="$T/$s"
     p="$(probe "$f")"
     case "$p" in
-        "mov,mp4,m4a,3gp,3g2,mj2 "*|"matroska,webm "*) pass "$s: ffprobe: $p" ;;
+        "mov,mp4,m4a,3gp,3g2,mj2 "*|"matroska,webm "*|"mpegts "*) pass "$s: ffprobe: $p" ;;
         *) fail "$s: ffprobe: ${p:-nothing} $(head -n 1 "$T/probe.err")"; continue ;;
     esac
     "$ff" -hide_banner -i "$f" > "$T/info.txt" 2>&1
@@ -319,6 +322,19 @@ join join.mov mov h264_aac.mov h264_aac.mov
 join join.mkv matroska h264_vorbis.mkv h264_vorbis.mkv
 join join_sub.mp4 mov h264_aac_sub.mp4 h264_aac_sub.mp4
 join join_sub.mkv matroska h264_aac_sub.mkv h264_aac_sub.mkv
+# VP9 copied: the muxers put vp9_superframe on it
+join join_vp9.mkv matroska vp9_opus.webm vp9_opus.webm
+if [ -f "$T/vp9_aac.mp4" ]; then
+    "$ff" -hide_banner -loglevel error -y -i "$T/vp9_aac.mp4" -c copy -movflags +faststart "$T/vp9_fast.mp4" > "$T/vp9.log" 2>&1 &&
+        [ "$(probe "$T/vp9_fast.mp4" | cut -d' ' -f2)" = vp9,aac ] && pass "VP9 copied into MP4 with +faststart (vp9_superframe)" ||
+        fail "VP9 copied into MP4: $(tail -n 3 "$T/vp9.log" | tr '\n' ' ')"
+fi
+# the fix of an HLS download by yt-dlp: MPEG-TS in an .mp4 copied into MP4
+if [ -s "$T/h264_aac_ts.mp4" ]; then
+    "$ff" -hide_banner -loglevel error -y -i "$T/h264_aac_ts.mp4" -map 0 -dn -ignore_unknown -c copy -f mp4 -bsf:a aac_adtstoasc -movflags +faststart "$T/ts.mp4" > "$T/ts.log" 2>&1 &&
+        [ "$(probe "$T/ts.mp4")" = "mov,mp4,m4a,3gp,3g2,mj2 h264,aac" ] && pass "yt-dlp: MPEG-TS in .mp4 -c copy -f mp4 -bsf:a aac_adtstoasc" ||
+        fail "yt-dlp: MPEG-TS in .mp4 into MP4: $(tail -n 3 "$T/ts.log" | tr '\n' ' ')"
+fi
 # silence for a video without sound (-f lavfi -i anullsrc ... -shortest)
 if [ -f "$T/h264_aac.mp4" ]; then
     "$ff" -hide_banner -loglevel error -y -i "$T/h264_aac.mp4" -an -c copy "$T/mute.mp4" > "$T/mute.log" 2>&1

@@ -9,7 +9,7 @@
 # freebsd/imagemagick/policy.xml leave out on purpose must be refused. A call
 # that fails for a reason known and not ours is not a failure of the test:
 #   gap   the build does not have it (a decision to take: GIF out of ffmpeg,
-#         writing AVIF, MPEG-TS for yt-dlp)
+#         writing AVIF)
 #   bug   the command line of KVS is wrong and fails with any build (the
 #         vendor's \[0\] of the first frame, an operator before the image for
 #         magick); the line says which version has it
@@ -90,7 +90,9 @@ if [ "${1:-}" = --samples ]; then
         mk v_post.mp4 -f lavfi -i testsrc2=size=1280x720:rate=25:duration=2 -f lavfi -i sine=frequency=880:sample_rate=44100:duration=2 $x264 -c:a aac
         mk v_video_only.mp4 $vo $x264
         mk v_audio_only.m4a -f lavfi -i sine=frequency=440:sample_rate=48000:duration=4 -c:a aac
-        mk v_ts.mp4 $av $x264 -c:a aac -f mpegts
+        # MPEG-TS has no index: ffmpeg seeks into it and decodes from the next keyframe,
+        # so one every second, as in HLS segments and camera files
+        mk v_ts.mp4 $av $x264 -g 25 -c:a aac -f mpegts
         mk v_test.avi $av -c:v mpeg4 -c:a pcm_s16le -f avi
         mk v_vp9_aac.mp4 $av -c:v libvpx-vp9 -deadline realtime -cpu-used 8 -c:a aac
         mk v_pre_vp9.mp4 -f lavfi -i testsrc2=size=320x240:rate=25:duration=2 -c:v libvpx-vp9 -deadline realtime -cpu-used 8
@@ -211,7 +213,7 @@ inlist() { case ",$2," in *",$1,"*) return 0 ;; esac; return 1; }
 want() {
     [ "$1" = off ] && { echo ok; return; }
     case "$1" in pat) c="$WL_PAT_C"; f="$WL_DEF_F" ;; prg) c="$WL_PRG_C"; f="$WL_DEF_F" ;; set) c="$WL_SET_C"; f="$WL_SET_F" ;; esac
-    case "$2" in *.mkv|*.webm) m=matroska ;; *) m=mov ;; esac
+    case "$2" in *.mkv|*.webm) m=matroska ;; v_ts.mp4) m=mpegts ;; *) m=mov ;; esac
     inlist "$m" "$f" || { echo "no:container $m not in the whitelist"; return; }
     for k in $(decs "$2"); do
         inlist "$k" "$c" && continue
@@ -225,8 +227,9 @@ want() {
 }
 for s in v_h264_aac.mp4 v_h264_noaudio.mp4 v_h264_10.mp4 v_hevc_aac.mp4 v_hevc10.mov v_av1_opus.mkv v_av1_aac.mp4 \
     v_vp9_opus.webm v_vp8_vorbis.webm v_h264_mp3.mp4 v_h264_ac3.mkv v_h264_eac3.mp4 v_mjpeg_pcm.mov v_h264_sub.mp4 \
-    v_h264_srt.mkv v_rot90.mp4 v_sar.mp4 v_cover.mp4; do
+    v_h264_srt.mkv v_rot90.mp4 v_sar.mp4 v_cover.mp4 v_ts.mp4; do
     have "$s" || { skip "site $s: no sample"; continue; }
+    if [ "$s" = v_ts.mp4 ] && ! built demuxer mpegts; then skip "site $s: no MPEG-TS demuxer in this build"; continue; fi
     f="$S/$s"
     for w in off pat prg set; do
         id="site-$w-${s%.*}"
@@ -274,10 +277,9 @@ for s in v_h264_aac.mp4 v_h264_noaudio.mp4 v_h264_10.mp4 v_hevc_aac.mp4 v_hevc10
 done
 # a playlist named .mp4 never reaches ffmpeg in the patch (EXTM3U in its first bytes);
 # a container we do not build is refused by ffmpeg itself
-for s in v_ts.mp4 v_test.avi; do
+for s in v_test.avi; do
     have "$s" || continue
-    case "$s" in *.avi) dm=avi ;; *) dm=mpegts ;; esac
-    if built demuxer "$dm"; then skip "site off: $s: this ffmpeg has the demuxer $dm (not the build of az)"; continue; fi
+    if built demuxer avi; then skip "site off: $s: this ffmpeg has the demuxer avi (not the build of az)"; continue; fi
     x "site-off-${s%.*}" "$FF" -i "$S/$s"
     c=1; grep -q 'Duration:' "$L/site-off-${s%.*}.log" && c=0
     v "site-off-${s%.*}" "no:not built (freebsd/ffmpeg.conf)" "site off: ffmpeg -i $s" "$c"
@@ -465,7 +467,7 @@ join() {
 }
 join conv-join-mp4 ok v_h264_aac.mp4 v_h264_aac.mp4
 join conv-join-mov ok v_hevc10.mov v_hevc10.mov
-join conv-join-mkv "gap:no bsf vp9_superframe in ffmpeg of az: joining VP9 sources fails" v_vp9_opus.webm v_vp9_opus.webm
+join conv-join-mkv ok v_vp9_opus.webm v_vp9_opus.webm
 join conv-join-sub ok v_h264_sub.mp4 v_h264_sub.mp4
 # a non-square pixel source to square pixels
 if have v_sar.mp4; then
@@ -596,7 +598,7 @@ join conv-join-av1 "bug:the vendor joins MP4 sources with -f mov, and MOV takes 
 if have v_vp9_aac.mp4; then
     x conv-fast-vp9 "$FF" -y -i "$S/v_vp9_aac.mp4" -acodec copy -vcodec copy -movflags +faststart -strict -2 "$O/vp9_temp.mp4"
     c=1; [ "$(probe "$O/vp9_temp.mp4" | cut -d' ' -f2)" = vp9,aac ] && c=0
-    v conv-fast-vp9 "gap:no bsf vp9_superframe in ffmpeg of az: a copy of VP9 into MP4, MOV or MKV fails" "conv: +faststart of an MP4 with VP9 (copies)" "$c"
+    v conv-fast-vp9 ok "conv: +faststart of an MP4 with VP9 (copies: vp9_superframe)" "$c"
 fi
 # our master format: the source copied (-c copy -movflags +faststart) into _o.mp4
 for s in v_h264_aac.mp4 v_h264_10.mp4 v_hevc10.mov v_av1_opus.mkv v_av1_aac.mp4 v_h264_mp3.mp4 v_h264_ac3.mkv \
@@ -606,7 +608,6 @@ for s in v_h264_aac.mp4 v_h264_10.mp4 v_hevc10.mov v_av1_opus.mkv v_av1_aac.mp4 
     x "$id" "$FF" -y -i "$S/$s" -c copy -movflags +faststart "$O/$id.mp4"
     c=1; [ -n "$(dur "$O/$id.mp4")" ] && c=0
     case "$s" in
-        v_vp9_*) wm="gap:no bsf vp9_superframe in ffmpeg of az (a master copy of a VP9 upload)" ;;
         v_vp8_*) wm="bug:our master copy: VP8 does not go into MP4 with any build" ;;
         *) wm=ok ;;
     esac
@@ -636,7 +637,7 @@ fi
 if have v_pre_vp9.mp4; then
     x conv-roll-vp9 "$FF" -y -i "$S/v_pre_vp9.mp4" -f lavfi -i anullsrc=cl=stereo:r=44100 -shortest -c:v copy "$O/pre_vp9.mp4"
     c=1; [ "$(probe "$O/pre_vp9.mp4" | cut -d' ' -f2)" = vp9,aac ] && c=0
-    v conv-roll-vp9 "gap:no bsf vp9_superframe in ffmpeg of az (a VP9 roll copied)" "conv: VP9 roll without sound + anullsrc -c:v copy" "$c"
+    v conv-roll-vp9 ok "conv: VP9 roll without sound + anullsrc -c:v copy" "$c"
 fi
 if have v_post.mp4; then
     x conv-roll-master "$FF" -y -i "$S/v_post.mp4" -vf 'scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2' -aspect 640:360 -c copy -movflags +faststart "$O/roll_master.mp4"
@@ -702,15 +703,27 @@ fi
 
 # --- yt-dlp of the grabbers: it calls ffmpeg itself --------------------------------------
 # merging a video and an audio format; fixing an HLS download (MPEG-TS in an .mp4)
+if have v_vp9_aac.mp4 && have v_audio_only.m4a; then
+    # a VP9 rendition of an HLS site and its sound into MP4 (vp9_superframe)
+    x ytdlp-merge-vp9 "$FF" -y -loglevel repeat+info -i "file:$S/v_vp9_aac.mp4" -i "file:$S/v_audio_only.m4a" -c copy -map 0:v:0 -map 1:a:0 -movflags +faststart "file:$O/merged_vp9.temp.mp4"
+    c=1; [ "$(probe "$O/merged_vp9.temp.mp4" | cut -d' ' -f2)" = vp9,aac ] && c=0
+    v ytdlp-merge-vp9 ok "yt-dlp: merge a VP9 video and the audio (-c copy -map)" "$c"
+fi
 if have v_video_only.mp4 && have v_audio_only.m4a; then
     x ytdlp-merge "$FF" -y -loglevel repeat+info -i "file:$S/v_video_only.mp4" -i "file:$S/v_audio_only.m4a" -c copy -map 0:v:0 -map 1:a:0 -movflags +faststart "file:$O/merged.temp.mp4"
     c=1; [ "$(probe "$O/merged.temp.mp4" | cut -d' ' -f2)" = h264,aac ] && c=0
     v ytdlp-merge ok "yt-dlp: merge video and audio (-c copy -map)" "$c"
 fi
 if have v_ts.mp4; then
-    x ytdlp-fixup "$FF" -y -loglevel repeat+info -i "file:$S/v_ts.mp4" -map 0 -dn -ignore_unknown -c copy -f mp4 -bsf:a aac_adtstoasc -movflags +faststart "file:$O/fixed.mp4"
-    c=1; [ "$(probe "$O/fixed.mp4" | cut -d' ' -f2)" = h264,aac ] && c=0
-    v ytdlp-fixup "gap:no MPEG-TS demuxer and no aac_adtstoasc in ffmpeg of az (yt-dlp cannot fix an HLS download)" "yt-dlp: MPEG-TS in .mp4 into MP4" "$c"
+    # fixing an HLS download (MPEG-TS in an .mp4): yt-dlp asks ffprobe whether the file
+    # is MPEG-TS, then copies it into MP4, with aac_adtstoasc on an AAC sound
+    wts=ok; built demuxer mpegts || wts="gap:no MPEG-TS demuxer in this build: yt-dlp leaves an HLS download as MPEG-TS in .mp4"
+    x ytdlp-probe "$FP" -hide_banner -show_format -show_streams -print_format json "file:$S/v_ts.mp4"
+    c=1; grep -q '"format_name": "mpegts"' "$L/ytdlp-probe.log" && c=0
+    v ytdlp-probe "$wts" "yt-dlp: is the download MPEG-TS (ffprobe)" "$c"
+    x ytdlp-fixup "$FF" -y -loglevel repeat+info -i "file:$S/v_ts.mp4" -map 0 -dn -ignore_unknown -c copy -f mp4 -bsf:a aac_adtstoasc -movflags +faststart "file:$O/v_ts.temp.mp4"
+    c=1; [ "$(probe "$O/v_ts.temp.mp4" | cut -d' ' -f2)" = h264,aac ] && c=0
+    v ytdlp-fixup "$wts" "yt-dlp: MPEG-TS in .mp4 into MP4 (-c copy -f mp4 -bsf:a aac_adtstoasc)" "$c"
 fi
 
 line "counts: $n_ok ok, $n_fail failed, $n_gap gaps, $n_bug bugs of KVS, $n_skip skipped"

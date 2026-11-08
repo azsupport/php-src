@@ -949,9 +949,10 @@ az: {
 
 | | |
 |---|---|
-| Читает (по содержимому) | mov (mp4, m4v, mov), matroska (mkv, webm), картинки JPEG, PNG и WebP |
+| Читает (по содержимому) | mov (mp4, m4v, mov), matroska (mkv, webm), MPEG-TS (HLS-загрузка yt-dlp — это MPEG-TS в `.mp4`: yt-dlp граберов переупаковывает её в MP4), картинки JPEG, PNG и WebP |
 | Читает, только когда попросят | image2 по имени файла (`task-%d.jpg`), concat с `-f concat` (не по содержимому: [`concat-no-probe.patch`](freebsd/ffmpeg/concat-no-probe.patch)), устройство lavfi с `-f lavfi` (`anullsrc`) |
 | Декодеры | H.264, HEVC, AV1 (dav1d), VP9, VP8, MJPEG; AAC, MP3, Opus, Vorbis, AC3, E-AC3, PCM; JPEG, PNG, WebP. Декодеров и кодировщиков субтитров нет: конвертация и склейка с `-c copy` субтитры не переносят (сам ffmpeg берёт их, только если для них есть кодировщик) и из-за них не падают |
+| Фильтры битового потока | h264_mp4toannexb (склейки через concat); vp9_superframe, aac_adtstoasc и pgs_frame_merge приходят с мультиплексорами mov, mp4 и matroska, которые сами ставят их, где нужно (кадры VP9, ещё не собранные в суперкадры; AAC с заголовками ADTS из MPEG-TS) |
 | Пишет | H.264 (libx264) только в 8 бит 4:2:0 — то, что играют браузеры ([`libx264-8bit-420.patch`](freebsd/ffmpeg/libx264-8bit-420.patch)): загрузку в 10 бит (HEVC с телефона), 4:2:2 (MJPEG с фотоаппарата) или 4:4:4 он переводит в него без `-pix_fmt yuv420p` в команде — иначе вышли бы H.264 High 10, High 4:2:2 или High 4:4:4, которые Safari и айфоны не играют; AAC; скриншоты JPEG, PNG и WebP (libwebp); mp4, mov, matroska, image2, mjpeg, null |
 | Фильтры | все фильтры FFmpeg, которым не нужны другие библиотеки (без drawtext: ему нужен HarfBuzz, как и в порту без HARFBUZZ) |
 | Протоколы | file и pipe: ни http, https, tcp, udp, rtmp, ftp, hls, concat, subfile, data, crypto |
@@ -970,9 +971,11 @@ ffmpeg -hide_banner -version
 которые принимают сайты (сделаны пакетом `ffmpeg` из FreeBSD), а также H.264 в 10 бит,
 4:2:2 и 4:4:4 и MJPEG с фотоаппарата; конвертация KVS, которая из каждого должна дать
 H.264 в 8 бит 4:2:0; скриншоты, водяной знак, повёрнутое видео с телефона, склейка
-через `-f concat -safe 0 -c copy` в mp4, mov и mkv, тишина из `-f lavfi -i anullsrc`,
-видео из картинок; отвергаются AVI, FLV, MPEG-TS, MPEG-PS, Ogg, MP3, WAV, GIF, SubRip,
-HLS и скрипт concat с именем `.mp4`, и любой протокол, кроме file и pipe.
+через `-f concat -safe 0 -c copy` в mp4, mov и mkv (и VP9), копия VP9 в MP4, MPEG-TS
+в `.mp4`, переупакованный в MP4 так, как yt-dlp чинит HLS-загрузку, тишина из
+`-f lavfi -i anullsrc`, видео из картинок; отвергаются AVI, FLV, MPEG-PS, Ogg, MP3,
+WAV, GIF, SubRip, HLS и скрипт concat с именем `.mp4`, и любой протокол, кроме file и
+pipe.
 [Проверка апстрима](#проверка-апстрима) следит за релизами FFmpeg, dav1d и libwebp и
 за коммитами в их порты.
 

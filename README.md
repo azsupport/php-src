@@ -965,9 +965,10 @@ demuxers and decoders of FFmpeg are not built.
 
 | | |
 |---|---|
-| Reads (by content) | mov (mp4, m4v, mov), matroska (mkv, webm), JPEG, PNG and WebP pictures |
+| Reads (by content) | mov (mp4, m4v, mov), matroska (mkv, webm), MPEG-TS (an HLS download of yt-dlp is MPEG-TS in an `.mp4`: yt-dlp of the grabbers copies it into MP4), JPEG, PNG and WebP pictures |
 | Reads only when asked for | image2 by the name of the file (`task-%d.jpg`), concat with `-f concat` (not by content: [`concat-no-probe.patch`](freebsd/ffmpeg/concat-no-probe.patch)), the lavfi device with `-f lavfi` (`anullsrc`) |
 | Decoders | H.264, HEVC, AV1 (dav1d), VP9, VP8, MJPEG; AAC, MP3, Opus, Vorbis, AC3, E-AC3, PCM; JPEG, PNG, WebP. No subtitle decoders or encoders: a conversion and a join with `-c copy` leave subtitles out (ffmpeg maps them by itself only when it has an encoder for them) and do not fail on them |
+| Bitstream filters | h264_mp4toannexb (joins with concat); vp9_superframe, aac_adtstoasc and pgs_frame_merge come with the muxers mov, mp4 and matroska, which put them on what needs them (VP9 frames not yet in superframes, AAC with the ADTS headers of MPEG-TS) |
 | Writes | H.264 (libx264) in 8-bit 4:2:0 only, what browsers play ([`libx264-8bit-420.patch`](freebsd/ffmpeg/libx264-8bit-420.patch)): an upload in 10 bit (HEVC of a phone), 4:2:2 (MJPEG of a camera) or 4:4:4 is converted into it without `-pix_fmt yuv420p` in the command, where it would otherwise become H.264 High 10, High 4:2:2 or High 4:4:4, which Safari and iPhones do not play; AAC; JPEG, PNG and WebP (libwebp) screenshots; mp4, mov, matroska, image2, mjpeg, null |
 | Filters | all of FFmpeg that need no other library (not drawtext, which needs HarfBuzz, as in the port without HARFBUZZ) |
 | Protocols | file and pipe: no http, https, tcp, udp, rtmp, ftp, hls, concat, subfile, data, crypto |
@@ -986,8 +987,9 @@ tests it with [`tools/ffmpeg-test.sh`](tools/ffmpeg-test.sh): samples of every
 container and codec the sites take (made with the `ffmpeg` package of FreeBSD), also
 H.264 in 10 bit, 4:2:2 and 4:4:4 and MJPEG of a camera; the conversion of KVS, which
 must give 8-bit 4:2:0 H.264 from each; screenshots, a watermark, a rotated phone
-video, joins with `-f concat -safe 0 -c copy` into mp4, mov and mkv, silence from
-`-f lavfi -i anullsrc`, a video from pictures; refused: AVI, FLV, MPEG-TS, MPEG-PS,
+video, joins with `-f concat -safe 0 -c copy` into mp4, mov and mkv (VP9 too), VP9
+copied into MP4, MPEG-TS in an `.mp4` copied into MP4 as yt-dlp fixes an HLS download,
+silence from `-f lavfi -i anullsrc`, a video from pictures; refused: AVI, FLV, MPEG-PS,
 Ogg, MP3, WAV, GIF, SubRip, HLS and a concat script named `.mp4`, and every protocol
 but file and pipe. The [upstream check](#upstream-check) follows the releases of
 FFmpeg, dav1d and libwebp and the commits to their ports.
