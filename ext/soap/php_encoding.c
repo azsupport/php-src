@@ -349,9 +349,29 @@ static zend_bool soap_check_zval_ref(zval *data, xmlNodePtr node TSRMLS_DC) {
 			}
 			smart_str_free(&prefix);
 			return 1;
-		} else {
+		} else if (SOAP_GLOBAL(ref_map)->pDestructor != ZVAL_PTR_DTOR) {
 			zend_hash_index_update(SOAP_GLOBAL(ref_map), (ulong)data, (void**)&node, sizeof(xmlNodePtr), NULL);
 		}
+	}
+	return 0;
+}
+
+/* GHSA-85c2-q967-79q5 (CVE-2026-6722): a decoded value in ref_map holds a
+ * reference of its own, so that a value freed while decoding (an item of an
+ * apache:Map replaced by a later item with the same key) cannot be found again
+ * by an href. The map then destroys its entries with ZVAL_PTR_DTOR; encoding
+ * keeps xmlNodePtr entries in it without a destructor, and the two never share
+ * one map: every call starts with encode_reset_ns() and ends with encode_finish(). */
+static int soap_ref_map_holds_zvals(TSRMLS_D)
+{
+	HashTable *ht = SOAP_GLOBAL(ref_map);
+
+	if (ht->pDestructor == ZVAL_PTR_DTOR) {
+		return 1;
+	}
+	if (zend_hash_num_elements(ht) == 0) {
+		ht->pDestructor = ZVAL_PTR_DTOR;
+		return 1;
 	}
 	return 0;
 }
@@ -382,7 +402,8 @@ static zend_bool soap_check_xml_ref(zval **data, xmlNodePtr node TSRMLS_DC)
 				Z_ADDREF_PP(data);
 				return 1;
 			}
-		} else {
+		} else if (soap_ref_map_holds_zvals(TSRMLS_C)) {
+			Z_ADDREF_PP(data);
 			zend_hash_index_update(SOAP_GLOBAL(ref_map), (ulong)node, (void**)data, sizeof(zval*), NULL);
 		}
 	}
@@ -583,7 +604,12 @@ static zval *master_to_zval_int(encodePtr encode, xmlNodePtr data TSRMLS_DC)
 		}
 	}
 	if (encode->to_zval) {
+		if (SOAP_GLOBAL(decode_depth) >= SOAP_MAX_DECODE_DEPTH) {
+			soap_error0(E_ERROR, "Encoding: Nesting level too deep");
+		}
+		SOAP_GLOBAL(decode_depth)++;
 		ret = encode->to_zval(&encode->details, data TSRMLS_CC);
+		SOAP_GLOBAL(decode_depth)--;
 	}
 	return ret;
 }
@@ -3569,6 +3595,7 @@ void encode_reset_ns()
 	TSRMLS_FETCH();
 	SOAP_GLOBAL(cur_uniq_ns) = 0;
 	SOAP_GLOBAL(cur_uniq_ref) = 0;
+	SOAP_GLOBAL(decode_depth) = 0;
 	if (SOAP_GLOBAL(ref_map)) {
 		zend_hash_destroy(SOAP_GLOBAL(ref_map));
 	} else {
@@ -3582,6 +3609,7 @@ void encode_finish()
 	TSRMLS_FETCH();
 	SOAP_GLOBAL(cur_uniq_ns) = 0;
 	SOAP_GLOBAL(cur_uniq_ref) = 0;
+	SOAP_GLOBAL(decode_depth) = 0;
 	if (SOAP_GLOBAL(ref_map)) {
 		zend_hash_destroy(SOAP_GLOBAL(ref_map));
 		efree(SOAP_GLOBAL(ref_map));
