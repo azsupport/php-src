@@ -17,6 +17,7 @@ escape() { sed 's/%/%25/g; s/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }'; }
     if [ -s "$res/pic.txt" ]; then echo; echo "not position independent:"; cat "$res/pic.txt"; fi
     if [ -s "$res/links.txt" ]; then echo; echo "static link lines that miss libraries of the tree (tools/check-deps-links.py):"; cat "$res/links.txt"; fi
     if [ -s "$res/bins-bad.txt" ]; then echo; echo "not as it should be:"; cat "$res/bins-bad.txt"; fi
+    if [ -s "$res/shared-bad.txt" ]; then echo; echo "the shared tree is not as it should be (finish_so of tools/build-deps.sh):"; cat "$res/shared-bad.txt"; fi
     if [ -s "$res/curl-bins.txt" ]; then echo; cat "$res/curl-bins.txt"; fi
     if [ -s "$res/pic-notes.txt" ]; then echo; echo "link test notes:"; cat "$res/pic-notes.txt"; fi
     if [ -s "$res/localbase.txt" ]; then echo; echo "files that name /usr/local/lib:"; cat "$res/localbase.txt"; fi
@@ -24,6 +25,7 @@ escape() { sed 's/%/%25/g; s/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }'; }
 } > "$res/report.txt"
 cat "$res/report.txt"
 if grep -q ' FAIL ' "$res/summary.txt" || [ -s "$res/pic.txt" ] || [ -s "$res/links.txt" ] || [ -s "$res/bins-bad.txt" ] ||
+    [ -s "$res/shared-bad.txt" ] ||
     ! grep -q -E '^(tarball|installed):' "$res/summary.txt"; then
     level=error; rc=1
 else
