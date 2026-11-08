@@ -559,7 +559,9 @@ s_sqlite3() {
 # a server it is built with CPU_OPTS (code for the CPU of that machine); this one
 # is built on the CPU of the CI runner for every server of the level, so fat is
 # the safe way to the same speed. No C++.
-s_gmp() { at_so "$1" --disable-cxx --enable-fat; }
+# the manual is not built (doc/ out of SUBDIRS, as the port with INFO off: OPTIONS_UNSET
+# of the servers); with INFO on the port removes doc/gmp.info and needs makeinfo
+s_gmp() { sed -i '' -e '/^SUBDIRS/ s|doc||' "$1/Makefile.in" && at_so "$1" --disable-cxx --enable-fat; }
 s_libxslt() { at_so "$1" --without-python --without-crypto --without-plugins; }
 s_libffi() {
     (LDFLAGS="$LDFLAGS -Wl,--undefined-version"; export LDFLAGS
@@ -662,6 +664,10 @@ build_one() {
         if has_kind "$n" shared; then
             # the whole work directory: relative paths out of WRKSRC (gettext-runtime/../build-aux, icu/source/..)
             cp -Rp "$wd" "$wd.so" || { echo "== cannot copy $wd to $wd.so"; exit 1; }
+            # the libtool fixes of the framework (USES=libtool, its configure stage): without
+            # them an old libtool takes FreeBSD for a.out and builds no shared library (libmcrypt)
+            # shellcheck disable=SC2086
+            pmake "$port" $targs WRKDIR="$wd.so" patch-libtool > /dev/null 2>&1 || true
             echo "== source of the shared build: $wd.so${src#"$wd"}"
         fi
         lic "$n" "$src"
@@ -922,7 +928,9 @@ finish_so() {
         done >> "$res/shared-bad.txt"
         case "$b" in
             libcurl.so.*|libzip.so.*)
-                for l in libssl libcrypto; do
+                # libzip needs only libcrypto (its AES), curl both
+                case "$b" in libzip.so.*) ssl="libcrypto" ;; *) ssl="libssl libcrypto" ;; esac
+                for l in $ssl; do
                     lp="$(awk -v l="$l" 'index($1, l ".so") == 1 && $2 == "=>" { print $3 }' "$work/so-ldd.txt")"
                     case "$lp" in /lib/*|/usr/lib/*) ;; *) echo "$b: $l not of the base system (${lp:-not linked})" >> "$res/shared-bad.txt" ;; esac
                 done ;;
@@ -936,7 +944,7 @@ finish_so() {
         [ -f "$f" ] && [ "$f" != "$S/bin/pkg-config" ] || continue
         grep -n "$P" "$f" | sed "s#^#${f##*/}: the static tree: #" >> "$res/shared-bad.txt"
         sed -e "s#$S##g" -e 's#/usr/local/etc/fonts##g' -e 's#/usr/local/share/fonts##g' \
-            -e 's#/usr/local/lib/X11/fonts##g' -e 's#sysconfdir=/usr/local/etc$##' "$f" |
+            -e 's#/usr/local/lib/X11/fonts##g' -e 's#sysconfdir=/usr/local/etc$##' -e '/Print PREFIX to icu install/d' "$f" |
             grep -n '/usr/local' | sed "s#^#${f##*/}: /usr/local outside $S: #" >> "$res/shared-bad.txt"
     done
 }
