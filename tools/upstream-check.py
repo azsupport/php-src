@@ -25,7 +25,8 @@ taken before its port for a security fix).
 The rule (04.11.2026): a new release is taken when its FreeBSD port has it;
 before the port only when it fixes a vulnerability that touches us, or a bug we
 have. So a release issue says what the release notes name (CVE and GHSA ids, on
-GitHub), and it stays open as a note until the port has the version.
+GitHub) and what the commit messages since the tag of the version built name (any
+git repository), and it stays open as a note until the port has the version.
 
 The static libraries of /usr/local/az built from ports (freebsd/deps.conf), and
 the packages built against them (FFmpeg, freebsd/ffmpeg.conf; ImageMagick,
@@ -110,13 +111,67 @@ def conf(name):
         return [r for r in rows if r]
 
 
-def notes_line(url, tag):
-    """What the release notes of tag say about security, for a release issue: the CVE
-    and GHSA ids they name, or that they name none. GitHub releases only (the API, with
-    GH_TOKEN where there is one); None for other hosts or without a tag."""
-    m = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", url or "")
-    if not m or not tag:
+def security_ids(text):
+    """The CVE and GHSA ids named in text, sorted: CVE-2026-1234, GHSA-abcd-efgh-ijkl."""
+    return sorted(set(i.upper() if i[:3].upper() == "CVE" else "GHSA" + i[4:].lower()
+                      for i in re.findall(r"CVE-\d{4}-\d{4,}|GHSA(?:-[0-9a-z]{4}){3}", text, re.I)))
+
+
+GIT_TIMEOUT = 300
+
+
+def commit_ids(url, old, new):
+    """The CVE and GHSA ids named in the messages of the commits of tag new that tag old
+    has not (git log old..new) and the number of those commits. Only the commit objects
+    of both tags are fetched (--filter=tree:0), into a temporary repository: the whole
+    history of FFmpeg is 37 MB and 4 s so. Not a shallow fetch: --shallow-exclude and
+    --shallow-since cut a merge with a parent outside the range off from its other parent
+    (lz4 v1.10.0..v1.11.0 gave 1 commit of 862). RuntimeError when they cannot be read."""
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    with tempfile.TemporaryDirectory(prefix="upstream-commits-") as d:
+        def git(*args):
+            try:
+                p = subprocess.run(["git", "-C", d] + list(args), capture_output=True, text=True,
+                                   env=env, timeout=GIT_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("git %s: no answer in %d s" % (args[0], GIT_TIMEOUT))
+            if p.returncode:
+                raise RuntimeError("git %s: %s" % (args[0], p.stderr.strip()[-300:]))
+            return p.stdout
+        git("init", "-q", "--bare")
+        git("remote", "add", "origin", url)
+        ref_old, ref_new = "refs/tags/%s" % old, "refs/tags/%s" % new
+        git("fetch", "-q", "--no-tags", "--filter=tree:0", "origin",
+            "+%s:%s" % (ref_old, ref_old), "+%s:%s" % (ref_new, ref_new))
+        out = git("log", "--format=%B%x00", "%s..%s" % (ref_old, ref_new))
+    msgs = [m for m in out.split("\0") if m.strip()]
+    return security_ids(out), len(msgs)
+
+
+def notes_line(url, tag, old=None):
+    """What a release says about security, for a release issue. The release notes of
+    tag (GitHub releases only: the API, with GH_TOKEN where there is one): the CVE and
+    GHSA ids they name, or that they name none. With the tag old of the version built,
+    also the ids the commits since old name (any git repository, commit_ids); a line
+    when they cannot be read. None for a directory listing or without a tag."""
+    if not tag or (url or "").endswith("/"):
         return None
+    commits = None
+    if old:
+        try:
+            ids, count = commit_ids(url, old, tag)
+            if ids:
+                commits = ("Commits since `%s` (%d): they name **%s**: if one of them touches us, take the "
+                           "release before the port." % (old, count, ", ".join(ids)))
+        except Exception as e:
+            warn("%s: the commits %s..%s could not be read: %s" % (url, old, tag, e))
+            commits = ("Commits since `%s`: could not be read (%s); look at the changes for CVE and GHSA ids."
+                       % (old, str(e).splitlines()[-1][:200] if str(e) else type(e).__name__))
+    else:
+        log("%s: no tag of the version built, the commits before %s are not read" % (url, tag))
+    m = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", url or "")
+    if not m:
+        return commits
     api = "https://api.github.com/repos/%s/%s/releases/tags/%s" % (m.group(1), m.group(2), tag)
     headers = {"User-Agent": "upstream-check (azsupport/php-src)", "Accept": "application/vnd.github+json"}
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -126,14 +181,18 @@ def notes_line(url, tag):
         with urllib.request.urlopen(urllib.request.Request(api, headers=headers), timeout=30) as r:
             body = json.loads(r.read().decode("utf-8", "replace")).get("body") or ""
     except Exception:
-        return "Release notes: no GitHub release for the tag `%s` (or it could not be read); look at the changes." % tag
-    ids = sorted(set(i.upper() if i[:3].upper() == "CVE" else "GHSA" + i[4:].lower()
-                     for i in re.findall(r"CVE-\d{4}-\d{4,}|GHSA(?:-[0-9a-z]{4}){3}", body, re.I)))
-    if ids:
-        return "Release notes: they name **%s**. If one of them touches us, take the release before the port." % ", ".join(ids)
-    if re.search(r"secur|vulnerab", body, re.I):
-        return "Release notes: they speak of security without a CVE id: read them; if it touches us, take the release before the port."
-    return "Release notes: no CVE or GHSA id, nothing on security: wait for the port."
+        notes = "Release notes: no GitHub release for the tag `%s` (or it could not be read); look at the changes." % tag
+    else:
+        ids = security_ids(body)
+        if ids:
+            notes = "Release notes: they name **%s**. If one of them touches us, take the release before the port." % ", ".join(ids)
+        elif re.search(r"secur|vulnerab", body, re.I):
+            notes = "Release notes: they speak of security without a CVE id: read them; if it touches us, take the release before the port."
+        elif commits:
+            notes = "Release notes: no CVE or GHSA id."
+        else:
+            notes = "Release notes: no CVE or GHSA id, nothing on security: wait for the port."
+    return "\n\n".join(n for n in (notes, commits) if n)
 
 
 def http(url):
@@ -299,7 +358,7 @@ def check_bundle_releases(cfile, bundle, prefix, steps):
             continue
         port = ports.get(name, "?")
         where = "listing" if source.endswith("/") else "tag `%s`" % found[newest]
-        notes = None if source.endswith("/") else notes_line(source, found[newest])
+        notes = notes_line(source, found[newest], found.get(norm_version(built)))
         lines = [
             "**%s %s** is out (%s of %s)." % (name, newest, where, source),
             "",
@@ -569,7 +628,7 @@ def lib_finding(up, v, cur, port):
         links.append("[tag `%s`](%s/releases/tag/%s)" % (tag, base, tag))
         if cur in up.tags:
             links.append("[changes since %s](%s/compare/%s...%s)" % (cur, base, up.tags[cur], tag))
-    notes = notes_line(up.url, tag)
+    notes = notes_line(up.url, tag, up.tags.get(cur))
     lines = [
         "**%s %s** is out: %s." % (up.name, v, ", ".join(links) or up.url),
         "",
@@ -615,7 +674,8 @@ def release_finding(up, v, hits, pin):
         "|---|---|",
     ]
     lines += ["| %s | %s |" % (t, c) for t, c in hits]
-    notes = notes_line(up.url, tag)
+    oldest = next((up.tags[c] for c in current if c in up.tags), None)
+    notes = notes_line(up.url, tag, oldest)
     if notes:
         lines += ["", notes]
     if up.name == "pcre2":
