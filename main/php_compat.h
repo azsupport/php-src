@@ -71,6 +71,15 @@
 #define _pcre_ucd_stage1		php__pcre_ucd_stage1
 #define _pcre_ucd_stage2		php__pcre_ucd_stage2
 #define _pcre_ucp_gentype		php__pcre_ucp_gentype
+#define pcre_assign_jit_stack			php_pcre_assign_jit_stack
+#define pcre_dfa_exec			php_pcre_dfa_exec
+#define pcre_free_study			php_pcre_free_study
+#define pcre_jit_exec			php_pcre_jit_exec
+#define pcre_jit_free_unused_memory			php_pcre_jit_free_unused_memory
+#define pcre_jit_stack_alloc			php_pcre_jit_stack_alloc
+#define pcre_jit_stack_free			php_pcre_jit_stack_free
+#define pcre_pattern_to_host_byte_order			php_pcre_pattern_to_host_byte_order
+#define pcre_stack_guard			php_pcre_stack_guard
 #endif
 
 #define lookup				php_lookup
