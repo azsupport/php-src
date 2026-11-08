@@ -1,6 +1,6 @@
 #!/bin/sh
-# az-menu.sh - build PHP of this fork as a package of pkg (phpXY, in the place of
-# that of the ports), and choose what goes into it with dialogs, the
+# az-menu.sh - build PHP of this fork as a package of pkg (phpXY-static, in the
+# place of phpXY of the ports), and choose what goes into it with dialogs, the
 # way the FreeBSD ports do it with "make config": the options of lang/phpXY and
 # mod_phpXY, the extensions of phpXY-extensions plus the PECL extensions this
 # fork bundles, and the options of single extensions. Unlike the ports, all of it
@@ -16,18 +16,20 @@
 # copy with its version: the top line of every screen and --version show it), it
 # takes the source of the branch from the release freebsd-X.Y-latest of the fork
 # (its SHA-256 checked), and the static libraries PHP is linked with (azsupport, with
-# the curl of PHP, and ImageMagick7 for imagick: its static libraries in
-# /usr/local/azsupport) from the repository of pkg of the fork
+# the curl of PHP, and ImageMagick7 for imagick: their static tree
+# /usr/local/azsupport/static) from the repository of pkg of the fork
 # (/usr/local/etc/pkg/repos/az.conf: --repo writes it), builds PHP with the
-# choices, makes the package phpXY of it (which depends on those packages) and
-# offers to install it. Inside a PHP source tree it builds that one.
+# choices, makes the package phpXY-static of it (which depends on those packages)
+# and offers to install it. Inside a PHP source tree it builds that one.
 #
 # Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree or not:
 #   sh az-menu.sh                   outside a PHP source tree: the packages of the
-#                                   repository az (curl, ffmpeg, ImageMagick6 and 7,
-#                                   php56 ... php84; azsupport), each the ready one
-#                                   (Options: what it is built with) or, for PHP,
-#                                   built here with your options;
+#                                   repository az (curl, ffmpeg, ImageMagick6 and 7;
+#                                   azsupport; per version of PHP the core phpXY of
+#                                   pkg mode with its packages phpXY-* and
+#                                   phpXY-pecl-*, or phpXY-static), each the ready
+#                                   one (Options: what it is built with) or, for
+#                                   phpXY-static, built here with your options;
 #                                   inside one: the menu for the branch of this tree
 #   sh az-menu.sh 8.4               the menu for that branch (outside a tree)
 #   sh az-menu.sh --reset           start from the defaults, not the saved choices
@@ -39,7 +41,8 @@
 #                                   values typed in (PREFIX=/usr/local,
 #                                   MYSQL_SOCK=/tmp/mysql.sock, MYSQL_SOCK= for none)
 #   sh az-menu.sh --batch --build [--install] ...
-#                                   also build the package phpXY (and install it)
+#                                   also build the package phpXY-static (and
+#                                   install it)
 #   sh az-menu.sh --repo            write /usr/local/etc/pkg/repos/az.conf (the
 #                                   repository of the x86-64 level of this CPU)
 #   sh az-menu.sh --list            the items of the branch, with their state, the
@@ -47,6 +50,11 @@
 #   sh az-menu.sh --version         the version of this copy (its revision: the
 #                                   number of commits that changed it, the last
 #                                   of them, its date)
+#   sh az-menu.sh --package <branch> <source tree> <stage> <configure script> [static|core]
+#                                   the package of a build make install put into
+#                                   the stage (the builds of the repository az):
+#                                   static (the default) phpXY-static, core phpXY
+#                                   of pkg mode; the package file on stdout
 #
 # The menu first asks where to start: what it found (below) or a template, a set
 # of choices for one application; the main menu has it again ("Templates"). A
@@ -74,16 +82,26 @@
 # directories with the version (etc/php84: php.ini, php-fpm.conf, php-fpm.d/;
 # lib/php84, include/php84, share/php84), the Apache module as
 # libexec/apache24/libphp84.so of Apache. With azsupport installed, the libraries
-# are the static ones of /usr/local/azsupport (tools/config-check.sh, as for a
-# config.installed.sh of it), so php, php-fpm and libphp84.so need no library of
-# /usr/local/lib. The package phpXY (the name and origin of the port) has, with
-# FPM, the rc.d script /usr/local/etc/rc.d/php_fpm84 (that of lang/php84, for this
+# are the static ones of its static tree /usr/local/azsupport/static
+# (tools/config-check.sh with PHPDEPS=/usr/local/azsupport/static, as for a
+# config.installed.sh of it; imagick with static/bin/MagickWand-config of the
+# package ImageMagick7), so php, php-fpm and libphp84.so need no library of
+# /usr/local/lib. The package phpXY-static (origin az/phpXY-static; it takes the
+# place of phpXY of pkg mode, the core with one package per extension: per version
+# pkg installs one of the two, they have the same files) has, with FPM, the rc.d
+# script /usr/local/etc/rc.d/php_fpm84 (that of lang/php84, for this
 # version: php_fpm84_enable, /var/run/php-fpm84.pid), php-fpm.conf and
 # php-fpm.d/www.conf (the pool on /var/run/php-fpm84.sock), so that several
 # versions of php-fpm run at once; php.ini (php.ini-production) and the config
 # files are kept when changed (@config); with the Apache module,
 # modules.d/280_mod_php84.conf.sample (each Apache instance loads the module of
-# one version).
+# one version). The kind core of --package (for tools/build-pkg.sh) makes phpXY of
+# pkg mode (the name and origin of the port, lang/phpXY) with the same files and
+# the empty directories etc/phpXY/conf.d (the ini files of the extensions) and
+# lib/php/<API> (their modules; <API> the ZEND_MODULE_API_NO of the source); it
+# depends on azsupport (the shared libraries of /usr/local/azsupport/lib), its
+# extensions are the packages phpXY-* of the repository. The annotation "mode" of
+# a package says which: pkg or static.
 #
 # The choices are saved as the ports save theirs, in
 # /var/db/az-menu/phpXY.options (AZ_MENU_DB to change; those of php-menu.sh in
@@ -1371,10 +1389,14 @@ EOF
 # --- end of data ---
 
 # --- arguments ----------------------------------------------------------------------
-pkg_branch=""
+pkg_branch="" pkg_kind=static
 if [ "${1:-}" = "--package" ]; then
-    [ $# -eq 5 ] || die "--package <branch> <source tree> <stage> <configure script>"
-    pkg_branch="$2" pkg_src="$3" pkg_stage="$4" pkg_cfg="$5"
+    [ $# -eq 5 ] || [ $# -eq 6 ] || die "--package <branch> <source tree> <stage> <configure script> [static|core]"
+    pkg_branch="$2" pkg_src="$3" pkg_stage="$4" pkg_cfg="$5" pkg_kind="${6:-static}"
+    case "$pkg_kind" in
+        static|core) ;;
+        *) die "--package: the kind is static or core, not $pkg_kind" ;;
+    esac
     set --
 fi
 branch="" batch="" reset="" list="" changes="" values="" template="" build="" install="" repo=""
@@ -1402,6 +1424,10 @@ done
 
 # --- /usr/local/azsupport, its repository of pkg, and the builds of the packages ---
 AZ="${AZ_PREFIX:-/usr/local/azsupport}"
+# the static tree of azsupport (static archives, static/bin/pkg-config, the MagickWand-config
+# of ImageMagick7, the OpenSSL of the port): what PHP built here is linked with; the shared
+# libraries of pkg mode are the top tree $AZ/lib, $AZ/include, $AZ/bin
+AZS="$AZ/static"
 AZ_URL="${AZ_URL:-https://github.com/azsupport/php-src}"
 AZ_REPO_CONF="${AZ_REPO_CONF:-/usr/local/etc/pkg/repos/az.conf}"
 AZ_REPO_KEY="${AZ_REPO_KEY:-/usr/local/etc/pkg/keys/az.pub}"
@@ -1634,15 +1660,29 @@ fetch_source() {
     echo "$work/$top"
 }
 
-# package_php <source tree> <stage>: the package phpXY of what make install put
-# into the stage, with the files of the package added (see the head); the
-# prefix and the options are those of the configure script $out_abs
+# package_php <source tree> <stage>: the package of what make install put into
+# the stage, with the files of the package added (see the head); the prefix and
+# the options are those of the configure script $out_abs. The kind $pkg_kind:
+# static, the package phpXY-static (everything built into one PHP); core, the
+# package phpXY of pkg mode (its extensions are the packages phpXY-*), with the
+# empty directories etc/phpXY/conf.d and lib/php/<API> for them
 package_php() {
     php_prefix="$(sed -n "s/^'--prefix=\([^']*\)' \\\\\$/\1/p" "$out_abs" | tail -n 1)"
     [ -n "$php_prefix" ] || { say "no --prefix in $out_abs"; return 1; }
     src="$1"; st="$2"; pt="$2$php_prefix"; etc="$2$php_prefix/etc/php$short"
     ver="$(sed -n 's/^#define PHP_VERSION "\([^"]*\)".*/\1/p' "$src/main/php_version.h")"
     [ -n "$ver" ] || { say "no PHP version in $src/main/php_version.h"; return 1; }
+    dirs=""
+    if [ "$pkg_kind" = core ]; then
+        pn="php$short" origin="lang/php$short" mode=pkg
+        api="$(sed -n 's/^#define[[:space:]]*ZEND_MODULE_API_NO[[:space:]]*\([0-9]*\).*/\1/p' "$src/Zend/zend_modules.h")"
+        [ -n "$api" ] || { say "no ZEND_MODULE_API_NO in $src/Zend/zend_modules.h"; return 1; }
+        # the directories of the packages of the extensions: their modules, their ini files
+        dirs="$php_prefix/etc/php$short/conf.d $php_prefix/lib/php/$api"
+        for d in $dirs; do mkdir -p "$st$d" || return 1; done
+    else
+        pn="php$short-static" origin="az/php$short-static" mode=static
+    fi
     mkdir -p "$etc" || return 1
     cp "$src/php.ini-production" "$src/php.ini-development" "$etc/" && cp "$src/php.ini-production" "$etc/php.ini" || return 1
     configs="$php_prefix/etc/php$short/php.ini"
@@ -1669,29 +1709,50 @@ package_php() {
     # what the build left in the stage outside the package: the run and log
     # directories of FPM (/var), an httpd.conf of apxs
     rm -rf "$st/var" "$st/usr/local/etc/apache24/httpd.conf"*
-    m="$work/meta-php$short"; pl="$work/plist-php$short"
+    m="$work/meta-$pn"; pl="$work/plist-$pn"
     rm -rf "$m"; mkdir -p "$m" || return 1
     (cd "$st" && find . ! -type d | sed 's#^\.##' | LC_ALL=C sort) > "$pl.files" || return 1
     for c in $configs; do grep -qx -- "$c" "$pl.files" || { say "no $c in the stage"; return 1; }; done
-    awk -v c=" $configs " 'index(c, " " $0 " ") { print "@config " $0; next } { print }' "$pl.files" > "$pl"
-    # the packages of /usr/local/azsupport it is built with, and the options
+    # the files (the config files with @config), then the empty directories (@dir:
+    # made at install, removed at deinstall when empty; pkg create takes their owner
+    # and mode from the stage, where they must be)
+    {
+        awk -v c=" $configs " 'index(c, " " $0 " ") { print "@config " $0; next } { print }' "$pl.files"
+        for d in $dirs; do echo "@dir $d"; done
+    } > "$pl"
+    # the packages of /usr/local/azsupport it is built with, and the options: the
+    # static kind with those of the static tree its configure script names, the core
+    # always with azsupport (it links the shared libraries of $AZ/lib)
     deps=""
     for d in azsupport ImageMagick7; do
-        pkg info -e "$d" || continue
-        case "$d" in
-            azsupport) grep -q -- "^PKG_CONFIG='$AZ/bin/pkg-config'" "$out_abs" || continue ;;
-            ImageMagick7) grep -q -- "^'--with-imagick=$AZ'" "$out_abs" || continue ;;
-        esac
+        if [ "$pkg_kind" = core ]; then
+            [ "$d" = azsupport ] || continue
+            pkg info -e azsupport || { say "the package azsupport is not installed: php$short of pkg mode depends on it"; return 1; }
+        else
+            pkg info -e "$d" || continue
+            case "$d" in
+                azsupport) grep -q -- "^PKG_CONFIG='$AZS/bin/pkg-config'" "$out_abs" || continue ;;
+                ImageMagick7) grep -q -- "^'--with-imagick=$AZS'" "$out_abs" || continue ;;
+            esac
+        fi
         deps="$deps $d=$(pkg query %o "$d")=$(pkg query %v "$d")"
     done
     opts="$(sed -n "s/^'\(--[^']*\)' \\\\\$/\1/p" "$out_abs" | tr '\n' ' ' | sed 's/ *$//')"
     stamp="${AZ_STAMP:-$(date -u +%y%m%d%H)}"
     cflags="$(sed -n "s/^CFLAGS='\([^']*\)'.*/\1/p" "$out_abs")"
+    files="bin/php$short, sbin/php-fpm$short with the rc.d script php_fpm$short, etc/php$short, the Apache module libphp$short.so"
+    if [ "$pkg_kind" = core ]; then
+        comment="PHP $branch of azsupport/php-src (php$short, php-fpm$short, libphp$short.so), the core of pkg mode"
+        desc="PHP $branch of https://github.com/azsupport/php-src, built by az-menu.sh: the core of pkg mode, $files, phpize$short and the headers, in the place of the package of the port. Its extensions are the packages php$short-* and php$short-pecl-* of the repository az (pkg install php$short-gd ...): their modules in $php_prefix/lib/php/$api, their ini files in $php_prefix/etc/php$short/conf.d. Linked with the shared libraries of $AZ/lib. configure: $opts"
+    else
+        comment="PHP $branch of azsupport/php-src (php$short, php-fpm$short, libphp$short.so), static"
+        desc="PHP $branch of https://github.com/azsupport/php-src, built by az-menu.sh: $files, in the place of the package of the port. Static: its extensions are built into it, linked with the static libraries of $AZS; it takes the place of php$short of pkg mode (the core with the packages php$short-*), pkg installs one of the two. configure: $opts"
+    fi
     # +MANIFEST (JSON, written by the shell: no python on a server needed)
     {
-        printf '{\n "name": %s,\n "origin": %s,\n "version": %s,\n' "$(js "php$short")" "$(js "lang/php$short")" "$(js "${ver}_$stamp")"
-        printf ' "comment": %s,\n' "$(js "PHP $branch of azsupport/php-src (php$short, php-fpm$short, libphp$short.so), static")"
-        printf ' "desc": %s,\n' "$(js "PHP $branch of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php$short, sbin/php-fpm$short with the rc.d script php_fpm$short, etc/php$short, the Apache module libphp$short.so, in the place of the package of the port; linked with the static libraries of $AZ. configure: $opts")"
+        printf '{\n "name": %s,\n "origin": %s,\n "version": %s,\n' "$(js "$pn")" "$(js "$origin")" "$(js "${ver}_$stamp")"
+        printf ' "comment": %s,\n' "$(js "$comment")"
+        printf ' "desc": %s,\n' "$(js "$desc")"
         printf ' "maintainer": "github@azsupport.com",\n "www": "https://github.com/azsupport/php-src",\n "prefix": %s,\n' "$(js "$php_prefix")"
         printf ' "licenselogic": "single",\n "licenses": ["PHP301"],\n "categories": ["lang", "az"],\n "deps": {'
         sep=""
@@ -1700,21 +1761,23 @@ package_php() {
             printf '%s\n  %s: {"origin": %s, "version": %s}' "$sep" "$(js "$dn")" "$(js "${dr%%=*}")" "$(js "${dr#*=}")"
             sep=","
         done
-        printf '\n },\n "annotations": {"configure": %s, "cflags": %s, "built_by": %s}\n}\n' "$(js "$opts")" "$(js "$cflags")" "$(js "az-menu.sh $AZ_MENU_VERSION")"
+        printf '\n },\n "annotations": {"configure": %s, "cflags": %s, "mode": %s, "built_by": %s}\n}\n' "$(js "$opts")" "$(js "$cflags")" "$(js "$mode")" "$(js "az-menu.sh $AZ_MENU_VERSION")"
     } > "$m/+MANIFEST" || return 1
-    rm -f "$work"/php"$short"-[0-9]*.pkg
-    pkg create -m "$m" -p "$pl" -r "$st" -o "$work" > "$work/create-php$short.log" 2>&1 ||
-        { cat "$work/create-php$short.log"; return 1; }
-    pkgfile="$(ls "$work"/php"$short"-[0-9]*.pkg | head -n 1)"
+    rm -f "$work/$pn"-[0-9]*.pkg
+    pkg create -m "$m" -p "$pl" -r "$st" -o "$work" > "$work/create-$pn.log" 2>&1 ||
+        { cat "$work/create-$pn.log"; return 1; }
+    pkgfile="$(ls "$work/$pn"-[0-9]*.pkg | head -n 1)"
     [ -f "$pkgfile" ]
 }
 
 
-# --package <branch> <source tree> <stage> <configure script>: the package
-# phpXY of a build that make install put into the stage (tools/build-test.sh
-# for the packages of the repository az); the script has the options and the
-# environment of the build, as the one this menu writes. Into AZ_MENU_WORK; the
-# package file goes to stdout.
+# --package <branch> <source tree> <stage> <configure script> [static|core]: the
+# package of a build that make install put into the stage; the script has the
+# options and the environment of the build, as the one this menu writes. static
+# (the default): phpXY-static, everything built into one PHP (tools/build-test.sh
+# for the packages of the repository az); core: phpXY, the core of pkg mode, whose
+# extensions tools/build-pkg.sh makes into packages of their own. Into AZ_MENU_WORK;
+# the package file goes to stdout.
 if [ -n "$pkg_branch" ]; then
     branch="$pkg_branch"; short="$(echo "$pkg_branch" | tr -d .)"; out_abs="$pkg_cfg"; batch=1
     mkdir -p "$work" || exit 2
@@ -1748,10 +1811,12 @@ dlg() { "$DIALOG" --backtitle "$backtitle" "$@" 2>&1 >/dev/tty; }
 
 # --- the menu of the packages of az (outside a PHP source tree, no branch named) ----
 # Every package of the repository az: the ready one (its version; Options: what it
-# is built with, for PHP the configure options of its annotation "configure"), or
-# for PHP a build here with the menu of the branch and its own options; then pkg
-# install of the ready ones, and the menu of each build (its BUILD makes the
-# package and offers to install it).
+# is built with, for PHP the configure options of its annotation "configure"); for
+# each version of PHP the core phpXY of pkg mode with the packages of its extensions
+# (phpXY-*, phpXY-pecl-*) the repository has, and phpXY-static, ready or built here
+# with the menu of the branch and its own options (one of the two: phpXY or
+# phpXY-static); then pkg install of the ready ones, and the menu of each build (its
+# BUILD makes the package phpXY-static and offers to install it).
 az_packages_menu() {
     backtitle="az-menu $AZ_MENU_SHORT  $AZ_MENU_SITES"
     [ "$(id -u)" = 0 ] || die "the packages are installed with pkg: run it as root"
@@ -1766,7 +1831,13 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     mt="$(mktemp -d)" || exit 2
     pkg rquery -r az '%n	%v	%c' > "$mt/ready" 2>/dev/null
     names="azsupport curl ffmpeg ImageMagick6 ImageMagick7"
-    for b in $BRANCHES; do names="$names php$(echo "$b" | tr -d .)"; done
+    for b in $BRANCHES; do
+        s_="$(echo "$b" | tr -d .)"
+        # pkg mode: the core phpXY, the packages of its extensions of the repository
+        # (phpXY-*, phpXY-pecl-*); then the static PHP phpXY-static
+        names="$names php$s_ $(awk -F '	' -v p="php$s_-" 'index($1, p) == 1 && $1 != p "static" { print $1 }' "$mt/ready" |
+            LC_ALL=C sort | tr '\n' ' ')php$s_-static"
+    done
     focus="" checked=" " chosen=" "
     while :; do
         set --
@@ -1779,18 +1850,19 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
                 set -- "$@" "$n" "ready $rv${iv:+, installed $iv}" "$st_" "$rc_ (Options: what it is built with)"
             fi
             case "$n" in
-                php*)
+                php*-static)
                     st_=off; case "$checked$chosen" in *" $n.build "*) st_=on ;; esac
                     d_="build here: Options chooses its modules"
                     case "$chosen" in *" $n.build "*) d_="build here with the modules chosen" ;; esac
+                    v_="${n#php}"
                     set -- "$@" "$n.build" "$d_${iv:+, installed $iv}" "$st_" \
-                        "PHP $(echo "${n#php}" | sed 's/^\(.\)/\1./'): Options opens the menu of its modules and their options; OK builds the package $n here" ;;
+                        "PHP $(echo "${v_%-static}" | sed 's/^\(.\)/\1./'), static: Options opens the menu of its modules and their options; OK builds the package $n here" ;;
             esac
         done
         [ -n "$focus" ] || focus="$1"
         res="$(dlg --title "The packages of az" --item-help --separate-output --default-item "$focus" \
             --help-button --help-label Options --help-status --help-tags --checklist \
-            "Space chooses: the ready package, or for PHP a build here (one of the two). Options: what the ready one under the cursor is built with." \
+            "Space chooses: the ready package, or for phpXY-static a build here (one of the two); per version phpXY of pkg mode (with its packages phpXY-*) or phpXY-static. Options: what the ready one under the cursor is built with." \
             0 0 0 "$@")"
         rc=$?
         case "$rc" in
@@ -1805,7 +1877,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
                     *.build)
                         # the menu of the modules of that version: the choices are
                         # saved, and OK builds the package with them
-                        b_="$(echo "${ftag%.build}" | sed 's/^php//; s/^\(.\)/\1./')"
+                        b_="$(echo "${ftag%.build}" | sed 's/^php//; s/-static$//; s/^\(.\)/\1./')"
                         if AZ_MENU_CHOOSE=1 sh "$0" "$b_"; then
                             case "$chosen" in *" $ftag "*) ;; *) chosen="$chosen$ftag " ;; esac
                         fi ;;
@@ -1817,7 +1889,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
                             pkg rquery -r az '%e' "$ftag" | fold -s -w 76
                             o="$(pkg rquery -r az '%At	%Av' "$ftag" | awk -F '	' '$1 == "configure" { print $2 }')"
                             if [ -n "$o" ]; then echo; echo "configure:"; printf '%s\n' $o | sed 's/^/    /'; fi
-                            c="$(pkg rquery -r az '%At	%Av' "$ftag" | awk -F '	' '$1 == "cflags" || $1 == "cputype" { print $1 ": " $2 }')"
+                            c="$(pkg rquery -r az '%At	%Av' "$ftag" | awk -F '	' '$1 == "cflags" || $1 == "cputype" || $1 == "mode" { print $1 ": " $2 }')"
                             [ -n "$c" ] && { echo; echo "$c"; }
                             d="$(pkg rquery -r az '%dn-%dv' "$ftag" | tr '\n' ' ')"
                             [ -n "$d" ] && { echo; echo "depends on: $d"; }
@@ -1832,8 +1904,27 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
         for n in $names; do
             case "$sel" in *" $n "*) case "$sel" in *" $n.build "*) both="$both $n" ;; esac ;; esac
         done
+        # per version the core of pkg mode (with the packages of its extensions) or the
+        # static PHP, and one of the two kinds of openssl: pkg would refuse both (the
+        # same files)
+        mixed=""
+        for b in $BRANCHES; do
+            s_="$(echo "$b" | tr -d .)"
+            case "$sel" in
+                *" php$s_-openssl "*) case "$sel" in *" php$s_-openssl-legacy "*) mixed="$mixed php$s_-openssl+php$s_-openssl-legacy" ;; esac ;;
+            esac
+            case "$sel" in *" php$s_-static "*|*" php$s_-static.build "*) ;; *) continue ;; esac
+            for n in $names; do
+                case "$n" in php"$s_"-static) continue ;; php"$s_"|php"$s_"-*) ;; *) continue ;; esac
+                case "$sel" in *" $n "*) mixed="$mixed $n+php$s_-static" ;; esac
+            done
+        done
         if [ -n "$both" ]; then
             dlg --title "One of the two" --msgbox "Ready or built here, not both:$both" 0 0
+            continue
+        fi
+        if [ -n "$mixed" ]; then
+            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with its packages phpXY-*) or phpXY-static, and php-openssl or php-openssl-legacy, not both:$mixed" 0 0
             continue
         fi
         break
@@ -1841,7 +1932,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     ready="" builds=""
     for n in $names; do
         case "$sel" in *" $n "*) ready="$ready $n" ;; esac
-        case "$sel" in *" $n.build "*) builds="$builds ${n#php}" ;; esac
+        case "$sel" in *" $n.build "*) v_="${n#php}"; builds="$builds ${v_%-static}" ;; esac
     done
     # the versions whose modules were chosen with Options: built with those choices
     # (--batch), then the question whether to install the package
@@ -1856,11 +1947,11 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     for v in $builds; do
         b="$(echo "$v" | sed 's/^\(.\)/\1./')"
         case "$chosen" in
-            *" php$v.build "*)
-                say "PHP $b: the package php$v with the modules chosen ($db/php$v.options)"
+            *" php$v-static.build "*)
+                say "PHP $b: the package php$v-static with the modules chosen ($db/php$v.options)"
                 if sh "$0" --batch --build "$b"; then
-                    f_="$(ls -t "$work"/php"$v"-[0-9]*.pkg 2>/dev/null | head -n 1)"
-                    if [ -n "$f_" ] && dlg --title "php$v" --yesno "Install ${f_##*/} into the system now (pkg add)?" 0 0; then
+                    f_="$(ls -t "$work/php$v-static"-[0-9]*.pkg 2>/dev/null | head -n 1)"
+                    if [ -n "$f_" ] && dlg --title "php$v-static" --yesno "Install ${f_##*/} into the system now (pkg add)?" 0 0; then
                         command -v clear >/dev/null 2>&1 && clear
                         pkg add "$f_" || say "pkg add $f_ failed"
                     else
@@ -2440,16 +2531,19 @@ compose() {
     chosen_options >> "$tmp/opts"
     val_options rest >> "$tmp/opts"
     awk '!seen[$0]++' "$tmp/opts" > "$tmp/opts.u"
-    # with the libraries of /usr/local/azsupport installed (azsupport): the options and the
-    # environment of a build against them (tools/config-check.sh --deps-rewrite)
+    # with the static libraries of azsupport installed (the static tree $AZS): the
+    # options and the environment of a build against them (tools/config-check.sh
+    # --deps-rewrite, PHPDEPS the static tree)
     deps_note=""
-    if [ -f "$AZ/share/doc/azsupport/VERSIONS" ] && [ -x "$AZ/bin/pkg-config" ]; then
+    if [ -f "$AZ/share/doc/azsupport/VERSIONS" ] && [ -x "$AZS/bin/pkg-config" ]; then
         if cc_script="$(config_check)"; then
-            deps_note="$(PHPDEPS="$AZ" DEPS_PHP_MAJOR="${branch%%.*}" sh "$cc_script" --deps-rewrite "$tmp/opts.u" "$tmp/env" 2>&1)" ||
-                deps_note="the rewrite for $AZ failed: $deps_note"
+            deps_note="$(PHPDEPS="$AZS" DEPS_PHP_MAJOR="${branch%%.*}" sh "$cc_script" --deps-rewrite "$tmp/opts.u" "$tmp/env" 2>&1)" ||
+                deps_note="the rewrite for $AZS failed: $deps_note"
         else
-            deps_note="no tools/config-check.sh for the libraries of $AZ: the build takes those of /usr/local/lib"
+            deps_note="no tools/config-check.sh for the static libraries of $AZS: the build takes those of /usr/local/lib"
         fi
+    elif [ -f "$AZ/share/doc/azsupport/VERSIONS" ]; then
+        deps_note="azsupport without its static tree ($AZS/bin/pkg-config): an azsupport of before the static tree? The build takes the libraries of /usr/local/lib"
     fi
     {
         echo "#!/bin/sh"
@@ -2467,8 +2561,8 @@ compose() {
 }
 # config_check: tools/config-check.sh next to this script, else that of the fork
 # (fetched into $work at each run: with the copy of the release az-menu the one of
-# that release, else that of master), for the rewrite of the options for
-# /usr/local/azsupport
+# that release, else that of master), for the rewrite of the options for the
+# static tree /usr/local/azsupport/static
 config_check() {
     _d="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
     if [ -f "$_d/config-check.sh" ]; then echo "$_d/config-check.sh"; return 0; fi
@@ -2530,7 +2624,7 @@ item_on() {
     return 0
 }
 
-# --- building the package phpXY here ------------------------------------------------
+# --- building the package phpXY-static here -----------------------------------------
 # confirm <question>: yes or no (a dialog; in --batch: yes)
 confirm() {
     [ -n "$batch" ] && return 0
@@ -2539,29 +2633,36 @@ confirm() {
 
 # build_here: the libraries from the repository az, the source (this tree, or the
 # release of the branch), configure with the script just written, make, make
-# install into a stage, the package phpXY; then installed when asked (--install,
-# or the dialog)
+# install into a stage, the package phpXY-static; then installed when asked
+# (--install, or the dialog)
 build_here() {
     [ "$(id -u)" = 0 ] || die "building the package needs root (pkg, a stage for make install)"
     need="azsupport"
     is_on IMAGICK && need="$need ImageMagick7"
     missing=""
-    # azsupport (with the curl of PHP) and ImageMagick7 of the repository az (its
-    # static libraries are in /usr/local/azsupport); the package curl is not needed
+    # azsupport (with the curl of PHP; its static tree $AZS) and ImageMagick7 of the
+    # repository az (its static libraries and static/bin/MagickWand-config are in
+    # $AZS); the package curl is not needed. An azsupport without the static tree
+    # (one of before it) is upgraded.
     for d in $need; do
-        if [ "$d" = azsupport ]; then pkg info -e azsupport || missing="$missing azsupport"
+        if [ "$d" = azsupport ]; then
+            if ! pkg info -e azsupport; then missing="$missing azsupport"
+            elif [ ! -x "$AZS/bin/pkg-config" ]; then
+                say "azsupport is installed, but without $AZS/bin/pkg-config: an azsupport of before the static tree, upgraded from the repository az"
+                missing="$missing azsupport"
+            fi
         elif [ ! -f "$AZ/share/doc/azsupport/VERSIONS" ]; then missing="$missing $d"
         else
-            [ -e "$AZ/bin/MagickWand-config" ] || missing="$missing $d"
+            [ -e "$AZS/bin/MagickWand-config" ] || missing="$missing $d"
         fi
     done
     if [ -n "$missing" ]; then
         [ -f "$AZ_REPO_CONF" ] || die "PHP needs$missing and there is no repository az: sh az-menu.sh --repo writes $AZ_REPO_CONF"
-        confirm "PHP $branch is built against the static libraries of $AZ: install$missing from the repository az?" ||
+        confirm "PHP $branch is built against the static libraries of $AZS: install$missing from the repository az?" ||
             die "not built"
         pkg install -y -r az $missing || die "pkg install$missing failed"
     fi
-    # the script again: with the libraries of /usr/local/azsupport now
+    # the script again: with the static libraries of $AZS now
     write_config
     case "$out" in /*) out_abs="$out" ;; *) out_abs="$(pwd)/$out" ;; esac
     if [ -f main/php_version.h ]; then src="$(pwd)"; else src="$(fetch_source)" || die "no source of PHP $branch"; fi
@@ -2586,7 +2687,7 @@ build_here() {
         command -v clear >/dev/null 2>&1 && clear
     fi
     pkg add "$pkgfile" || die "pkg add $pkgfile failed"
-    say "installed php$short:"
+    say "installed php$short-static:"
     [ -x "$pp/bin/php$short" ] && "$pp/bin/php$short" -v | head -n 1
     [ -f "/usr/local/etc/rc.d/php_fpm$short" ] &&
         say "php-fpm: sysrc php_fpm${short}_enable=YES && service php_fpm$short start (pool: $pp/etc/php$short/php-fpm.d/www.conf, /var/run/php-fpm$short.sock)"
