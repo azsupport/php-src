@@ -601,7 +601,7 @@ changes unless their option is given:
 | igbinary | 3.2.16 | 3.2.16 | 3.2.16 | 2.0.8 |
 | imagick | 3.8.1 | 3.8.1 | 3.8.1 | 3.8.1 |
 | gmagick | 2.0.6RC1 | 2.0.6RC1 | 2.0.6RC1 | 1.1.7RC3 |
-| swoole | 6.2.4 | 6.1.11 | 4.8.13 | — |
+| swoole | 6.2.5 | 6.1.12 | 4.8.13 | — |
 | OpenSwoole | 4.12.1 | 4.12.1 | 4.12.1 | — |
 | excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
 | mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | in PHP 5.6 itself |
@@ -935,7 +935,7 @@ allows only that.
 | Also | text (FreeType; fontconfig with the configuration and fonts of the system, `/usr/local/etc/fonts`), colour profiles (lcms2) |
 | Not built | SVG, PDF, PostScript (no Ghostscript), RAW, EXR, JPEG 2000, JPEG XL, DjVu, WMF, TIFF, X11, Perl, loadable modules, libxml2 (MSL, URLs) |
 | Policy | the `websafe` policy of ImageMagick with the formats above: no delegate programs, no `@file`, no reading from `/etc` or through `../`, no standard input; images up to 20000 pixels wide and high, 1 GiB of memory, 120 seconds |
-| Built | from the FreeBSD ports (freebsd-ports of 04.11.2026: ImageMagick7 7.1.2-34 and ImageMagick6 6.9.13-59, which fix the vulnerabilities of the VuXML entry of 26.10.2026) with `-O3 -pipe -march=<level> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO, BIND_NOW; the libraries of `az-libs` are linked in, nothing of `/usr/local/lib` |
+| Built | from the FreeBSD ports (freebsd-ports of 04.11.2026), ImageMagick 7.1.2-35 and 6.9.13-60 ahead of the ports for security fixes (08.11.2026), with `-O3 -pipe -march=<level> -fstack-protector-strong -fno-strict-aliasing`, PIE, RELRO, BIND_NOW; the libraries of `az-libs` are linked in, nothing of `/usr/local/lib` |
 
 On a server with the repository az:
 
