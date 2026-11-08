@@ -5,14 +5,17 @@
 # Usage: sh ext/curl/build-libcurl.sh <prefix>
 #        sh build-libcurl.sh --lib <name> <source> <prefix>
 #        sh build-libcurl.sh --curl <source> <prefix> <libraries>
+#        sh build-libcurl.sh --features
 #
 # ext/curl/config.m4 runs the first form with CC, CFLAGS, CPPFLAGS, LDFLAGS,
 # PKG_CONFIG, OPENSSL_INCDIR and OPENSSL_CFLAGS of the PHP build and writes the
 # output to <prefix>.log: the libraries of ext/curl/deps (tools/curl-sources.sh
 # of the fork puts them there; ext/curl/deps/VERSIONS lists them) go into
 # <prefix>.deps, curl into <prefix>. The other two forms are for
-# tools/build-deps.sh (/usr/local/phpdeps): one library from an unpacked source
-# into <prefix>, and curl against the libraries in <libraries>.
+# tools/build-deps.sh (/usr/local/azsupport): one library from an unpacked source
+# into <prefix>, and curl against the libraries in <libraries>; --features prints
+# the feature options of curl (curl_features), one per line, for the shared
+# libcurl.so that tools/build-deps.sh builds with the same ones.
 #
 # Everything is built static and position independent, so that it can go into
 # php, php-fpm, php-cgi and libphp.so, and with only cc, make and ar: brotli, zstd
@@ -237,6 +240,26 @@ openssl_opt() {
     fi
 }
 
+# The features of the bundled libcurl: the configure options of build_curl after
+# those of the libraries, one per line. "build-libcurl.sh --features" prints them
+# for tools/build-deps.sh, whose shared libcurl.so of /usr/local/azsupport gets the
+# same ones as the static libcurl of PHP.
+curl_features() {
+    printf '%s\n' --enable-http --enable-ftp --enable-file \
+        --enable-proxy --enable-cookies --enable-alt-svc --enable-hsts --enable-ipv6 \
+        --enable-aws --enable-dateparse --enable-dnsshuffle --enable-doh \
+        --enable-http-auth --enable-mime --enable-netrc --enable-typecheck \
+        --disable-imap --disable-pop3 --disable-smtp --disable-websockets --disable-ntlm \
+        --disable-headers-api --disable-ssls-export --disable-get-easy-options \
+        --disable-progress-meter \
+        --disable-httpsig --disable-unity --disable-werror \
+        --disable-dict --disable-gopher --disable-ipfs --disable-mqtt --disable-rtsp \
+        --disable-telnet --disable-tftp --disable-ldap --disable-ldaps \
+        --without-gssapi --without-libssh2 --without-libssh \
+        --disable-manual --disable-docs \
+        --without-zsh-functions-dir --without-fish-functions-dir
+}
+
 # build_curl <source> <prefix> <libraries>
 build_curl() {
     src="$1" prefix="$2" deps="$3"
@@ -259,19 +282,7 @@ build_curl() {
         --enable-ares="$deps" --disable-threaded-resolver \
         --with-nghttp2="$deps" --with-brotli="$deps" --with-zstd="$deps" \
         --with-libidn2="$deps" --with-libpsl="$deps" \
-        --enable-http --enable-ftp --enable-file \
-        --enable-proxy --enable-cookies --enable-alt-svc --enable-hsts --enable-ipv6 \
-        --enable-aws --enable-dateparse --enable-dnsshuffle --enable-doh \
-        --enable-http-auth --enable-mime --enable-netrc --enable-typecheck \
-        --disable-imap --disable-pop3 --disable-smtp --disable-websockets --disable-ntlm \
-        --disable-headers-api --disable-ssls-export --disable-get-easy-options \
-        --disable-progress-meter \
-        --disable-httpsig --disable-unity --disable-werror \
-        --disable-dict --disable-gopher --disable-ipfs --disable-mqtt --disable-rtsp \
-        --disable-telnet --disable-tftp --disable-ldap --disable-ldaps \
-        --without-gssapi --without-libssh2 --without-libssh \
-        --disable-manual --disable-docs \
-        --without-zsh-functions-dir --without-fish-functions-dir)
+        $(curl_features))
     mk curl -j"$ncpu" -C lib
     mk curl -C lib install
     mk curl -C include install
@@ -326,6 +337,10 @@ EOF
 
 dcflags="${CFLAGS:--O2 -pipe} -fPIC"
 case "${1:-}" in
+    --features)
+        [ $# = 1 ] || { echo "usage: build-libcurl.sh --features" >&2; exit 2; }
+        curl_features
+        exit 0 ;;
     --lib)
         [ $# = 4 ] || { echo "usage: build-libcurl.sh --lib <name> <source> <prefix>" >&2; exit 2; }
         obj="${OBJDIR:-$4.obj}"
