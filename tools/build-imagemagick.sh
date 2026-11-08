@@ -4,7 +4,7 @@
 # tools/build-az.sh, in the place of those of the ports): static programs side by
 # side in /usr/local/bin, with only the formats listed there (see the head of
 # that file for which and why), against the static libraries of the static tree
-# of azsupport, /usr/local/azsupport/static (tools/build-deps.sh first;
+# of az, /usr/local/az/static (tools/build-deps.sh first;
 # tools/build-az.sh runs both, the tests and the packages).
 #
 # Usage (FreeBSD, as root, from the top of a php-src checkout of master):
@@ -17,7 +17,7 @@
 # patch); this script then builds the source tree with its own options. A take
 # line gives a new upstream release instead (with the port's patches, or those of
 # freebsd/deps/<name>-<version>/). Each ImageMagick links the static libraries of
-# AZ_PREFIX/static (AZ_PREFIX: default /usr/local/azsupport) in, is built with the
+# AZ_PREFIX/static (AZ_PREFIX: default /usr/local/az) in, is built with the
 # prefix /usr/local and installed into a stage directory first; what it keeps then
 # goes to the stage of its package, AZ_STAGE/ImageMagick<6|7> (default
 # AZ_WORK/stage/...), as files of /usr/local: its programs in bin/ (ImageMagick 7:
@@ -26,22 +26,22 @@
 # with the policy freebsd/imagemagick/policy.xml), share/ImageMagick-<6|7>/,
 # lib/ImageMagick-<version>/ (its configure.xml), share/licenses/ImageMagick<6|7>/.
 # ImageMagick 7 also keeps its static libraries, headers and .pc files in the
-# static tree, /usr/local/azsupport/static (lib, include/ImageMagick-7,
+# static tree, /usr/local/az/static (lib, include/ImageMagick-7,
 # lib/pkgconfig), for the static imagick of PHP, with bin/MagickWand-config and
 # bin/MagickCore-config there printing the static link line (tools/build-az.sh
 # links a test program with them as imagick does, once installed). Then it is
 # built once more from a copy of the same patched source, taken before the static
 # build, as shared libraries for imagick of the PHP packages (pkg mode, phpize
-# against /usr/local/azsupport): the same options with --enable-shared
+# against /usr/local/az): the same options with --enable-shared
 # --disable-static, coders built in, against the shared libraries of
-# /usr/local/azsupport (run path /usr/local/azsupport/lib) and the base system,
+# /usr/local/az (run path /usr/local/az/lib) and the base system,
 # nothing of the static tree; the prefix stays /usr/local, so the library reads
 # the configuration, the policy and the share files of the package
 # (/usr/local/etc/ImageMagick-7), as the programs and the static imagick do. It
 # keeps lib/libMagickCore-7.so*, lib/libMagickWand-7.so*, their .pc files in
 # lib/pkgconfig, include/ImageMagick-7, lib/ImageMagick-<version>/ (configure.xml)
 # and bin/MagickWand-config, bin/MagickCore-config (the link line with the run
-# path) in /usr/local/azsupport; no programs, no Magick++. fontconfig takes its
+# path) in /usr/local/az; no programs, no Magick++. fontconfig takes its
 # configuration and fonts from the system (/usr/local/etc/fonts,
 # /usr/local/share/fonts; its cache /var/db/fontconfig), as the port does. The
 # work directory is AZ_WORK/imagemagick (default /var/tmp/az-work/imagemagick).
@@ -63,8 +63,8 @@
 set -u
 top="$(pwd)"
 conf="$top/freebsd/imagemagick.conf"
-A="${AZ_PREFIX:-/usr/local/azsupport}"
-# the static tree of azsupport (the programs and the static imagick); the shared
+A="${AZ_PREFIX:-/usr/local/az}"
+# the static tree of az (the programs and the static imagick); the shared
 # libraries are those of $A itself (lib, include, lib/pkgconfig, bin)
 S="$A/static"
 I=/usr/local
@@ -453,7 +453,7 @@ manifest() {
     {
         echo "ImageMagick $v for FreeBSD $major (amd64, $cputype), built $(date '+%Y-%m-%d %H:%M %Z') on $(uname -sr)"
         echo "freebsd-ports $ports_commit; CFLAGS: $CFLAGS"
-        echo "libraries: the static ones of $S (azsupport, the static tree): libpng, mozjpeg, libwebp, FreeType, fontconfig, expat, lcms2, libheif, libde265, dav1d"
+        echo "libraries: the static ones of $S (az, the static tree): libpng, mozjpeg, libwebp, FreeType, fontconfig, expat, lcms2, libheif, libde265, dav1d"
         echo
         while read -r n pkgname port; do
             [ "$n" = "$im" ] || continue

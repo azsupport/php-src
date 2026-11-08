@@ -15,9 +15,9 @@
 # https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh, the
 # copy with its version: the top line of every screen and --version show it), it
 # takes the source of the branch from the release freebsd-X.Y-latest of the fork
-# (its SHA-256 checked), and the static libraries PHP is linked with (azsupport, with
+# (its SHA-256 checked), and the static libraries PHP is linked with (az, with
 # the curl of PHP, and ImageMagick7 for imagick: their static tree
-# /usr/local/azsupport/static) from the repository of pkg of the fork
+# /usr/local/az/static) from the repository of pkg of the fork
 # (/usr/local/etc/pkg/repos/az.conf: --repo writes it), builds PHP with the
 # choices, makes the package phpXY-static of it (which depends on those packages)
 # and offers to install it. Inside a PHP source tree it builds that one.
@@ -25,7 +25,7 @@
 # Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree or not:
 #   sh az-menu.sh                   outside a PHP source tree: the packages of the
 #                                   repository az (curl, ffmpeg, ImageMagick6 and 7;
-#                                   azsupport; per version of PHP the core phpXY of
+#                                   az; per version of PHP the core phpXY of
 #                                   pkg mode with its packages phpXY-<module>, or
 #                                   phpXY-static), each the ready one (Options:
 #                                   what it is built with) or, for phpXY-static,
@@ -81,9 +81,9 @@
 # bin/php-config84, bin/php-cgi84, sbin/php-fpm84; --program-suffix=84), its own
 # directories with the version (etc/php84: php.ini, php-fpm.conf, php-fpm.d/;
 # lib/php84, include/php84, share/php84), the Apache module as
-# libexec/apache24/libphp84.so of Apache. With azsupport installed, the libraries
-# are the static ones of its static tree /usr/local/azsupport/static
-# (tools/config-check.sh with PHPDEPS=/usr/local/azsupport/static, as for a
+# libexec/apache24/libphp84.so of Apache. With az installed, the libraries
+# are the static ones of its static tree /usr/local/az/static
+# (tools/config-check.sh with PHPDEPS=/usr/local/az/static, as for a
 # config.installed.sh of it; imagick with static/bin/MagickWand-config of the
 # package ImageMagick7), so php, php-fpm and libphp84.so need no library of
 # /usr/local/lib. The package phpXY-static (origin az/phpXY-static; it takes the
@@ -99,7 +99,7 @@
 # pkg mode (the name and origin of the port, lang/phpXY) with the same files and
 # the empty directories etc/phpXY/conf.d (the ini files of the extensions) and
 # lib/php/<API> (their modules; <API> the ZEND_MODULE_API_NO of the source); it
-# depends on azsupport (the shared libraries of /usr/local/azsupport/lib), its
+# depends on az (the shared libraries of /usr/local/az/lib), its
 # extensions are the packages phpXY-<module> of the repository (the bundled and
 # the PECL ones alike). The annotation "mode" of a package says which: pkg or
 # static.
@@ -1423,9 +1423,9 @@ done
 [ -z "$build$install" ] || [ -n "$batch" ] || die "--build and --install are for --batch (the menu asks)"
 [ -z "$install" ] || [ -n "$build" ] || die "--install needs --build"
 
-# --- /usr/local/azsupport, its repository of pkg, and the builds of the packages ---
-AZ="${AZ_PREFIX:-/usr/local/azsupport}"
-# the static tree of azsupport (static archives, static/bin/pkg-config, the MagickWand-config
+# --- /usr/local/az, its repository of pkg, and the builds of the packages ---
+AZ="${AZ_PREFIX:-/usr/local/az}"
+# the static tree of az (static archives, static/bin/pkg-config, the MagickWand-config
 # of ImageMagick7, the OpenSSL of the port): what PHP built here is linked with; the shared
 # libraries of pkg mode are the top tree $AZ/lib, $AZ/include, $AZ/bin
 AZS="$AZ/static"
@@ -1442,7 +1442,7 @@ cpu_level() {
     done
     echo v3
 }
-# the repository of the packages of /usr/local/azsupport for this FreeBSD and this CPU (the
+# the repository of the packages of /usr/local/az for this FreeBSD and this CPU (the
 # files of a release of the fork; AZ_CANDIDATE=1: the candidate); with the public key of
 # the repository in $AZ_REPO_KEY pkg checks the signature of its catalog with it
 repo_conf() {
@@ -1721,18 +1721,18 @@ package_php() {
         awk -v c=" $configs " 'index(c, " " $0 " ") { print "@config " $0; next } { print }' "$pl.files"
         for d in $dirs; do echo "@dir $d"; done
     } > "$pl"
-    # the packages of /usr/local/azsupport it is built with, and the options: the
+    # the packages of /usr/local/az it is built with, and the options: the
     # static kind with those of the static tree its configure script names, the core
-    # always with azsupport (it links the shared libraries of $AZ/lib)
+    # always with az (it links the shared libraries of $AZ/lib)
     deps=""
-    for d in azsupport ImageMagick7; do
+    for d in az ImageMagick7; do
         if [ "$pkg_kind" = core ]; then
-            [ "$d" = azsupport ] || continue
-            pkg info -e azsupport || { say "the package azsupport is not installed: php$short of pkg mode depends on it"; return 1; }
+            [ "$d" = az ] || continue
+            pkg info -e az || { say "the package az is not installed: php$short of pkg mode depends on it"; return 1; }
         else
             pkg info -e "$d" || continue
             case "$d" in
-                azsupport) grep -q -- "^PKG_CONFIG='$AZS/bin/pkg-config'" "$out_abs" || continue ;;
+                az) grep -q -- "^PKG_CONFIG='$AZS/bin/pkg-config'" "$out_abs" || continue ;;
                 ImageMagick7) grep -q -- "^'--with-imagick=$AZS'" "$out_abs" || continue ;;
             esac
         fi
@@ -1831,7 +1831,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     pkg update -r az > /dev/null 2>&1 || say "pkg update -r az failed: the list of the repository may be old"
     mt="$(mktemp -d)" || exit 2
     pkg rquery -r az '%n	%v	%c' > "$mt/ready" 2>/dev/null
-    names="azsupport curl ffmpeg ImageMagick6 ImageMagick7"
+    names="az curl ffmpeg ImageMagick6 ImageMagick7"
     for b in $BRANCHES; do
         s_="$(echo "$b" | tr -d .)"
         # pkg mode: the core phpXY, the packages of its extensions of the repository
@@ -2532,19 +2532,19 @@ compose() {
     chosen_options >> "$tmp/opts"
     val_options rest >> "$tmp/opts"
     awk '!seen[$0]++' "$tmp/opts" > "$tmp/opts.u"
-    # with the static libraries of azsupport installed (the static tree $AZS): the
+    # with the static libraries of az installed (the static tree $AZS): the
     # options and the environment of a build against them (tools/config-check.sh
     # --deps-rewrite, PHPDEPS the static tree)
     deps_note=""
-    if [ -f "$AZ/share/doc/azsupport/VERSIONS" ] && [ -x "$AZS/bin/pkg-config" ]; then
+    if [ -f "$AZ/share/doc/az/VERSIONS" ] && [ -x "$AZS/bin/pkg-config" ]; then
         if cc_script="$(config_check)"; then
             deps_note="$(PHPDEPS="$AZS" DEPS_PHP_MAJOR="${branch%%.*}" sh "$cc_script" --deps-rewrite "$tmp/opts.u" "$tmp/env" 2>&1)" ||
                 deps_note="the rewrite for $AZS failed: $deps_note"
         else
             deps_note="no tools/config-check.sh for the static libraries of $AZS: the build takes those of /usr/local/lib"
         fi
-    elif [ -f "$AZ/share/doc/azsupport/VERSIONS" ]; then
-        deps_note="azsupport without its static tree ($AZS/bin/pkg-config): an azsupport of before the static tree? The build takes the libraries of /usr/local/lib"
+    elif [ -f "$AZ/share/doc/az/VERSIONS" ]; then
+        deps_note="az without its static tree ($AZS/bin/pkg-config): the build takes the libraries of /usr/local/lib"
     fi
     {
         echo "#!/bin/sh"
@@ -2563,7 +2563,7 @@ compose() {
 # config_check: tools/config-check.sh next to this script, else that of the fork
 # (fetched into $work at each run: with the copy of the release az-menu the one of
 # that release, else that of master), for the rewrite of the options for the
-# static tree /usr/local/azsupport/static
+# static tree /usr/local/az/static
 config_check() {
     _d="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
     if [ -f "$_d/config-check.sh" ]; then echo "$_d/config-check.sh"; return 0; fi
@@ -2638,21 +2638,16 @@ confirm() {
 # (--install, or the dialog)
 build_here() {
     [ "$(id -u)" = 0 ] || die "building the package needs root (pkg, a stage for make install)"
-    need="azsupport"
+    need="az"
     is_on IMAGICK && need="$need ImageMagick7"
     missing=""
-    # azsupport (with the curl of PHP; its static tree $AZS) and ImageMagick7 of the
+    # az (with the curl of PHP; its static tree $AZS) and ImageMagick7 of the
     # repository az (its static libraries and static/bin/MagickWand-config are in
-    # $AZS); the package curl is not needed. An azsupport without the static tree
-    # (one of before it) is upgraded.
+    # $AZS); the package curl is not needed.
     for d in $need; do
-        if [ "$d" = azsupport ]; then
-            if ! pkg info -e azsupport; then missing="$missing azsupport"
-            elif [ ! -x "$AZS/bin/pkg-config" ]; then
-                say "azsupport is installed, but without $AZS/bin/pkg-config: an azsupport of before the static tree, upgraded from the repository az"
-                missing="$missing azsupport"
-            fi
-        elif [ ! -f "$AZ/share/doc/azsupport/VERSIONS" ]; then missing="$missing $d"
+        if [ "$d" = az ]; then
+            pkg info -e az || missing="$missing az"
+        elif [ ! -f "$AZ/share/doc/az/VERSIONS" ]; then missing="$missing $d"
         else
             [ -e "$AZS/bin/MagickWand-config" ] || missing="$missing $d"
         fi

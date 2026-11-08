@@ -42,12 +42,12 @@ KEYS = {'enter': b'\r', 'down': b'\x1bOB', 'up': b'\x1bOA', 'pgdn': b'\x1b[6~', 
 
 # pkg for the session of the packages: the catalog of the repository az as a server
 # reads it (the versions of a build of az.yml and az-php.yml of 05.11.2026; the static
-# packages of PHP named phpXY-static and the libraries of azsupport in the layout of
-# 08.11.2026: static ones in /usr/local/azsupport/static, shared ones in lib/)
+# packages of PHP named phpXY-static and the libraries of az in the layout of
+# 08.11.2026: static ones in /usr/local/az/static, shared ones in lib/)
 FAKE_PKG = r"""#!/bin/sh
 cat_az() {
     printf '%s\t%s\t%s\n' \
-        azsupport 20261105_26110500 'Libraries of /usr/local/azsupport: static ones in static/, for builds of PHP and the programs; shared ones in lib/, for the packages of PHP of pkg mode' \
+        az 20261105_26110500 'Libraries of /usr/local/az: static ones in static/, for builds of PHP and the programs; shared ones in lib/, for the packages of PHP of pkg mode' \
         curl 8.23.0_26110500 'Command line tool and library for transferring data with URLs (static, of azsupport/php-src)' \
         ffmpeg 9.0.2_26110500,1 'FFmpeg for the video sites, static (ffmpeg, ffprobe)' \
         ImageMagick6 6.9.13.59_26110500,1 'ImageMagick 6 for the video sites, static (convert6, identify6, ...)' \
@@ -70,13 +70,13 @@ case "$1" in
             '%n-%v: %c') cat_az | awk -F '\t' -v n="$n" '$1 == n { print $1 "-" $2 ": " $3 }' ;;
             '%e')
                 v="${n#php}"; v="${v%-static}"; b="${v%?}.${v#?}"
-                echo "PHP $b of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/azsupport/static." ;;
+                echo "PHP $b of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/az/static." ;;
             '%At%Av'|'%At	%Av')
                 v="${n#php}"; v="${v%-static}"
-                printf 'configure\t%s\n' "--prefix=/usr/local --program-suffix=$v --sysconfdir=/usr/local/etc/php$v --libdir=/usr/local/lib/php$v --includedir=/usr/local/include/php$v --datadir=/usr/local/share/php$v --mandir=/usr/local/share/man --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-curl=/usr/local/azsupport/static --enable-dom --enable-filter --enable-mbstring --enable-opcache --enable-session --enable-gd --enable-mysqlnd --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-zip --enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd --enable-memcached --with-libmemcached-dir=/usr/local/azsupport/static --disable-memcached-sasl --with-imagick=/usr/local/azsupport/static"
+                printf 'configure\t%s\n' "--prefix=/usr/local --program-suffix=$v --sysconfdir=/usr/local/etc/php$v --libdir=/usr/local/lib/php$v --includedir=/usr/local/include/php$v --datadir=/usr/local/share/php$v --mandir=/usr/local/share/man --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-curl=/usr/local/az/static --enable-dom --enable-filter --enable-mbstring --enable-opcache --enable-session --enable-gd --enable-mysqlnd --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-zip --enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd --enable-memcached --with-libmemcached-dir=/usr/local/az/static --disable-memcached-sasl --with-imagick=/usr/local/az/static"
                 printf 'cflags\t%s\n' '-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing'
                 printf 'built_by\t%s\n' 'az-menu.sh r16 (b28c3f4391, 05.11.2026 00:34 CET)' ;;
-            '%dn-%dv') printf '%s\n' azsupport-20261105_26110500 curl-8.23.0_26110500 ImageMagick7-7.1.2.34_26110500 ;;
+            '%dn-%dv') printf '%s\n' az-20261105_26110500 curl-8.23.0_26110500 ImageMagick7-7.1.2.34_26110500 ;;
             *) cat_az ;;
         esac ;;
     *) exit 1 ;;

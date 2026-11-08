@@ -28,8 +28,8 @@ have. So a release issue says what the release notes name (CVE and GHSA ids, on
 GitHub) and what the commit messages since the tag of the version built name (any
 git repository), and it stays open as a note until the port has the version.
 
-The libraries of /usr/local/azsupport built from ports (freebsd/deps.conf: static in
-/usr/local/azsupport/static, shared in /usr/local/azsupport/lib), and
+The libraries of /usr/local/az built from ports (freebsd/deps.conf: static in
+/usr/local/az/static, shared in /usr/local/az/lib), and
 the packages built against them (FFmpeg, freebsd/ffmpeg.conf; ImageMagick,
 freebsd/imagemagick.conf; tools/build-az.sh):
 their upstream releases ("upstream" lines: tags or a directory listing) newer than
@@ -246,7 +246,7 @@ def tag_version(tag, name=None):
 AZ_STEPS = ("run az.yml (it builds, tests and publishes the packages to `az-fbsd<major>-amd64-<level>-candidate`), "
             "the build test of PHP against them, a check on a server, then az.yml with `candidate` off.")
 BUNDLES = [
-    ("deps.conf", "phpdeps", "the packages azsupport (/usr/local/azsupport) and curl", "az.yml", AZ_STEPS),
+    ("deps.conf", "phpdeps", "the packages az (/usr/local/az) and curl", "az.yml", AZ_STEPS),
     ("ffmpeg.conf", "ffmpeg", "the package ffmpeg", "az.yml", AZ_STEPS),
     ("imagemagick.conf", "imagemagick", "the packages ImageMagick6 and ImageMagick7", "az.yml", AZ_STEPS),
 ]
@@ -930,7 +930,7 @@ def port_finding(git, port, rev, kept, commits, moved, base):
                   "commits of that time." % rev, ""]
     newest = commits[0][0][:12] if commits else "<new revision>"
     if kept == "the ports commit of freebsd/deps.conf":
-        lines += ["After the review: take what /usr/local/azsupport needs (patches of the port for a take line into "
+        lines += ["After the review: take what /usr/local/az needs (patches of the port for a take line into "
                   "`freebsd/deps/<name>-<version>/`, of multimedia/ffmpeg into `freebsd/ffmpeg/` and of the "
                   "ImageMagick ports into `freebsd/imagemagick/` when they are not the port's own), then move "
                   "the ports commit of `freebsd/deps.conf` to `%s` (the ports of all the libraries, FFmpeg and "

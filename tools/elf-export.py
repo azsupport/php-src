@@ -2,7 +2,7 @@
 """elf-export.py - give the global symbols of a relocatable ELF object (64-bit,
 little-endian) whose names begin with a prefix the default visibility.
 
-The static libcurl.a of /usr/local/azsupport/static is built with -fvisibility=hidden and
+The static libcurl.a of /usr/local/az/static is built with -fvisibility=hidden and
 CURL_STATICLIB, so its functions are hidden: PHP links it in and exports none
 of them. libcurl.so.4 of the package curl is made of the same objects
 (tools/build-deps.sh: ld -r of libcurl.a into one object, then this script on
