@@ -1430,6 +1430,8 @@ AZ="${AZ_PREFIX:-/usr/local/az}"
 # libraries of pkg mode are the top tree $AZ/lib, $AZ/include, $AZ/bin
 AZS="$AZ/static"
 AZ_URL="${AZ_URL:-https://github.com/azsupport/php-src}"
+# the repository az of pkg: the releases of the tree of ports azsupport/ports (08.11.2026)
+AZ_REPO_URL="${AZ_REPO_URL:-https://github.com/azsupport/ports}"
 AZ_REPO_CONF="${AZ_REPO_CONF:-/usr/local/etc/pkg/repos/az.conf}"
 AZ_REPO_KEY="${AZ_REPO_KEY:-/usr/local/etc/pkg/keys/az.pub}"
 work="${AZ_MENU_WORK:-/var/tmp/az-menu}"
@@ -1443,10 +1445,10 @@ cpu_level() {
     echo v3
 }
 # the repository of the packages of /usr/local/az for this FreeBSD and this CPU (the
-# files of a release of the fork; AZ_CANDIDATE=1: the candidate); with the public key of
+# files of a release of azsupport/ports; AZ_CANDIDATE=1: the candidate); with the public key of
 # the repository in $AZ_REPO_KEY pkg checks the signature of its catalog with it
 repo_conf() {
-    _rc_u="$AZ_URL/releases/download/az-fbsd$(uname -r | cut -d. -f1)-amd64-$(cpu_level)${AZ_CANDIDATE:+-candidate}"
+    _rc_u="$AZ_REPO_URL/releases/download/az-fbsd$(uname -r | cut -d. -f1)-amd64-$(cpu_level)${AZ_CANDIDATE:+-candidate}"
     if [ -s "$AZ_REPO_KEY" ]; then
         printf 'az: {\n    url: "%s",\n    signature_type: "pubkey",\n    pubkey: "%s",\n    priority: 100,\n    enabled: yes\n}\n' "$_rc_u" "$AZ_REPO_KEY"
     else
