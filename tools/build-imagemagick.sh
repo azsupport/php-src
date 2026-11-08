@@ -256,10 +256,14 @@ take_args() {
     mkdir -p "$work/distfiles"
     if [ ! -f "$work/distfiles/$tf" ] || [ "$(sha256 -q "$work/distfiles/$tf")" != "$3" ]; then
         rm -f "$work/distfiles/$tf"
-        for u in $(echo "$2" | tr ',' ' '); do
-            fetch -q -T 60 -o "$work/distfiles/$tf" "$u" && break
-            echo "== fetch $u failed" >&2
-            rm -f "$work/distfiles/$tf"
+        # every address up to three times: a release file of GitHub sometimes stalls
+        for try in 1 2 3; do
+            for u in $(echo "$2" | tr ',' ' '); do
+                fetch -q -T 60 -o "$work/distfiles/$tf" "$u" && break 2
+                echo "== fetch $u failed (try $try of 3)" >&2
+                rm -f "$work/distfiles/$tf"
+            done
+            [ "$try" = 3 ] || sleep $((try * 15))
         done
         [ -f "$work/distfiles/$tf" ] || return 1
     fi
@@ -295,6 +299,8 @@ build_one() {
         if [ "$trc" != 0 ]; then cat "$res/$n.take"; echo "== $n: the release of the take line could not be had"; exit 1; fi
         if [ -n "$take_ver" ]; then
             echo "== $n: $port at $ports_commit with the release $take_ver of the take line in imagemagick.conf:"
+            # the failed tries before the one that worked
+            [ ! -s "$res/$n.take" ] || cat "$res/$n.take"
             printf '   %s\n' $targs
         else
             echo "== $n: $port at $ports_commit"
