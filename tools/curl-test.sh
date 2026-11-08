@@ -60,7 +60,8 @@ case "$libs" in *"/usr/local/"*) fail "links a library of /usr/local: $libs" ;; 
 echo "a line of a file" > "$T/file.txt"
 if [ "$("$c" -sS "file://$T/file.txt" 2>&1)" = "a line of a file" ]; then pass "file:// reads a local file"
 else fail "file://: $("$c" -sS "file://$T/file.txt" 2>&1 | head -n 2 | tr '\n' ' ')"; fi
-r="$("$c" -sS -o /dev/null --max-time 60 -w '%{http_code} %{http_version} %{ssl_verify_result}' https://github.com/ 2>&1)"
+# up to three tries: on 08.11.2026 GitHub did not answer the VM for 60 s, git over https a minute later did
+r="$("$c" -sS -o /dev/null --max-time 60 --retry 2 --retry-all-errors --retry-delay 10 -w '%{http_code} %{http_version} %{ssl_verify_result}' https://github.com/ 2>&1)"
 case "$r" in
     "200 2 0"|"301 2 0"|"302 2 0") pass "https://github.com/: status, HTTP version, verification: $r" ;;
     *) fail "https://github.com/: $r" ;;

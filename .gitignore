@@ -1,1 +1,3 @@
 __pycache__/
+# the files of the take lines, fetched by tools/take-fetch.sh
+distfiles/
