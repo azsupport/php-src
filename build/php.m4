@@ -1120,7 +1120,7 @@ AC_CACHE_CHECK(for type of reentrant time-related functions, ac_cv_time_r_type,[
 AC_RUN_IFELSE([AC_LANG_SOURCE([[
 #include <time.h>
 
-main() {
+int main() {
 char buf[27];
 struct tm t;
 time_t old = 0;
@@ -1136,7 +1136,7 @@ return (1);
 ],[
   AC_RUN_IFELSE([AC_LANG_SOURCE([[
 #include <time.h>
-main() {
+int main() {
   struct tm t, *s;
   time_t old = 0;
   char buf[27], *p;
@@ -1597,7 +1597,7 @@ AC_DEFUN([PHP_CHECK_FUNC_LIB],[
   if test "$found" = "yes"; then
     ac_libs=$LIBS
     LIBS="$LIBS -l$2"
-    AC_RUN_IFELSE([AC_LANG_SOURCE([[main() { return (0); }]])],[found=yes],[found=no],[found=no])
+    AC_RUN_IFELSE([AC_LANG_SOURCE([[int main(void) { return (0); }]])],[found=yes],[found=no],[found=no])
     LIBS=$ac_libs
   fi
 
@@ -2285,7 +2285,7 @@ AC_DEFUN([PHP_TEST_WRITE_STDOUT],[
 
 #define TEXT "This is the test message -- "
 
-main()
+int main()
 {
   int n;
 
