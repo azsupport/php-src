@@ -2,6 +2,5 @@
 # Format: "<port file>: <reason>"; listed in the branch README and in the release notes.
 # Documentation only: editing this file does not rebuild the branch.
 patch-configure.ac: its ifunc hunk is applied as compat-freebsd-ifunc.patch (configure checks the ifunc and target function attributes on FreeBSD too); the other hunks are not: three are the ports build layout, which makes php_config.h include ext/php_config.h that only the port's Makefile creates (a hand build fails without it), drops the configure pthreads check and sets the ports' PEAR include_path, and two do not matter here: the nanosleep hunk (libc before librt) would only drop a NEEDED librt.so.1 (librt is part of the base system), and php-src has no include/ for the header hunk to leave out
-patch-ext_hash_xxhash_xxhash.h: PowerPC VSX (AltiVec) and s390x only; no effect on amd64
-patch-ext_pcre_pcre2lib_sljit_sljitConfigInternal.h: PowerPC 32-bit only; no effect on amd64
+patch-ext_pcre_pcre2lib_sljit_sljitConfigInternal.h: PowerPC 32-bit, for the copy of PCRE2 that upstream bundles; this fork bundles PCRE2 10.49 instead (freebsd/pcre.conf), whose sljit already leaves out __builtin___clear_cache on every PowerPC (SLJIT_CONFIG_PPC, 32 and 64 bit), so its change is there already
 php_fpm.in: the rc.d script of the port, not a source patch; your own rc.d scripts stay in use
