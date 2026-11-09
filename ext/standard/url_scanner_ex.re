@@ -76,7 +76,7 @@ static PHP_INI_MH(OnUpdateTags)
 			
 			*val++ = '\0';
 			for (q = key; *q; q++)
-				*q = tolower(*q);
+				*q = tolower((unsigned char)*q);
 			keylen = q - key;
 			/* key is stored withOUT NUL
 			   val is stored WITH    NUL */

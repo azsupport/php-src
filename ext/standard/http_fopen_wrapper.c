@@ -73,6 +73,7 @@
 #include "php_fopen_wrappers.h"
 
 #define HTTP_HEADER_BLOCK_SIZE		1024
+#define HTTP_HEADER_MAX_LOCATION_SIZE	8182 /* 8192 - 10 (size of "Location: ") */
 #define PHP_URL_REDIRECT_MAX		20
 #define HTTP_HEADER_USER_AGENT		1
 #define HTTP_HEADER_HOST			2
@@ -84,29 +85,301 @@
 
 #define HTTP_WRAPPER_HEADER_INIT    1
 #define HTTP_WRAPPER_REDIRECTED     2
+#define HTTP_WRAPPER_KEEP_METHOD    4
+#define HTTP_WRAPPER_STRIP_AUTH     8
 
+static char *next_header_line(char *line)
+{
+	while (*line != '\0' && *line != '\r' && *line != '\n') {
+		line++;
+	}
+	if (*line == '\r') {
+		line++;
+	}
+	if (*line == '\n') {
+		line++;
+	}
+
+	return line;
+}
+
+/* Removes every line whose header name matches, along with the folded
+ * continuation lines carrying the rest of its value. Neither a repeated header
+ * nor an occurrence of the name inside another header's value may leave the real
+ * header behind, as that would defeat HTTP_WRAPPER_STRIP_AUTH. */
 static inline void strip_header(char *header_bag, char *lc_header_bag,
 		const char *lc_header_name)
 {
-	char *lc_header_start = strstr(lc_header_bag, lc_header_name);
-	char *header_start = header_bag + (lc_header_start - lc_header_bag);
+	size_t name_len = strlen(lc_header_name);
+	char *lc_line = lc_header_bag;
 
-	if (lc_header_start
-	&& (lc_header_start == lc_header_bag || *(lc_header_start-1) == '\n')
-	) {
-		char *lc_eol = strchr(lc_header_start, '\n');
-		char *eol = header_start + (lc_eol - lc_header_start);
+	while (*lc_line != '\0') {
+		const char *lc_colon;
+		char *lc_next, *line;
+		size_t tail_len;
 
-		if (lc_eol) {
-			size_t eollen = strlen(lc_eol);
+		if (strncmp(lc_line, lc_header_name, name_len) != 0) {
+			lc_line = next_header_line(lc_line);
+			continue;
+		}
 
-			memmove(lc_header_start, lc_eol+1, eollen);
-			memmove(header_start, eol+1, eollen);
-		} else {
-			*lc_header_start = '\0';
-			*header_start = '\0';
+		/* the whitespace RFC 7230 forbids before the colon is tolerated by some
+		 * servers, so it must not hide the header from us either */
+		lc_colon = lc_line + name_len;
+		while (*lc_colon == ' ' || *lc_colon == '\t') {
+			lc_colon++;
+		}
+
+		if (*lc_colon != ':') {
+			lc_line = next_header_line(lc_line);
+			continue;
+		}
+
+		lc_next = next_header_line(lc_line);
+		while (*lc_next == ' ' || *lc_next == '\t') {
+			lc_next = next_header_line(lc_next);
+		}
+
+		if (*lc_next == '\0') {
+			/* drop the preceding line break too, or the one appended after the bag
+			 * would close the header block early */
+			while (lc_line > lc_header_bag
+					&& (*(lc_line - 1) == '\r' || *(lc_line - 1) == '\n')) {
+				--lc_line;
+			}
+		}
+
+		tail_len = strlen(lc_next) + 1;
+		line = header_bag + (lc_line - lc_header_bag);
+
+		memmove(line, header_bag + (lc_next - lc_header_bag), tail_len);
+		memmove(lc_line, lc_next, tail_len);
+	}
+}
+
+/* GHSA-hgf5-96fm-v528 (CVE-2025-1736): a header the user gives counts only at the
+ * start of the bag or after CRLF, and every occurrence is looked at, not only the
+ * first one */
+static int check_has_header(const char *headers, const char *header)
+{
+	const char *s = headers;
+
+	while ((s = strstr(s, header))) {
+		if (s == headers || (s - headers >= 2 && *(s-1) == '\n' && *(s-2) == '\r')) {
+			return 1;
+		}
+		s++;
+	}
+	return 0;
+}
+
+/* The response headers, read as php-src reads them since GHSA-v8xr-gpvj-cx9g
+ * (CVE-2025-1217: folded headers), GHSA-pcmh-g36c-qc44 (CVE-2025-1734: a line
+ * without a colon or a name with white space makes the response invalid) and
+ * GHSA-52jp-hrpf-2jff (CVE-2025-1861: Location is no longer cut at 1024 bytes) */
+typedef struct _php_stream_http_response_header_info {
+	php_stream_filter *transfer_encoding;
+	size_t file_size;
+	zend_bool error;
+	zend_bool follow_location;
+	char *location;
+	size_t location_len;
+} php_stream_http_response_header_info;
+
+static void php_stream_http_response_header_info_init(php_stream_http_response_header_info *header_info)
+{
+	memset(header_info, 0, sizeof(php_stream_http_response_header_info));
+	header_info->follow_location = 1;
+}
+
+/* Trims the line break and the trailing white space of a header line and updates
+ * its length; returns whether white space was trimmed */
+static zend_bool php_stream_http_response_header_trim(char *http_header_line, size_t *http_header_line_length)
+{
+	char *http_header_line_end = http_header_line + *http_header_line_length - 1;
+	zend_bool space_trim;
+
+	while (http_header_line_end >= http_header_line &&
+			(*http_header_line_end == '\n' || *http_header_line_end == '\r')) {
+		http_header_line_end--;
+	}
+	/* RFC 7230: a field name, a colon, optional leading white space, the value
+	 * and optional trailing white space */
+	space_trim = (http_header_line_end >= http_header_line &&
+			(*http_header_line_end == ' ' || *http_header_line_end == '\t'));
+	if (space_trim) {
+		do {
+			http_header_line_end--;
+		} while (http_header_line_end >= http_header_line &&
+				(*http_header_line_end == ' ' || *http_header_line_end == '\t'));
+	}
+	http_header_line_end++;
+	*http_header_line_end = '\0';
+	*http_header_line_length = http_header_line_end - http_header_line;
+
+	return space_trim;
+}
+
+/* Folds the current line into the last one when it starts with a space or a tab;
+ * else parses the last header line, which is then stored in response_header or
+ * freed. Returns the extended last line while folding goes on, NULL when the last
+ * line is done (header_info->error: the response is invalid). */
+static char *php_stream_http_response_headers_parse(php_stream_wrapper *wrapper,
+		php_stream *stream, php_stream_context *context, int options,
+		char *last_header_line, size_t *last_header_line_length,
+		char *header_line, size_t *header_line_length, int response_code,
+		zval *response_header, php_stream_http_response_header_info *header_info TSRMLS_DC)
+{
+	char *last_header_line_end = last_header_line + *last_header_line_length - 1;
+	char *last_header_value;
+	zend_bool store_header = 1;
+	zval **tmpzval = NULL;
+
+	/* a non empty header line */
+	if (header_line && (*header_line != '\n' && *header_line != '\r')) {
+		/* trailing white space goes */
+		if (php_stream_http_response_header_trim(header_line, header_line_length) &&
+				*header_line_length == 0) {
+			/* only white space: an empty folding line */
+			return last_header_line;
+		}
+
+		/* a folding line starts with a space or a tab */
+		if (*header_line == ' ' || *header_line == '\t') {
+			char *folded = header_line;
+			size_t folded_length = *header_line_length;
+			char *extended;
+
+			while (*folded == ' ' || *folded == '\t') {
+				folded++;
+				folded_length--;
+			}
+			/* the last line, a space and the folded line */
+			extended = safe_emalloc(*last_header_line_length, 1, folded_length + 2);
+			memcpy(extended, last_header_line, *last_header_line_length);
+			extended[*last_header_line_length] = ' ';
+			memcpy(extended + *last_header_line_length + 1, folded, folded_length);
+			*last_header_line_length += 1 + folded_length;
+			extended[*last_header_line_length] = '\0';
+			efree(last_header_line);
+			return extended;
 		}
 	}
+
+	/* the separator */
+	last_header_value = memchr(last_header_line, ':', *last_header_line_length);
+	if (last_header_value) {
+		/* no white space in the name */
+		char *last_header_name = last_header_line + 1;
+
+		while (last_header_name < last_header_value) {
+			if (*last_header_name == ' ' || *last_header_name == '\t') {
+				header_info->error = 1;
+				php_stream_wrapper_log_error(wrapper, options TSRMLS_CC,
+						"HTTP invalid response format (space in header name)!");
+				efree(last_header_line);
+				return NULL;
+			}
+			++last_header_name;
+		}
+
+		last_header_value++; /* skip ':' */
+
+		/* leading white space goes */
+		while (last_header_value < last_header_line_end
+				&& (*last_header_value == ' ' || *last_header_value == '\t')) {
+			last_header_value++;
+		}
+	} else {
+		/* no colon: an invalid response */
+		header_info->error = 1;
+		php_stream_wrapper_log_error(wrapper, options TSRMLS_CC,
+				"HTTP invalid response format (no colon in header line)!");
+		efree(last_header_line);
+		return NULL;
+	}
+
+	if (!strncasecmp(last_header_line, "Location:", sizeof("Location:")-1)) {
+		size_t last_header_value_len;
+
+		if (context && php_stream_context_get_option(context, "http", "follow_location", &tmpzval) == SUCCESS) {
+			SEPARATE_ZVAL(tmpzval);
+			convert_to_long_ex(tmpzval);
+			header_info->follow_location = Z_LVAL_PP(tmpzval) != 0;
+		} else if (!((response_code >= 300 && response_code < 304)
+				|| 307 == response_code || 308 == response_code)) {
+			/* we shouldn't redirect automatically
+			if follow_location isn't set and response_code not in (300, 301, 302, 303 and 307)
+			see http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.3.1
+			RFC 7238 defines 308: http://tools.ietf.org/html/rfc7238 */
+			header_info->follow_location = 0;
+		}
+		last_header_value_len = strlen(last_header_value);
+		if (last_header_value_len > HTTP_HEADER_MAX_LOCATION_SIZE) {
+			header_info->error = 1;
+			php_stream_wrapper_log_error(wrapper, options TSRMLS_CC,
+					"HTTP Location header size is over the limit of %d bytes",
+					HTTP_HEADER_MAX_LOCATION_SIZE);
+			efree(last_header_line);
+			return NULL;
+		}
+		if (last_header_value_len == 0) {
+			/* an empty Location: no redirect, as before */
+			if (header_info->location != NULL) {
+				efree(header_info->location);
+				header_info->location = NULL;
+			}
+			header_info->location_len = 0;
+		} else {
+			if (header_info->location == NULL) {
+				header_info->location = emalloc(last_header_value_len + 1);
+			} else if (header_info->location_len < last_header_value_len) {
+				header_info->location = erealloc(header_info->location, last_header_value_len + 1);
+			}
+			header_info->location_len = last_header_value_len;
+			memcpy(header_info->location, last_header_value, last_header_value_len + 1);
+		}
+	} else if (!strncasecmp(last_header_line, "Content-Type:", sizeof("Content-Type:")-1)) {
+		php_stream_notify_info(context, PHP_STREAM_NOTIFY_MIME_TYPE_IS, last_header_value, 0);
+	} else if (!strncasecmp(last_header_line, "Content-Length:", sizeof("Content-Length:")-1)) {
+		header_info->file_size = atoi(last_header_value);
+		php_stream_notify_file_size(context, header_info->file_size, last_header_line, 0);
+	} else if (!strncasecmp(last_header_line, "Transfer-Encoding:", sizeof("Transfer-Encoding:")-1)
+			&& !strncasecmp(last_header_value, "Chunked", sizeof("Chunked")-1)) {
+		/* a filter to decode the response body */
+		if (!(options & STREAM_ONLY_GET_HEADERS)) {
+			long decode = 1;
+
+			if (context && php_stream_context_get_option(context, "http", "auto_decode", &tmpzval) == SUCCESS) {
+				SEPARATE_ZVAL(tmpzval);
+				convert_to_boolean(*tmpzval);
+				decode = Z_LVAL_PP(tmpzval);
+			}
+			if (decode) {
+				if (header_info->transfer_encoding != NULL) {
+					/* no leak with more than one Transfer-Encoding header */
+					php_stream_filter_free(header_info->transfer_encoding TSRMLS_CC);
+				}
+				header_info->transfer_encoding = php_stream_filter_create("dechunk", NULL, php_stream_is_persistent(stream) TSRMLS_CC);
+				if (header_info->transfer_encoding != NULL) {
+					/* the Transfer-Encoding header is not stored */
+					store_header = 0;
+				}
+			}
+		}
+	}
+
+	if (store_header) {
+		zval *http_header;
+
+		MAKE_STD_ZVAL(http_header);
+		ZVAL_STRINGL(http_header, last_header_line, *last_header_line_length, 0);
+		zend_hash_next_index_insert(Z_ARRVAL_P(response_header), &http_header, sizeof(zval *), NULL);
+	} else {
+		efree(last_header_line);
+	}
+
+	return NULL;
 }
 
 php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper, 
@@ -122,13 +395,11 @@ php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper,
 	char *ua_str = NULL;
 	zval **ua_zval = NULL, **tmpzval = NULL, *ssl_proxy_peer_name = NULL;
 	int scratch_len = 0;
-	int body = 0;
-	char location[HTTP_HEADER_BLOCK_SIZE];
 	zval *response_header = NULL;
 	int reqok = 0;
 	char *http_header_line = NULL;
 	char tmp_line[128];
-	size_t chunk_size = 0, file_size = 0;
+	size_t chunk_size = 0;
 	int eol_detect = 0;
 	char *transport_string, *errstr = NULL;
 	int transport_len, have_header = 0, request_fulluri = 0, ignore_errors = 0;
@@ -138,11 +409,14 @@ php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper,
 	char *user_headers = NULL;
 	int header_init = ((flags & HTTP_WRAPPER_HEADER_INIT) != 0);
 	int redirected = ((flags & HTTP_WRAPPER_REDIRECTED) != 0);
-	int follow_location = 1;
-	php_stream_filter *transfer_encoding = NULL;
+	int redirect_keep_method = ((flags & HTTP_WRAPPER_KEEP_METHOD) != 0);
+	php_stream_http_response_header_info header_info;
+	char *last_header_line = NULL;
+	size_t last_header_line_length = 0;
 	int response_code;
 
 	tmp_line[0] = '\0';
+	php_stream_http_response_header_info_init(&header_info);
 
 	if (redirect_max < 1) {
 		php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "Redirection limit reached, aborting");
@@ -375,7 +649,7 @@ finish:
 		if (Z_TYPE_PP(tmpzval) == IS_STRING && Z_STRLEN_PP(tmpzval) > 0) {
 			/* As per the RFC, automatically redirected requests MUST NOT use other methods than
 			 * GET and HEAD unless it can be confirmed by the user */
-			if (!redirected
+			if (!redirected || redirect_keep_method
 				|| (Z_STRLEN_PP(tmpzval) == 3 && memcmp("GET", Z_STRVAL_PP(tmpzval), 3) == 0)
 				|| (Z_STRLEN_PP(tmpzval) == 4 && memcmp("HEAD",Z_STRVAL_PP(tmpzval), 4) == 0)
 			) {
@@ -467,51 +741,51 @@ finish:
 			/* Make lowercase for easy comparison against 'standard' headers */
 			php_strtolower(tmp, strlen(tmp));
 
-			if (!header_init) {
+			if (!header_init && !redirect_keep_method) {
 				/* strip POST headers on redirect */
-				strip_header(user_headers, tmp, "content-length:");
-				strip_header(user_headers, tmp, "content-type:");
+				strip_header(user_headers, tmp, "content-length");
+				strip_header(user_headers, tmp, "content-type");
 			}
 
-			if ((s = strstr(tmp, "user-agent:")) &&
-			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
-			                 *(s-1) == '\t' || *(s-1) == ' ')) {
+			if (flags & HTTP_WRAPPER_STRIP_AUTH) {
+				strip_header(user_headers, tmp, "authorization");
+				strip_header(user_headers, tmp, "cookie");
+				if (!use_proxy) {
+					strip_header(user_headers, tmp, "proxy-authorization");
+				}
+			}
+
+			if (*user_headers == '\0') {
+				/* everything got stripped, keeping the empty bag would append a
+				 * stray CRLF and end the header block early */
+				efree(user_headers);
+				user_headers = NULL;
+			}
+
+			if (check_has_header(tmp, "user-agent:")) {
 				 have_header |= HTTP_HEADER_USER_AGENT;
 			}
-			if ((s = strstr(tmp, "host:")) &&
-			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
-			                 *(s-1) == '\t' || *(s-1) == ' ')) {
+			if (check_has_header(tmp, "host:")) {
 				 have_header |= HTTP_HEADER_HOST;
 			}
-			if ((s = strstr(tmp, "from:")) &&
-			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
-			                 *(s-1) == '\t' || *(s-1) == ' ')) {
+			if (check_has_header(tmp, "from:")) {
 				 have_header |= HTTP_HEADER_FROM;
 				}
-			if ((s = strstr(tmp, "authorization:")) &&
-			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
-			                 *(s-1) == '\t' || *(s-1) == ' ')) {
+			if (check_has_header(tmp, "authorization:")) {
 				 have_header |= HTTP_HEADER_AUTH;
 			}
-			if ((s = strstr(tmp, "content-length:")) &&
-			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
-			                 *(s-1) == '\t' || *(s-1) == ' ')) {
+			if (check_has_header(tmp, "content-length:")) {
 				 have_header |= HTTP_HEADER_CONTENT_LENGTH;
 			}
-			if ((s = strstr(tmp, "content-type:")) &&
-			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
-			                 *(s-1) == '\t' || *(s-1) == ' ')) {
+			if (check_has_header(tmp, "content-type:")) {
 				 have_header |= HTTP_HEADER_TYPE;
 			}
-			if ((s = strstr(tmp, "connection:")) &&
-			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' || 
-			                 *(s-1) == '\t' || *(s-1) == ' ')) {
+			if (check_has_header(tmp, "connection:")) {
 				 have_header |= HTTP_HEADER_CONNECTION;
 			}
 			/* remove Proxy-Authorization header */
 			if (use_proxy && use_ssl && (s = strstr(tmp, "proxy-authorization:")) &&
-			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
-			                 *(s-1) == '\t' || *(s-1) == ' ')) {
+			    (s == tmp || *(s-1) == '\n')) {
 				char *p = s + sizeof("proxy-authorization:") - 1;
 
 				while (s > tmp && (*(s-1) == ' ' || *(s-1) == '\t')) s--;
@@ -627,7 +901,7 @@ finish:
 		 * see bug #44603 for details. Since Content-Type maybe part of user's headers we need to do this check first.
 		 */
 		if (
-				header_init &&
+				(header_init || redirect_keep_method) &&
 				context &&
 				!(have_header & HTTP_HEADER_CONTENT_LENGTH) &&
 				php_stream_context_get_option(context, "http", "content", &tmpzval) == SUCCESS &&
@@ -644,7 +918,7 @@ finish:
 	}
 
 	/* Request content, such as for POST requests */
-	if (header_init && context &&
+	if ((header_init || redirect_keep_method) && context &&
 		php_stream_context_get_option(context, "http", "content", &tmpzval) == SUCCESS &&
 		Z_TYPE_PP(tmpzval) == IS_STRING && Z_STRLEN_PP(tmpzval) > 0) {
 		if (!(have_header & HTTP_HEADER_CONTENT_LENGTH)) {
@@ -661,8 +935,6 @@ finish:
 	} else {
 		php_stream_write(stream, "\r\n", sizeof("\r\n")-1);
 	}
-
-	location[0] = '\0';
 
 	if (!EG(active_symbol_table)) {
 		zend_rebuild_symbol_table(TSRMLS_C);
@@ -758,108 +1030,109 @@ finish:
 	}
 
 	/* read past HTTP headers */
-
-	http_header_line = emalloc(HTTP_HEADER_BLOCK_SIZE);
-
-	while (!body && !php_stream_eof(stream)) {
+	while (!php_stream_eof(stream)) {
 		size_t http_header_line_length;
-		if (php_stream_get_line(stream, http_header_line, HTTP_HEADER_BLOCK_SIZE, &http_header_line_length) && *http_header_line != '\n' && *http_header_line != '\r') {
-			char *e = http_header_line + http_header_line_length - 1;
-			if (*e != '\n') {
-				do { /* partial header */
-					if (php_stream_get_line(stream, http_header_line, HTTP_HEADER_BLOCK_SIZE, &http_header_line_length) == NULL) {
-						php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "Failed to read HTTP headers");
+
+		if (http_header_line != NULL) {
+			efree(http_header_line);
+		}
+		if ((http_header_line = php_stream_get_line(stream, NULL, 0, &http_header_line_length))) {
+			zend_bool last_line;
+
+			if (*http_header_line == '\r') {
+				if (http_header_line[1] != '\n') {
+					php_stream_close(stream);
+					stream = NULL;
+					php_stream_wrapper_log_error(wrapper, options TSRMLS_CC,
+							"HTTP invalid header name (cannot start with CR character)!");
+					goto out;
+				}
+				last_line = 1;
+			} else if (*http_header_line == '\n') {
+				last_line = 1;
+			} else {
+				last_line = 0;
+			}
+
+			if (last_header_line != NULL) {
+				/* parse the last header line */
+				last_header_line = php_stream_http_response_headers_parse(wrapper, stream, context, options,
+						last_header_line, &last_header_line_length, http_header_line, &http_header_line_length,
+						response_code, response_header, &header_info TSRMLS_CC);
+				if (last_header_line == NULL) {
+					if (header_info.error) {
+						php_stream_close(stream);
+						stream = NULL;
 						goto out;
 					}
-					e = http_header_line + http_header_line_length - 1;
-				} while (*e != '\n');
-				continue;
-			}
-			while (*e == '\n' || *e == '\r') {
-				e--;
-			}
-			http_header_line_length = e - http_header_line + 1;
-			http_header_line[http_header_line_length] = '\0';
-
-			if (!strncasecmp(http_header_line, "Location: ", 10)) {
-				if (context && php_stream_context_get_option(context, "http", "follow_location", &tmpzval) == SUCCESS) {
-					SEPARATE_ZVAL(tmpzval);
-					convert_to_long_ex(tmpzval);
-					follow_location = Z_LVAL_PP(tmpzval);
-				} else if (!(response_code >= 300 && response_code < 304 || 307 == response_code || 308 == response_code)) {
-					/* we shouldn't redirect automatically
-					if follow_location isn't set and response_code not in (300, 301, 302, 303 and 307)
-					see http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.3.1
-					RFC 7238 defines 308: http://tools.ietf.org/html/rfc7238 */
-					follow_location = 0;
+				} else {
+					/* a folding line: go on */
+					continue;
 				}
-				strlcpy(location, http_header_line + 10, sizeof(location));
-			} else if (!strncasecmp(http_header_line, "Content-Type: ", 14)) {
-				php_stream_notify_info(context, PHP_STREAM_NOTIFY_MIME_TYPE_IS, http_header_line + 14, 0);
-			} else if (!strncasecmp(http_header_line, "Content-Length: ", 16)) {
-				file_size = atoi(http_header_line + 16);
-				php_stream_notify_file_size(context, file_size, http_header_line, 0);
-			} else if (!strncasecmp(http_header_line, "Transfer-Encoding: chunked", sizeof("Transfer-Encoding: chunked"))) {
-
-				/* create filter to decode response body */
-				if (!(options & STREAM_ONLY_GET_HEADERS)) {
-					long decode = 1;
-
-					if (context && php_stream_context_get_option(context, "http", "auto_decode", &tmpzval) == SUCCESS) {
-						SEPARATE_ZVAL(tmpzval);
-						convert_to_boolean(*tmpzval);
-						decode = Z_LVAL_PP(tmpzval);
-					}
-					if (decode) {
-						transfer_encoding = php_stream_filter_create("dechunk", NULL, php_stream_is_persistent(stream) TSRMLS_CC);
-						if (transfer_encoding) {
-							/* don't store transfer-encodeing header */
-							continue;
-						}
-					}
+			} else if (!last_line) {
+				/* the first line cannot start with white space */
+				if (*http_header_line == ' ' || *http_header_line == '\t') {
+					php_stream_close(stream);
+					stream = NULL;
+					php_stream_wrapper_log_error(wrapper, options TSRMLS_CC,
+							"HTTP invalid response format (folding header at the start)!");
+					goto out;
 				}
+				/* trim the first line unless it is the last one */
+				php_stream_http_response_header_trim(http_header_line, &http_header_line_length);
 			}
-
-			if (http_header_line[0] == '\0') {
-				body = 1;
-			} else {
-				zval *http_header;
-
-				MAKE_STD_ZVAL(http_header);
-
-				ZVAL_STRINGL(http_header, http_header_line, http_header_line_length, 1);
-
-				zend_hash_next_index_insert(Z_ARRVAL_P(response_header), &http_header, sizeof(zval *), NULL);
+			if (last_line) {
+				/* the last header line is done (NULL) here */
+				break;
 			}
+			/* the current line is parsed in the next round */
+			last_header_line = estrndup(http_header_line, http_header_line_length);
+			last_header_line_length = http_header_line_length;
 		} else {
 			break;
 		}
 	}
 
-	if (!reqok || (location[0] != '\0' && follow_location)) {
-		if (!follow_location || (((options & STREAM_ONLY_GET_HEADERS) || ignore_errors) && redirect_max <= 1)) {
+	/* when the stream ended early, the last line is still processed, as before */
+	if (last_header_line != NULL) {
+		php_stream_http_response_headers_parse(wrapper, stream, context, options,
+				last_header_line, &last_header_line_length, NULL, NULL,
+				response_code, response_header, &header_info TSRMLS_CC);
+		last_header_line = NULL;
+	}
+
+	if (!reqok || (header_info.location != NULL && header_info.follow_location)) {
+		if (!header_info.follow_location || (((options & STREAM_ONLY_GET_HEADERS) || ignore_errors) && redirect_max <= 1)) {
 			goto out;
 		}
 
-		if (location[0] != '\0')
-			php_stream_notify_info(context, PHP_STREAM_NOTIFY_REDIRECTED, location, 0);
+		if (header_info.location != NULL)
+			php_stream_notify_info(context, PHP_STREAM_NOTIFY_REDIRECTED, header_info.location, 0);
 
 		php_stream_close(stream);
 		stream = NULL;
 
-		if (location[0] != '\0') {
+		if (header_info.transfer_encoding) {
+			php_stream_filter_free(header_info.transfer_encoding TSRMLS_CC);
+			header_info.transfer_encoding = NULL;
+		}
 
-			char new_path[HTTP_HEADER_BLOCK_SIZE];
-			char loc_path[HTTP_HEADER_BLOCK_SIZE];
+		if (header_info.location != NULL) {
 
-			*new_path='\0';
-			if (strlen(location)<8 || (strncasecmp(location, "http://", sizeof("http://")-1) &&
-							strncasecmp(location, "https://", sizeof("https://")-1) &&
-							strncasecmp(location, "ftp://", sizeof("ftp://")-1) &&
-							strncasecmp(location, "ftps://", sizeof("ftps://")-1)))
+			char *new_path = NULL;
+			php_url *new_resource;
+			int default_port, new_flags;
+			zend_bool same_origin;
+
+			if (header_info.location_len < 8 || (strncasecmp(header_info.location, "http://", sizeof("http://")-1) &&
+							strncasecmp(header_info.location, "https://", sizeof("https://")-1) &&
+							strncasecmp(header_info.location, "ftp://", sizeof("ftp://")-1) &&
+							strncasecmp(header_info.location, "ftps://", sizeof("ftps://")-1)))
 			{
-				if (*location != '/') {
-					if (*(location+1) != '\0' && resource->path) {
+				char *loc_path = NULL;
+
+				if (*header_info.location != '/') {
+					if (header_info.location_len > 1 && resource->path) {
 						char *s = strrchr(resource->path, '/');
 						if (!s) {
 							s = resource->path;
@@ -872,31 +1145,45 @@ finish:
 						}
 						s[1] = '\0';
 						if (resource->path && *(resource->path) == '/' && *(resource->path + 1) == '\0') {
-							snprintf(loc_path, sizeof(loc_path) - 1, "%s%s", resource->path, location);
+							spprintf(&loc_path, 0, "%s%s", resource->path, header_info.location);
 						} else {
-							snprintf(loc_path, sizeof(loc_path) - 1, "%s/%s", resource->path, location);
+							spprintf(&loc_path, 0, "%s/%s", resource->path, header_info.location);
 						}
 					} else {
-						snprintf(loc_path, sizeof(loc_path) - 1, "/%s", location);
+						spprintf(&loc_path, 0, "/%s", header_info.location);
 					}
 				} else {
-					strlcpy(loc_path, location, sizeof(loc_path));
+					loc_path = header_info.location;
+					header_info.location = NULL;
 				}
 				if ((use_ssl && resource->port != 443) || (!use_ssl && resource->port != 80)) {
-					snprintf(new_path, sizeof(new_path) - 1, "%s://%s:%d%s", resource->scheme, resource->host, resource->port, loc_path);
+					spprintf(&new_path, 0, "%s://%s:%d%s", resource->scheme, resource->host, resource->port, loc_path);
 				} else {
-					snprintf(new_path, sizeof(new_path) - 1, "%s://%s%s", resource->scheme, resource->host, loc_path);
+					spprintf(&new_path, 0, "%s://%s%s", resource->scheme, resource->host, loc_path);
 				}
+				efree(loc_path);
 			} else {
-				strlcpy(new_path, location, sizeof(new_path));
+				new_path = header_info.location;
+				header_info.location = NULL;
 			}
 
-			php_url_free(resource);
 			/* check for invalid redirection URLs */
-			if ((resource = php_url_parse(new_path)) == NULL) {
+			if ((new_resource = php_url_parse(new_path)) == NULL) {
 				php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "Invalid redirect URL! %s", new_path);
+				efree(new_path);
 				goto out;
 			}
+
+			default_port = use_ssl ? 443 : 80;
+			same_origin = resource->scheme && new_resource->scheme
+				&& strcasecmp(resource->scheme, new_resource->scheme) == 0
+				&& resource->host && new_resource->host
+				&& strcasecmp(resource->host, new_resource->host) == 0
+				&& (resource->port ? resource->port : default_port)
+					== (new_resource->port ? new_resource->port : default_port);
+
+			php_url_free(resource);
+			resource = new_resource;
 
 #define CHECK_FOR_CNTRL_CHARS(val) { \
 	if (val) { \
@@ -907,6 +1194,7 @@ finish:
 		while (s < e) { \
 			if (iscntrl(*s)) { \
 				php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "Invalid redirect URL! %s", new_path); \
+				efree(new_path); \
 				goto out; \
 			} \
 			s++; \
@@ -919,7 +1207,18 @@ finish:
 				CHECK_FOR_CNTRL_CHARS(resource->pass)
 				CHECK_FOR_CNTRL_CHARS(resource->path)
 			}
-			stream = php_stream_url_wrap_http_ex(wrapper, new_path, mode, options, opened_path, context, --redirect_max, HTTP_WRAPPER_REDIRECTED STREAMS_CC TSRMLS_CC);
+			new_flags = HTTP_WRAPPER_REDIRECTED | (flags & HTTP_WRAPPER_STRIP_AUTH);
+			if (!same_origin) {
+				new_flags |= HTTP_WRAPPER_STRIP_AUTH;
+			}
+			if (response_code == 307 || response_code == 308) {
+				/* RFC 7538 specifies that status code 308 does not allow changing the request method from POST to GET.
+				 * RFC 7231 does the same for status code 307.
+				 * To keep consistency between POST and PATCH requests, we'll also not change the request method from PATCH to GET, even though it's allowed it's not mandated by the RFC. */
+				new_flags |= HTTP_WRAPPER_KEEP_METHOD;
+			}
+			stream = php_stream_url_wrap_http_ex(wrapper, new_path, mode, options, opened_path, context, --redirect_max, new_flags STREAMS_CC TSRMLS_CC);
+			efree(new_path);
 		} else {
 			php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "HTTP request failed! %s", tmp_line);
 		}
@@ -931,6 +1230,14 @@ out:
 
 	if (http_header_line) {
 		efree(http_header_line);
+	}
+
+	if (last_header_line) {
+		efree(last_header_line);
+	}
+
+	if (header_info.location != NULL) {
+		efree(header_info.location);
 	}
 
 	if (scratch) {
@@ -949,7 +1256,7 @@ out:
 				Z_DELREF_P(response_header);
 			}
 		}
-		php_stream_notify_progress_init(context, 0, file_size);
+		php_stream_notify_progress_init(context, 0, header_info.file_size);
 
 		/* Restore original chunk size now that we're done with headers */
 		if (options & STREAM_WILL_CAST)
@@ -965,15 +1272,15 @@ out:
 		/* restore mode */
 		strlcpy(stream->mode, mode, sizeof(stream->mode));
 
-		if (transfer_encoding) {
-			php_stream_filter_append(&stream->readfilters, transfer_encoding);
+		if (header_info.transfer_encoding) {
+			php_stream_filter_append(&stream->readfilters, header_info.transfer_encoding);
 		}
 	} else {
 		if(response_header) {
 			Z_DELREF_P(response_header);
 		}
-		if (transfer_encoding) {
-			php_stream_filter_free(transfer_encoding TSRMLS_CC);
+		if (header_info.transfer_encoding) {
+			php_stream_filter_free(header_info.transfer_encoding TSRMLS_CC);
 		}
 	}
 
