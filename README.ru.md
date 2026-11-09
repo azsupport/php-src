@@ -32,6 +32,7 @@
   - [az-menu.sh: пакеты и что войдёт в PHP](#az-menush-пакеты-и-что-войдёт-в-php)
   - [Встроенный OPcache и запрет загрузки расширений](#встроенный-opcache-и-запрет-загрузки-расширений)
   - [Тестовая сборка на FreeBSD](#тестовая-сборка-на-freebsd)
+  - [Сравнение скорости сборок](#сравнение-скорости-сборок)
   - [Встроенные расширения PECL](#встроенные-расширения-pecl)
   - [OpenSSL](#openssl)
   - [Встроенный curl](#встроенный-curl)
@@ -589,6 +590,19 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | Результат | по каждой версии, на странице запуска |
 | С пакетами az | вход `az`: со статическими библиотеками пакетов `az` и `ImageMagick7` из репозитория az (`az_release` — его релиз, по умолчанию `az-fbsd<major>-amd64-v3`), в раскладке пакетов |
 | На машине с FreeBSD | тот же скрипт, из checkout этой ветки с тарболами в `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` ставит пакеты, `sh tools/build-test.sh --tests 5.6 7.4` собирает и проверяет; наборы опций — в [`tools/build-test.sh`](tools/build-test.sh) |
+
+### Сравнение скорости сборок
+
+| Что | Как |
+|---|---|
+| Workflow | [`.github/workflows/bench.yml`](.github/workflows/bench.yml): запуск — на https://github.com/azsupport/php-src/actions/workflows/bench.yml кнопкой **Run workflow**; входы — версии (по умолчанию `7.4 8.3`) и число прогонов каждого бенчмарка (по умолчанию 5) |
+| Машина | по виртуальной машине FreeBSD 15.1 на версию: все сборки одной версии собираются и запускаются в одной машине, поэтому их цифры сравнимы (цифры двух версий получены на двух машинах) |
+| Исходники | самый новый датированный релиз `freebsd-<версия>-<ГГГГММДД>-<коммит>`, SHA-256 сверяется с `.sha256` релиза |
+| Сборки | только CLI (`--disable-all --enable-cli --disable-cgi --disable-phpdbg --enable-opcache`), у всех одни `CFLAGS` (`-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing -std=gnu17`): `clang19` (cc из базы, точка отсчёта), `clang19-pgo`, `clang23`, `clang23-pgo`, `clang23-pgo-lto` (ThinLTO, линкует lld из llvm23), `gcc16`, `gcc16-pgo`. Компиляторы — из пакетов `llvm23` и `gcc16`, а если их нет — самые новые llvm и gcc репозитория пакетов; отчёт называет их с версиями. С GCC configure находит глобальные регистровые переменные, в которых VM Zend держит свои регистры (у clang их нет) |
+| Обучение PGO | никогда не бенчмарки: `run-tests.php` того же дерева на `Zend/tests`, `ext/standard/tests/strings` и `ext/standard/tests/array`, без OPcache, потом с OPcache (на 8.x с JIT), каждая часть не дольше 150 секунд |
+| Бенчмарки | `Zend/bench.php` и `Zend/micro_bench.php` того же дерева, каждая сборка без OPcache, с OPcache (на 8.x с трассирующим JIT) и с `USE_ZEND_ALLOC_HUGE_PAGES=1` (аллокатор Zend отображает свои куски по 2 МБ с `MAP_ALIGNED_SUPER`); сборки чередуются от прогона к прогону |
+| Результат | медиана строк `Total` в секундах и её изменение относительно `clang19` в %, с версиями компиляторов, CPU машины и тем, что прогнало обучение: в логе задачи (шаг Report) и в её summary |
+| На другой машине | `sh tools/bench.sh --local -r 3 8.3 <тарбол>` берёт компиляторы, которые найдёт (и на Linux); подробности — в [`tools/bench.sh`](tools/bench.sh) |
 
 ### Встроенные расширения PECL
 
