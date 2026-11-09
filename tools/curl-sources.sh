@@ -49,8 +49,12 @@ fetch() {
     f="$cache/$(printf '%s' "$1" | tr / _)"
     if [ ! -f "$f" ] || [ "$(sha256_of "$f")" != "$2" ]; then
         rm -f "$f"
+        # the release file, then the distfiles cache of FreeBSD; plain HTTP last
+        # (its HTTPS answered with a certificate of another name, 09.11.2026):
+        # the SHA-256 below checks the file, as the ports check theirs
         curl -fsSL --retry 3 -o "$f.part" "$3" ||
             curl -fsSL --retry 3 -o "$f.part" "https://distcache.freebsd.org/ports-distfiles/$1" ||
+            curl -fsSL --retry 3 -o "$f.part" "http://distcache.freebsd.org/ports-distfiles/$1" ||
             { rm -f "$f.part"; echo "curl-sources: cannot download $3" >&2; return 1; }
         mv "$f.part" "$f"
     fi
