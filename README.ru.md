@@ -420,11 +420,13 @@ sh az-menu.sh
 собран: его описание, для PHP — опции configure и `CFLAGS` сборки, его режим `pkg` или
 `static`, пакеты, от которых он зависит) или, для статического PHP, собранный здесь с
 вашими опциями: **Options** на `phpXY-static` «build here» открывает меню модулей этой
-версии и их опций (ниже) и запоминает выбор. На каждую версию в списке — ядро `phpXY`
-с пакетами его модулей (`phpXY-<модуль>`, [как в портах](https://github.com/azsupport/ports#the-packages)),
-какие есть в репозитории, и `phpXY-static`; ядро и статический PHP одной версии вместе
-не принимаются, как и `phpXY-openssl` вместе с `phpXY-openssl-legacy`. По OK готовые
-ставятся через `pkg install -r az`, пакет `phpXY-static` каждого PHP, который надо
+версии и их опций (ниже) и запоминает выбор. На каждую версию в списке — ядро `phpXY`,
+его модуль Apache `mod_phpXY` и пакеты его модулей (`phpXY-<модуль>`,
+[как в портах](https://github.com/azsupport/ports#the-packages)), какие есть в репозитории,
+и `phpXY-static`; ядро или `mod_phpXY` и статический PHP одной версии вместе не
+принимаются, как и `phpXY-openssl` вместе с `phpXY-openssl-legacy`. По OK готовые
+ставятся через `pkg install -r az` (`yt-dlp` — через `pkg install yt-dlp`: его пакеты
+Python — из FreeBSD), пакет `phpXY-static` каждого PHP, который надо
 собрать, собирается с его выбором и предлагается к установке; для PHP, отмеченного без
 Options, сначала идёт меню его версии.
 
