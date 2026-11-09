@@ -1,4 +1,4 @@
-Description: Build with clang 16 and newer (FreeBSD 14/15 base: clang 19) and gcc 14 and newer, which reject implicit int, implicit function declarations and mismatched function pointer types. Fixes the configure test programs that failed silently and gave wrong results (getaddrinfo, so no IPv6 name resolution; readdir_r and fopencookie types, which then broke the build; pread/pwrite; write(2) to stdout; Zend MM alignment; sprintf/snprintf; crypt; libcurl SSL) and the sources that stopped compiling (mbstring UTF-8-Mobile, fileinfo file_replace(), zip mkstemp(), zlib module globals).
+Description: Build with clang 16 and newer (FreeBSD 14/15 base: clang 19) and gcc 14 and newer, which reject implicit int, implicit function declarations and mismatched function and data pointer types. Fixes the configure test programs that failed silently and gave wrong results (getaddrinfo, so no IPv6 name resolution; readdir_r and fopencookie types, which then broke the build; pread/pwrite; write(2) to stdout; Zend MM alignment; sprintf/snprintf; crypt; libcurl SSL) and the sources that stopped compiling (mbstring UTF-8-Mobile and ISO-2022-JP-KDDI, fileinfo file_replace(), zip mkstemp(), zlib module globals, the CLI process title, the php_serialize session decoder, wddx object properties).
 Origin: azsupport; configure results checked against a run with those errors turned into warnings: identical main/php_config.h
 
 diff --git a/Zend/Zend.m4 b/Zend/Zend.m4
@@ -249,6 +249,19 @@ index 16cf30afc..071e76fb1 100644
  file_replace(struct magic_set *ms, const char *pat, const char *rep)
  {
  	zval *patt;
+diff --git a/ext/mbstring/libmbfl/filters/mbfilter_iso2022jp_mobile.c b/ext/mbstring/libmbfl/filters/mbfilter_iso2022jp_mobile.c
+index 03e9633ca..de0a9bd1e 100644
+--- a/ext/mbstring/libmbfl/filters/mbfilter_iso2022jp_mobile.c
++++ b/ext/mbstring/libmbfl/filters/mbfilter_iso2022jp_mobile.c
+@@ -48,7 +48,7 @@ const mbfl_encoding mbfl_encoding_2022jp_kddi = {
+ 	mbfl_no_encoding_2022jp_kddi,
+ 	"ISO-2022-JP-MOBILE#KDDI",
+ 	"ISO-2022-JP",
+-	mbfl_encoding_2022jp_kddi_aliases,
++	(const char *(*)[])&mbfl_encoding_2022jp_kddi_aliases,
+ 	NULL,
+ 	MBFL_ENCTYPE_MBCS | MBFL_ENCTYPE_SHFTCODE | MBFL_ENCTYPE_GL_UNSAFE
+ };
 diff --git a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c b/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
 index f9b643c17..1d584eebc 100644
 --- a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
@@ -262,6 +275,19 @@ index f9b643c17..1d584eebc 100644
 +
  extern int mbfl_filt_ident_utf8(int c, mbfl_identify_filter *filter);
  extern int mbfl_filt_conv_utf8_wchar_flush(mbfl_convert_filter *filter);
+ 
+diff --git a/ext/session/session.c b/ext/session/session.c
+index d759fcabb..1775d910c 100644
+--- a/ext/session/session.c
++++ b/ext/session/session.c
+@@ -864,7 +864,7 @@ PS_SERIALIZER_DECODE_FUNC(php_serialize) /* {{{ */
+ 
+ 	PHP_VAR_UNSERIALIZE_INIT(var_hash);
+ 	ALLOC_INIT_ZVAL(session_vars);
+-	if (php_var_unserialize(&session_vars, &val, endptr, &var_hash TSRMLS_CC)) {
++	if (php_var_unserialize(&session_vars, (const unsigned char **)&val, (const unsigned char *)endptr, &var_hash TSRMLS_CC)) {
+ 		var_push_dtor(&var_hash, &session_vars);
+ 	}
  
 diff --git a/ext/standard/config.m4 b/ext/standard/config.m4
 index 6e0c92197..985cfdd5e 100644
@@ -336,6 +362,19 @@ index 6e0c92197..985cfdd5e 100644
  int main() {
  #if HAVE_CRYPT
  	char salt[21], answer[21+43];
+diff --git a/ext/wddx/wddx.c b/ext/wddx/wddx.c
+index ee72ba211..34ff71f76 100644
+--- a/ext/wddx/wddx.c
++++ b/ext/wddx/wddx.c
+@@ -535,7 +535,7 @@ static void php_wddx_serialize_object(wddx_packet *packet, zval *obj)
+ 				continue;
+ 			}
+ 
+-			if (zend_hash_get_current_key_ex(objhash, &key, &key_len, &idx, 0, NULL) == HASH_KEY_IS_STRING) {
++			if (zend_hash_get_current_key_ex(objhash, (char **)&key, &key_len, &idx, 0, NULL) == HASH_KEY_IS_STRING) {
+ 				const char *class_name, *prop_name;
+ 
+ 				zend_unmangle_property_name(key, key_len-1, &class_name, &prop_name);
 diff --git a/ext/zip/lib/mkstemp.c b/ext/zip/lib/mkstemp.c
 index 843d5e361..2c95998a2 100644
 --- a/ext/zip/lib/mkstemp.c
