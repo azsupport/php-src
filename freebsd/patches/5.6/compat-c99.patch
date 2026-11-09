@@ -363,3 +363,38 @@ index 47dc3acf6..b6d3484e9 100644
  	NULL,
  	NULL,
  	STANDARD_MODULE_PROPERTIES_EX
+diff --git a/sapi/cli/ps_title.c b/sapi/cli/ps_title.c
+--- a/sapi/cli/ps_title.c
++++ b/sapi/cli/ps_title.c
+@@ -28,6 +28,15 @@
+  * The following code is adopted from the PostgreSQL's ps_status(.h/.c).
+  */
+ 
++#ifdef PHP_WIN32
++#include "config.w32.h"
++#include <windows.h>
++#include <process.h>
++#else
++#include "php_config.h"
++extern char** environ;
++#endif
++
+ #include "ps_title.h"
+ #include <stdio.h>
+ 
+@@ -38,15 +47,6 @@
+ #include <string.h>
+ #include <stdlib.h>
+ 
+-#ifdef PHP_WIN32
+-#include "config.w32.h"
+-#include <windows.h>
+-#include <process.h>
+-#else
+-#include "php_config.h"
+-extern char** environ;
+-#endif
+-
+ #ifdef HAVE_SYS_PSTAT_H
+ #include <sys/pstat.h> /* for HP-UX */
+ #endif
