@@ -33,6 +33,15 @@
 #   gcc<K>            GCC of the packages (gcc16): configure finds the global register
 #                     variables that the Zend VM keeps its registers in (clang has none)
 #   gcc<K>-pgo        the same with PGO (.gcda files; -fprofile-use -fprofile-correction)
+#   gcc<K>-nsi        gcc<K> with -fno-semantic-interposition, in a tree of its own (the
+#                     CFLAGS of its configure): with -fPIC (a shared libphp) GCC takes
+#                     every exported function (ZEND_API, PHPAPI: visibility default even
+#                     with -fvisibility=hidden) as replaceable at load time, so the engine's
+#                     own calls to them go through the PLT and are never inlined; with the
+#                     flag it may bind and inline them. The CLI, an executable, is not
+#                     affected
+#   clang<N>-nsi      the base cc with -fno-semantic-interposition (only when
+#                     BENCH_VARIANTS names base-nsi)
 # The PGO and LTO flags go in through a response file in PROF_FLAGS, the variable of
 # the prof-gen and prof-use targets of build/Makefile.global (make prof-clean between
 # the builds): the libtool of PHP passes @file on to the link of opcache.so, where it
@@ -54,6 +63,16 @@
 #             8.x also -d opcache.jit=tracing -d opcache.jit_buffer_size=128M
 #   huge      as nocache, with USE_ZEND_ALLOC_HUGE_PAGES=1 (the Zend allocator maps its
 #             2 MB chunks with MAP_ALIGNED_SUPER on FreeBSD, MAP_HUGETLB on Linux)
+# Through a shared libphp (BENCH_EMBED=1, the input embed of the workflow): every tree
+# is configured with --enable-embed=shared too, and each variant runs again through its
+# libphp (libs/libphp.so, libphp7.so on 7.x: the embed SAPI, built from the same PIC
+# objects as the libphp.so of mod_php) with a driver of a few lines (bench-embed.c,
+# written here; no php.ini, as php -n): the variant <name>-embed, interleaved with the
+# CLI of the same build, in the modes nocache and huge (OPcache does not run in the
+# embed SAPI: it is not one of the SAPIs OPcache supports). The default variants are
+# then base gcc gcc-nsi, and the report adds the change of each <name>-embed against
+# the CLI of its build and against the -embed of the baseline, as the median of the
+# ratios of the runs of one round.
 # The report: the median of the "Total" line of each script, in seconds, and its change
 # against the baseline in %, for every variant, script and mode; the compilers, the CPU,
 # the training. In bench-results/<version>/: report.txt (printed at the end), report.md
@@ -62,9 +81,10 @@
 # variants go on.
 #
 # Environment: BENCH_TRAIN_TIME (seconds per part of the training), BENCH_VARIANTS (a
-# part of: base base-pgo llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo), BENCH_CFLAGS (instead
-# of the CFLAGS above), BENCH_BASE_CC, BENCH_LLVM_CC, BENCH_GCC (the compilers),
-# BENCH_KEEP=1 (keep bench-work/<version>: the build trees and the binaries).
+# part of: base base-pgo base-nsi llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo gcc-nsi),
+# BENCH_EMBED=1 (through a shared libphp too), BENCH_CFLAGS (instead of the CFLAGS
+# above), BENCH_BASE_CC, BENCH_LLVM_CC, BENCH_GCC (the compilers), BENCH_KEEP=1 (keep
+# bench-work/<version>: the build trees and the binaries).
 # Exit status: 0 the report has results, 1 no variant ran, 2 usage.
 
 set -u
@@ -118,7 +138,12 @@ deps() {
     mkdir -p "$top/bench-work"
     : > "$top/bench-work/deps.txt"
     drc=0
-    for want in llvm23 gcc16; do
+    wants="llvm23 gcc16"
+    # the runs through libphp (BENCH_EMBED) need no llvm unless BENCH_VARIANTS names it
+    if [ "${BENCH_EMBED:-0}" = 1 ]; then
+        case " ${BENCH_VARIANTS:-base gcc gcc-nsi} " in *" llvm"*) ;; *) wants="gcc16" ;; esac
+    fi
+    for want in $wants; do
         b="${want%%[0-9]*}"
         if pkg info -e "$want" || [ -n "$(pkg rquery '%n' "$want" 2>/dev/null)" ]; then
             name="$want"
@@ -168,7 +193,14 @@ major="${ver%%.*}"
 train_time="${BENCH_TRAIN_TIME:-150}"
 train_dirs="Zend/tests ext/standard/tests/strings ext/standard/tests/array"
 configure_opts="--disable-all --enable-cli --disable-cgi --disable-phpdbg --enable-opcache"
-kinds="${BENCH_VARIANTS:-base base-pgo llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo}"
+embed=0
+case "${BENCH_EMBED:-0}" in 1|yes|true) embed=1 ;; esac
+if [ "$embed" = 1 ]; then
+    configure_opts="$configure_opts --enable-embed=shared"
+    kinds="${BENCH_VARIANTS:-base gcc gcc-nsi}"
+else
+    kinds="${BENCH_VARIANTS:-base base-pgo llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo}"
+fi
 
 res="$top/bench-results/$ver"
 work="$top/bench-work/$ver"
@@ -257,13 +289,15 @@ fi
 # --- the variants: "<kind> <name>" lines of bench-work/<version>/plan, in the order of the report
 skip() { say "skip $1: $2"; printf '%s\tskipped: %s\n' "$1" "$2" >> "$res/variants.txt"; }
 : > "$work/plan"
-for k in base base-pgo llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo; do
+for k in base base-pgo base-nsi llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo gcc-nsi; do
     case " $kinds " in *" $k "*) ;; *) continue ;; esac
     case "$k" in
         base*)
             n="clang$bm${k#base}"
             if [ -z "$bm" ]; then skip "$k" "no clang as the base cc (${base_cc:-none found})"; continue; fi
-            if [ "$bm" = "$lm" ]; then skip "$n (base cc)" "the newest llvm is clang $lm too: its variants stand for these"; continue; fi
+            # (only when variants of the llvm package run: they stand for these)
+            case " $kinds " in *" llvm"*) llvm_asked=1 ;; *) llvm_asked=0 ;; esac
+            if [ "$bm" = "$lm" ] && [ "$llvm_asked" = 1 ]; then skip "$n (base cc)" "the newest llvm is clang $lm too: its variants stand for these"; continue; fi
             if [ "$k" = base-pgo ] && [ -z "$base_pd" ]; then skip "$n" "no llvm-profdata for clang $bm"; continue; fi ;;
         llvm*)
             n="clang$lm${k#llvm}"
@@ -278,6 +312,8 @@ for k in base base-pgo llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo; do
 done
 names="$(cut -d' ' -f2 "$work/plan" | tr '\n' ' ' | sed 's/ *$//')"
 baseline="$(head -n 1 "$work/plan" | cut -d' ' -f2)"
+# through libphp: <name>-embed after each variant
+[ "$embed" = 1 ] && names="$(for n in $names; do printf '%s %s-embed ' "$n" "$n"; done | sed 's/ *$//')"
 [ -n "$baseline" ] || { echo "bench: no variant to build" >&2; exit 1; }
 name_of() { awk -v k="$1" '$1 == k { print $2; exit }' "$work/plan"; }
 in_plan() { grep -q "^$1 " "$work/plan"; }
@@ -314,9 +350,11 @@ pd_version() { "$1" --version 2>&1 | grep -i 'version' | head -n 1 | sed 's/^ */
     fi
     echo "configure: $configure_opts"
     echo "CFLAGS: $cflags"
-    if in_plan base || in_plan base-pgo; then echo "compiler clang$bm (base): $base_cc: $(first_line "$base_cc" --version)"; fi
+    if in_plan base-nsi || in_plan gcc-nsi; then echo "CFLAGS of the -nsi variants: $cflags -fno-semantic-interposition"; fi
+    if [ "$embed" = 1 ]; then echo "through libphp: each variant also as <name>-embed, the embed SAPI built shared, run by bench-embed.c (no php.ini)"; fi
+    if in_plan base || in_plan base-pgo || in_plan base-nsi; then echo "compiler clang$bm (base): $base_cc: $(first_line "$base_cc" --version)"; fi
     if in_plan llvm || in_plan llvm-pgo || in_plan llvm-pgo-lto; then echo "compiler clang$lm: $llvm_cc: $(first_line "$llvm_cc" --version)"; fi
-    if in_plan gcc || in_plan gcc-pgo; then echo "compiler gcc$gm: $gcc_cc: $(first_line "$gcc_cc" --version)"; fi
+    if in_plan gcc || in_plan gcc-pgo || in_plan gcc-nsi; then echo "compiler gcc$gm: $gcc_cc: $(first_line "$gcc_cc" --version)"; fi
     in_plan base-pgo && echo "llvm-profdata of clang$bm-pgo: $base_pd: $(pd_version "$base_pd")"
     if in_plan llvm-pgo || in_plan llvm-pgo-lto; then echo "llvm-profdata of clang$lm-pgo: $llvm_pd: $(pd_version "$llvm_pd")"; fi
     in_plan llvm-pgo-lto && echo "linker of clang$lm-pgo-lto: $llvm_lld: $(first_line "$llvm_lld" --version)"
@@ -350,7 +388,8 @@ make_php() {
     mrc=$?
     mk_time=$(( $(date +%s) - t0 ))
     mk_err=""
-    if [ $mrc -ne 0 ] || [ ! -x "$1/sapi/cli/php" ] || [ ! -f "$1/modules/opcache.so" ]; then
+    if [ $mrc -ne 0 ] || [ ! -x "$1/sapi/cli/php" ] || [ ! -f "$1/modules/opcache.so" ] ||
+            { [ "$embed" = 1 ] && [ -z "$(ls "$1"/libs/libphp*.so 2>/dev/null)" ]; }; then
         mk_err="make: exit $mrc: $(first_errors "$2" | head -n 1 | sed "s#$1/##g" | cut -c1-300)"
         first_errors "$2" | sed "s#$1/##g; s/^/    /" | cut -c1-300
         return 1
@@ -370,6 +409,37 @@ save() {
     vinfo "$1" "size: php $(size_kb "$b/php") KB, opcache.so $(size_kb "$b/opcache.so") KB; .comment: $(comment_of "$b/php")"
     printf '%s\tok\n' "$1" >> "$res/variants.txt"
     say "$1: built, php $(size_kb "$b/php") KB"
+    [ "$embed" = 1 ] && save_embed "$1" "$2"
+    return 0
+}
+# save_embed <name> <src>: the libphp of the tree next to the CLI, and the driver of the
+# embed SAPI built against it (the base cc: the driver only starts PHP), as the variant
+# <name>-embed; the proof that the driver loads that libphp (ldd) and that it runs
+save_embed() {
+    e="$1-embed"; b="$work/bin/$1"
+    lib="$(ls "$2"/libs/libphp*.so 2>/dev/null | head -n 1)"
+    [ -n "$lib" ] || { vfail "$e" "no libs/libphp*.so in the tree"; return 1; }
+    cp "$lib" "$b/" || { vfail "$e" "copy of $lib failed"; return 1; }
+    lib="$b/${lib##*/}"
+    if ! "${base_cc:-cc}" -O2 -I"$2" -I"$2/main" -I"$2/Zend" -I"$2/TSRM" -I"$2/sapi/embed" -o "$b/embed" \
+            "$work/scripts/bench-embed.c" "$lib" -Wl,-rpath,"$b" > "$work/embed-cc.txt" 2>&1; then
+        vfail "$e" "the driver: $(grep -i -m 1 'error' "$work/embed-cc.txt" | cut -c1-300)"; return 1
+    fi
+    l="$(ldd "$b/embed" 2>/dev/null | awk -v n="${lib##*/}" '$1 == n && $2 == "=>" { print $3; exit }')"
+    case "$(realpath "$l" 2>/dev/null)" in
+        "$(realpath "$lib")") ;;
+        *) vfail "$e" "the driver loads ${l:-no ${lib##*/}}, not $lib"; return 1 ;;
+    esac
+    printf '%s\n' '<?php echo PHP_VERSION, " ", PHP_SAPI, "\n";' > "$work/scripts/v.php"
+    o="$("$b/embed" "$work/scripts/v.php" 2>&1)"
+    case "$o" in
+        *" embed") ;;
+        *) vfail "$e" "the driver: $(echo "$o" | grep -v '^ *$' | head -n 1 | cut -c1-200)"; return 1 ;;
+    esac
+    vinfo "$e" "libphp: ${lib##*/}, $(size_kb "$lib") KB, $(readelf -r "$lib" 2>/dev/null | grep -c JUMP_SLO) PLT slots (JUMP_SLOT relocations); .comment: $(comment_of "$lib")"
+    vinfo "$e" "loaded by the driver (ldd): $l; PHP_VERSION, PHP_SAPI: $o"
+    printf '%s\tok\n' "$e" >> "$res/variants.txt"
+    say "$e: built, ${lib##*/} $(size_kb "$lib") KB"
 }
 
 # train <src> <log prefix> <name> <LLVM_PROFILE_FILE>: the training run (see above),
@@ -480,6 +550,8 @@ tree() {
     fi
     src="$(ls -d "$tw"/php-* | head -n 1)"
     [ -f "$work/scripts/bench.php" ] || cp "$src/Zend/bench.php" "$src/Zend/micro_bench.php" "$work/scripts/"
+    tflags="$cflags"
+    case "$t" in *-nsi) tflags="$cflags -fno-semantic-interposition" ;; esac
     ldflags=""
     # GCC of the ports: its runtime libraries by -rpath, as the ports link with USE_GCC
     if [ "$fam" = gcc ] && [ "$os" = FreeBSD ]; then
@@ -488,7 +560,7 @@ tree() {
     fi
     say "$t: configure with $cc"
     # shellcheck disable=SC2086
-    if ! (cd "$src" && env CC="$cc" CFLAGS="$cflags" LDFLAGS="$ldflags" ./configure $configure_opts) > "$logs/$t/configure.log" 2>&1; then
+    if ! (cd "$src" && env CC="$cc" CFLAGS="$tflags" LDFLAGS="$ldflags" ./configure $configure_opts) > "$logs/$t/configure.log" 2>&1; then
         e="configure: $(grep -i 'error' "$logs/$t/configure.log" | tail -n 1 | cut -c1-300)"
         cp "$src/config.log" "$logs/$t/" 2>/dev/null
         for k; do vfail "$(name_of "$k")" "$e"; done
@@ -503,11 +575,12 @@ tree() {
     for k; do
         n="$(name_of "$k")"
         vinfo "$n" "compiler: $cc ($(first_line "$cc" --version))"
+        [ "$tflags" = "$cflags" ] || vinfo "$n" "CFLAGS: $tflags"
         [ -n "$ldflags" ] && vinfo "$n" "LDFLAGS: $ldflags"
         vinfo "$n" "config.log: $gr"
         say "$n: config.log: $gr"
         case "$k" in
-            base|llvm|gcc)
+            base|llvm|gcc|base-nsi|gcc-nsi)
                 prof_clean "$src"
                 say "$n: make -j$ncpu"
                 if make_php "$src" "$logs/$t/make-$n.log"; then
@@ -532,13 +605,44 @@ tree() {
     done
     [ "${BENCH_KEEP:-0}" = 1 ] || rm -rf "$tw"
 }
-kinds_of() { awk -v p="$1" 'index($1, p) == 1 { printf "%s ", $1 }' "$work/plan"; }
+# kinds_in <kind>...: those of them in the plan
+kinds_in() { for k; do in_plan "$k" && printf '%s ' "$k"; done; return 0; }
+# the driver of the runs through libphp: the script of the command line through the
+# embed SAPI, without php.ini (php -n)
+if [ "$embed" = 1 ]; then
+    cat > "$work/scripts/bench-embed.c" <<'EOF'
+/* bench-embed.c of tools/bench.sh: run a script through the embed SAPI (libphp) */
+#include <sapi/embed/php_embed.h>
+
+int main(int argc, char **argv)
+{
+	volatile int ok = 0;
+
+	if (argc < 2) {
+		fprintf(stderr, "usage: %s <script.php>\n", argv[0]);
+		return 2;
+	}
+	php_embed_module.php_ini_ignore = 1;
+	PHP_EMBED_START_BLOCK(argc - 1, argv + 1)
+		zend_file_handle fh;
+		zend_stream_init_filename(&fh, argv[1]);
+		ok = php_execute_script(&fh);
+#if PHP_VERSION_ID >= 80100
+		zend_destroy_file_handle(&fh);
+#endif
+	PHP_EMBED_END_BLOCK()
+	return ok ? 0 : 1;
+}
+EOF
+fi
 # shellcheck disable=SC2046
-[ -n "$(kinds_of base)" ] && tree base "$base_cc" clang $(kinds_of base)
+[ -n "$(kinds_in base base-pgo)" ] && tree base "$base_cc" clang $(kinds_in base base-pgo)
+in_plan base-nsi && tree base-nsi "$base_cc" clang base-nsi
 # shellcheck disable=SC2046
-[ -n "$(kinds_of llvm)" ] && tree llvm "$llvm_cc" clang $(kinds_of llvm)
+[ -n "$(kinds_in llvm llvm-pgo llvm-pgo-lto)" ] && tree llvm "$llvm_cc" clang $(kinds_in llvm llvm-pgo llvm-pgo-lto)
 # shellcheck disable=SC2046
-[ -n "$(kinds_of gcc)" ] && tree gcc "$gcc_cc" gcc $(kinds_of gcc)
+[ -n "$(kinds_in gcc gcc-pgo)" ] && tree gcc "$gcc_cc" gcc $(kinds_in gcc gcc-pgo)
+in_plan gcc-nsi && tree gcc-nsi "$gcc_cc" gcc gcc-nsi
 
 # --- the benchmarks ----------------------------------------------------------------
 ok="$(awk -F '\t' '$2 == "ok" { printf "%s ", $1 }' "$res/variants.txt" | sed 's/ *$//')"
@@ -551,6 +655,10 @@ oc_args() {
 # OPcache (and the JIT) must be on in mode opcache, or that mode of the variant is left out
 : > "$work/no-opcache"
 for v in $ok; do
+    case "$v" in *-embed)
+        vinfo "$v" "mode opcache: left out: OPcache does not run in the embed SAPI (not one of the SAPIs it supports)"
+        echo "$v" >> "$work/no-opcache"; continue ;;
+    esac
     # shellcheck disable=SC2046
     o="$("$work/bin/$v/php" -n $(oc_args "$v") -r '
         $s = function_exists("opcache_get_status") ? opcache_get_status(false) : false;
@@ -580,8 +688,14 @@ while [ -n "$ok" ] && [ $r -le "$runs" ]; do
                 # shellcheck disable=SC2046
                 [ "$m" = opcache ] && set -- -n $(oc_args "$v")
                 hp=0; [ "$m" = huge ] && hp=1
-                # shellcheck disable=SC2086
-                env USE_ZEND_ALLOC_HUGE_PAGES=$hp $pin timeout 900 "$work/bin/$v/php" "$@" "$work/scripts/$sc.php" > "$work/out.txt" 2>&1
+                case "$v" in
+                    *-embed)
+                        # shellcheck disable=SC2086
+                        env USE_ZEND_ALLOC_HUGE_PAGES=$hp $pin timeout 900 "$work/bin/${v%-embed}/embed" "$work/scripts/$sc.php" > "$work/out.txt" 2>&1 ;;
+                    *)
+                        # shellcheck disable=SC2086
+                        env USE_ZEND_ALLOC_HUGE_PAGES=$hp $pin timeout 900 "$work/bin/$v/php" "$@" "$work/scripts/$sc.php" > "$work/out.txt" 2>&1 ;;
+                esac
                 brc=$?
                 tot="$(awk '$1 == "Total" { t = $2 } END { print t }' "$work/out.txt")"
                 if [ $brc -ne 0 ] || [ -z "$tot" ]; then
@@ -648,6 +762,44 @@ table() {
             }
         }' "$res/runs.txt"
 }
+# embed_table <txt|md>: through libphp, for each variant: its -embed against its CLI and
+# against the -embed of the baseline, the median of the ratios of the runs of one round
+embed_table() {
+    awk -v fmt="$1" -v order="$(cut -d' ' -f2 "$work/plan" | tr '\n' ' ')" -v base="$baseline" -v runs="$runs" '
+        function isort(a, m,   i, j, t) { for (i = 2; i <= m; i++) { t = a[i]; for (j = i - 1; j >= 1 && a[j] > t; j--) a[j + 1] = a[j]; a[j + 1] = t } }
+        function chg(va, vb, sc, m,   r, k, x, v) {
+            k = 0
+            for (r = 1; r <= runs; r++) if (((va, sc, m, r) in t) && ((vb, sc, m, r) in t) && t[vb, sc, m, r] > 0) x[++k] = t[va, sc, m, r] / t[vb, sc, m, r]
+            if (!k) return "-"
+            isort(x, k); v = (k % 2) ? x[(k + 1) / 2] : (x[k / 2] + x[k / 2 + 1]) / 2
+            return sprintf("%+.1f%%", (v - 1) * 100) ((k < runs) ? " [" k "/" runs "]" : "")
+        }
+        $5 != "fail" { t[$1, $2, $3, $4] = $5 + 0 }
+        END {
+            ns = split("bench micro_bench", S, " "); nm = split("nocache huge", M, " ")
+            L["nocache"] = "no OPcache"; L["huge"] = "huge pages"
+            nv = split(order, V, " ")
+            if (fmt == "md") {
+                printf "| variant |"
+                for (p = 1; p <= 2; p++) for (s = 1; s <= ns; s++) for (j = 1; j <= nm; j++)
+                    printf " %s.php %s:<br>%s |", S[s], L[M[j]], (p == 1) ? "embed vs its CLI" : "vs " base "-embed"
+                printf "\n|---|"; for (s = 1; s <= 2 * ns * nm; s++) printf "--:|"; printf "\n"
+            } else {
+                printf "%-14s", "variant"; for (p = 1; p <= 2; p++) { printf "%-56s", (p == 1) ? "<variant>-embed against the CLI of its build" : "<variant>-embed against " base "-embed" }
+                printf "\n%-14s", ""; for (p = 1; p <= 2; p++) for (s = 1; s <= ns; s++) for (j = 1; j <= nm; j++) printf "%-14s", (s == 1 ? "bench" : "micro") " " (j == 1 ? "nocache" : "huge")
+                printf "\n"
+            }
+            fv = (fmt == "md") ? "| %s |" : "%-14s"; fc = (fmt == "md") ? " %s |" : "%-14s"
+            for (i = 1; i <= nv; i++) {
+                printf fv, V[i]
+                for (p = 1; p <= 2; p++) for (s = 1; s <= ns; s++) for (j = 1; j <= nm; j++) {
+                    c = (p == 1) ? chg(V[i] "-embed", V[i], S[s], M[j]) : (V[i] == base) ? "-" : chg(V[i] "-embed", base "-embed", S[s], M[j])
+                    printf fc, c
+                }
+                printf "\n"
+            }
+        }' "$res/runs.txt"
+}
 rw=runs; [ "$runs" = 1 ] && rw=run
 opc="-d zend_extension=opcache.so -d opcache.enable_cli=1"
 [ "$major" -ge 8 ] && opc="$opc -d opcache.jit=tracing -d opcache.jit_buffer_size=128M"
@@ -669,6 +821,12 @@ opc="-d zend_extension=opcache.so -d opcache.enable_cli=1"
     echo "The median of the \"Total\" line of $runs $rw in seconds; after it the change against $baseline (negative: faster); [n/$runs] when runs failed:"
     echo
     table txt
+    if [ "$embed" = 1 ]; then
+        echo
+        echo "Through libphp (the embed SAPI built shared): the median of the ratios of the runs of one round, in % (negative: faster):"
+        echo
+        embed_table txt
+    fi
 } > "$res/report.txt"
 {
     echo "### PHP $ver: the speed of the builds"
@@ -678,6 +836,12 @@ opc="-d zend_extension=opcache.so -d opcache.enable_cli=1"
     echo "The median of the \"Total\" line of $runs $rw in seconds, and the change against \`$baseline\` (negative: faster); [n/$runs] when runs failed."
     echo
     table md | sed '/^$/,$d'
+    if [ "$embed" = 1 ]; then
+        echo
+        echo "Through libphp (the embed SAPI built shared, \`<variant>-embed\`): the median of the ratios of the runs of one round (negative: faster)."
+        echo
+        embed_table md
+    fi
     echo
     echo '<details><summary>the variants, the training, every run</summary>'
     echo
