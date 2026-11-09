@@ -24,9 +24,10 @@
 #
 # Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree or not:
 #   sh az-menu.sh                   outside a PHP source tree: the packages of the
-#                                   repository az (curl, ffmpeg, ImageMagick6 and 7;
-#                                   az; per version of PHP the core phpXY with
-#                                   its packages phpXY-<module>, or
+#                                   repository az (curl, ffmpeg, ImageMagick6 and 7,
+#                                   GraphicsMagick, yt-dlp; az; per version of PHP
+#                                   the core phpXY with mod_phpXY and its packages
+#                                   phpXY-<module>, or
 #                                   phpXY-static), each the ready one (Options:
 #                                   what it is built with) or, for phpXY-static,
 #                                   built here with your options;
@@ -1774,11 +1775,13 @@ dlg() { "$DIALOG" --backtitle "$backtitle" "$@" 2>&1 >/dev/tty; }
 # --- the menu of the packages of az (outside a PHP source tree, no branch named) ----
 # Every package of the repository az: the ready one (its version; Options: what it
 # is built with, for PHP the configure options of its annotation "configure"); for
-# each version of PHP the core phpXY of pkg mode with the packages of its extensions
-# (phpXY-<module>) the repository has, and phpXY-static, ready or built here
-# with the menu of the branch and its own options (one of the two: phpXY or
-# phpXY-static); then pkg install of the ready ones, and the menu of each build (its
-# BUILD makes the package phpXY-static and offers to install it).
+# each version of PHP the core phpXY of pkg mode, its Apache module mod_phpXY and the
+# packages of its extensions (phpXY-<module>) the repository has, and phpXY-static,
+# ready or built here with the menu of the branch and its own options (one of the
+# two: phpXY with mod_phpXY, or phpXY-static); then pkg install of the ready ones
+# (yt-dlp without -r az: its Python packages are those of the repository of
+# FreeBSD, and pkg takes yt-dlp of az by its priority), and the menu of each build
+# (its BUILD makes the package phpXY-static and offers to install it).
 az_packages_menu() {
     backtitle="az-menu $AZ_MENU_SHORT  $AZ_MENU_SITES"
     [ "$(id -u)" = 0 ] || die "the packages are installed with pkg: run it as root"
@@ -1792,12 +1795,12 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     pkg update -r az > /dev/null 2>&1 || say "pkg update -r az failed: the list of the repository may be old"
     mt="$(mktemp -d)" || exit 2
     pkg rquery -r az '%n	%v	%c' > "$mt/ready" 2>/dev/null
-    names="az curl ffmpeg ImageMagick6 ImageMagick7"
+    names="az curl ffmpeg ImageMagick6 ImageMagick7 GraphicsMagick yt-dlp"
     for b in $BRANCHES; do
         s_="$(echo "$b" | tr -d .)"
-        # pkg mode: the core phpXY, the packages of its extensions of the repository
-        # (phpXY-<module>); then the static PHP phpXY-static
-        names="$names php$s_ $(awk -F '	' -v p="php$s_-" 'index($1, p) == 1 && $1 != p "static" { print $1 }' "$mt/ready" |
+        # pkg mode: the core phpXY, its Apache module, the packages of its extensions
+        # of the repository (phpXY-<module>); then the static PHP phpXY-static
+        names="$names php$s_ mod_php$s_ $(awk -F '	' -v p="php$s_-" 'index($1, p) == 1 && $1 != p "static" { print $1 }' "$mt/ready" |
             LC_ALL=C sort | tr '\n' ' ')php$s_-static"
     done
     focus="" checked=" " chosen=" "
@@ -1824,7 +1827,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
         [ -n "$focus" ] || focus="$1"
         res="$(dlg --title "The packages of az" --item-help --separate-output --default-item "$focus" \
             --help-button --help-label Options --help-status --help-tags --checklist \
-            "Space chooses: the ready package, or for phpXY-static a build here (one of the two); per version phpXY of pkg mode (with its packages phpXY-<module>) or phpXY-static. Options: what the ready one under the cursor is built with." \
+            "Space chooses: the ready package, or for phpXY-static a build here (one of the two); per version phpXY of pkg mode (with mod_phpXY and its packages phpXY-<module>) or phpXY-static. Options: what the ready one under the cursor is built with." \
             0 0 0 "$@")"
         rc=$?
         case "$rc" in
@@ -1877,7 +1880,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             esac
             case "$sel" in *" php$s_-static "*|*" php$s_-static.build "*) ;; *) continue ;; esac
             for n in $names; do
-                case "$n" in php"$s_"-static) continue ;; php"$s_"|php"$s_"-*) ;; *) continue ;; esac
+                case "$n" in php"$s_"-static) continue ;; php"$s_"|php"$s_"-*|mod_php"$s_") ;; *) continue ;; esac
                 case "$sel" in *" $n "*) mixed="$mixed $n+php$s_-static" ;; esac
             done
         done
@@ -1886,7 +1889,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             continue
         fi
         if [ -n "$mixed" ]; then
-            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with its packages phpXY-<module>) or phpXY-static, and phpXY-openssl or phpXY-openssl-legacy, not both:$mixed" 0 0
+            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with mod_phpXY and its packages phpXY-<module>) or phpXY-static, and phpXY-openssl or phpXY-openssl-legacy, not both:$mixed" 0 0
             continue
         fi
         break
@@ -1902,9 +1905,19 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     command -v clear >/dev/null 2>&1 && clear
     [ -n "$ready$builds" ] || { say "nothing chosen"; exit 0; }
     if [ -n "$ready" ]; then
-        say "pkg install -r az$ready"
-        # shellcheck disable=SC2086
-        pkg install -r az $ready || die "pkg install -r az$ready failed"
+        r_="" y_=""
+        for n in $ready; do
+            case "$n" in yt-dlp) y_=1 ;; *) r_="$r_ $n" ;; esac
+        done
+        if [ -n "$r_" ]; then
+            say "pkg install -r az$r_"
+            # shellcheck disable=SC2086
+            pkg install -r az $r_ || die "pkg install -r az$r_ failed"
+        fi
+        if [ -n "$y_" ]; then
+            say "pkg install yt-dlp"
+            pkg install yt-dlp || die "pkg install yt-dlp failed"
+        fi
     fi
     for v in $builds; do
         b="$(echo "$v" | sed 's/^\(.\)/\1./')"
