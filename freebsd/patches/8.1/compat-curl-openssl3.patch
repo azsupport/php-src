@@ -1,0 +1,37 @@
+Description: ext/curl configure: libcurl built with OpenSSL 3 is no longer taken for an old OpenSSL (the check knew only "OpenSSL/1.1"), which defined HAVE_CURL_OLD_OPENSSL, required openssl.pc and linked curl.so with libssl and libcrypto for nothing (the locking callbacks are for ZTS builds of OpenSSL before 1.1). The check program of php-src 8.3 and later, with <stdio.h> for its sscanf.
+Origin: php-src b222c020bf (GH-13262, 14.02.2024): the check program only
+
+diff --git a/ext/curl/config.m4 b/ext/curl/config.m4
+index 3b1173965..3516138a5 100644
+--- a/ext/curl/config.m4
++++ b/ext/curl/config.m4
+@@ -28,6 +28,7 @@ if test "$PHP_CURL" != "no"; then
+ 
+     AC_MSG_CHECKING([for libcurl linked against old openssl])
+     AC_RUN_IFELSE([AC_LANG_SOURCE([[
++#include <stdio.h>
+ #include <strings.h>
+ #include <curl/curl.h>
+ 
+@@ -39,9 +40,18 @@ int main(int argc, char *argv[])
+     const char *ptr = data->ssl_version;
+ 
+     while(*ptr == ' ') ++ptr;
+-    if (strncasecmp(ptr, "OpenSSL/1.1", sizeof("OpenSSL/1.1")-1) == 0) {
+-      /* New OpenSSL version */
+-      return 3;
++    int major, minor;
++    if (sscanf(ptr, "OpenSSL/%d", &major) == 1) {
++      if (major >= 3) {
++        /* OpenSSL version 3 or later */
++        return 4;
++      }
++    }
++    if (sscanf(ptr, "OpenSSL/%d.%d", &major, &minor) == 2) {
++      if (major > 1 || (major == 1 && minor >= 1)) {
++        /* OpenSSL version 1.1 or later */
++        return 3;
++      }
+     }
+     if (strncasecmp(ptr, "OpenSSL", sizeof("OpenSSL")-1) == 0) {
+       /* Old OpenSSL version */

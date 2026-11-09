@@ -1,4 +1,4 @@
-Description: Build with clang 16 and newer (FreeBSD 14/15 base: clang 19) and gcc 14 and newer, which reject implicit int, implicit function declarations and mismatched function and data pointer types. Fixes the configure test programs that failed silently and gave wrong results (getaddrinfo, so no IPv6 name resolution; readdir_r and fopencookie types, which then broke the build; pread/pwrite; write(2) to stdout; Zend MM alignment; sprintf/snprintf; crypt; libcurl SSL) and the sources that stopped compiling (mbstring UTF-8-Mobile and ISO-2022-JP-KDDI, fileinfo file_replace(), zip mkstemp(), zlib module globals, the CLI process title, the php_serialize session decoder, wddx object properties).
+Description: Build with clang 16 and newer (FreeBSD 14/15 base: clang 19) and gcc 14 and newer, which reject implicit int, implicit function declarations and mismatched function and data pointer types. Fixes the configure test programs that failed silently and gave wrong results (getaddrinfo, so no IPv6 name resolution; readdir_r and fopencookie types, which then broke the build; pread/pwrite; write(2) to stdout; Zend MM alignment; sprintf/snprintf; crypt; libcurl SSL; the GNU libiconv check of iconv, whose printf without <stdio.h> made a GCC build take libiconv for an unknown iconv without errno support) and the sources that stopped compiling (mbstring UTF-8-Mobile and ISO-2022-JP-KDDI, fileinfo file_replace(), zip mkstemp(), zlib module globals, the CLI process title, the php_serialize session decoder, wddx object properties).
 Origin: azsupport; configure results checked against a run with those errors turned into warnings: identical main/php_config.h
 
 diff --git a/Zend/Zend.m4 b/Zend/Zend.m4
@@ -249,6 +249,18 @@ index 16cf30afc..071e76fb1 100644
  file_replace(struct magic_set *ms, const char *pat, const char *rep)
  {
  	zval *patt;
+diff --git a/ext/iconv/config.m4 b/ext/iconv/config.m4
+index a6d50cfd9..d69640d2b 100644
+--- a/ext/iconv/config.m4
++++ b/ext/iconv/config.m4
+@@ -52,6 +52,7 @@ if test "$PHP_ICONV" != "no"; then
+       LDFLAGS="-liconv $LDFLAGS"
+       AC_TRY_RUN([
+ #include <$PHP_ICONV_H_PATH>
++#include <stdio.h>
+ int main() {
+   printf("%d", _libiconv_version);
+   return 0;
 diff --git a/ext/mbstring/libmbfl/filters/mbfilter_iso2022jp_mobile.c b/ext/mbstring/libmbfl/filters/mbfilter_iso2022jp_mobile.c
 index 03e9633ca..de0a9bd1e 100644
 --- a/ext/mbstring/libmbfl/filters/mbfilter_iso2022jp_mobile.c

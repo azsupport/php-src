@@ -1,0 +1,15 @@
+Description: Fix the GNU libiconv check of ext/iconv/config.m4, which calls printf without <stdio.h>: gcc 14 and newer reject the implicit declaration, so the check failed silently and the module said ICONV_IMPL "unknown" with GNU libiconv. As in php-src 8.3 and later.
+Origin: azsupport; the include as in php-src PHP-8.3 ext/iconv/config.m4
+
+diff --git a/ext/iconv/config.m4 b/ext/iconv/config.m4
+index ac57c81e7..b8044bf29 100644
+--- a/ext/iconv/config.m4
++++ b/ext/iconv/config.m4
+@@ -30,6 +30,7 @@ if test "$PHP_ICONV" != "no"; then
+       AC_MSG_CHECKING([if using GNU libiconv])
+       AC_RUN_IFELSE([AC_LANG_SOURCE([[
+ #include <iconv.h>
++#include <stdio.h>
+ int main() {
+   printf("%d", _libiconv_version);
+   return 0;
