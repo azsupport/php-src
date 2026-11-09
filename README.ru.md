@@ -839,16 +839,22 @@ php-src несёт старую PCRE с известными ошибками б
 | `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `yt-dlp` | программы, вместо пакетов портов: [FFmpeg](#ffmpeg-для-видеосайтов), [ImageMagick 6 и 7](#imagemagick-6-и-7-для-видеосайтов) |
 | `phpXY`, `mod_phpXY`, `phpXY-<модуль>` | PHP этого форка так, как он в портах: ядро (CLI, php-fpm, phpize), модуль Apache и по пакету на модуль (`php74-gd`, `php74-redis`, …), версии рядом |
 
-На сервере `az-menu.sh --repo` записывает репозиторий под уровень его процессора
-(`/usr/local/etc/pkg/repos/az.conf`: релиз `az-fbsd15-amd64-v3` из azsupport/ports,
-без AVX2 — `az-fbsd15-amd64-v2`) и обновляет его каталог; дальше пакеты ставятся через
+На сервере от root `az-menu.sh --repo` записывает репозиторий под уровень его
+процессора и обновляет его каталог: x86-64-v3 (релиз `az-fbsd15-amd64-v3` из
+azsupport/ports), если `cc -march=native` знает у процессора AVX2, BMI2, FMA, F16C,
+LZCNT и MOVBE, иначе x86-64-v2 (`az-fbsd15-amd64-v2`), с открытым ключом; он пишет,
+какой уровень взял и почему, и SHA-256 ключа. Дальше пакеты ставятся через
 `pkg install -r az` или через меню `sh az-menu.sh`:
 
 ```sh
 fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
 sh az-menu.sh --repo
 pkg install -r az curl ffmpeg ImageMagick6 ImageMagick7
+pkg install -r az php84 mod_php84 php84-opcache php84-gd php84-mbstring php84-openssl-legacy
 ```
+
+То же вручную и строки установки каждой версии PHP — в
+[README azsupport/ports](https://github.com/azsupport/ports/blob/main/README.ru.md#сервер-и-репозиторий-az).
 
 Каталог подписан ключом aZ. `az-menu.sh --repo` берёт его открытый ключ
 [`freebsd/az.pub`](freebsd/az.pub) (тот же ключ, что `keys/az.pub` в azsupport/ports;
