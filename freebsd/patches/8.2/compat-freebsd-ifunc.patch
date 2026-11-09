@@ -1,0 +1,15 @@
+Description: configure checks the ifunc and target function attributes on FreeBSD too, as the official port of PHP 8.3 does, so that PHP picks its SIMD code by the CPU at run time. Upstream 8.2 skips both checks on FreeBSD (PHP bug #77284, FreeBSD 11), and that code ran only where the -march of the build had the instructions: with x86-64-v3 no crc32 with PCLMUL (crc32(), the crc32 hashes), with x86-64-v2 also no base64 with AVX2. PHP 8.4 runs these checks upstream on FreeBSD 12 and later.
+Origin: freebsd-ports lang/php83/files/patch-configure.ac @ eb0100f974b6, its ifunc hunk only, the same change; lang/php82 has no such hunk, the fork takes that of 8.3 (aZ, 09.11.2026)
+Note: the other hunks of the patch-configure.ac of lang/php82 stay unapplied (freebsd/patches/8.2/SKIPPED).
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -556,7 +556,7 @@
+ dnl
+ dnl At least some versions of FreeBSD seem to have buggy ifunc support, see
+ dnl bug #77284. Conservatively don't use ifuncs on FreeBSD.
+-AS_CASE([$host_alias], [*-*-*android*|*-*-*uclibc*|*-*-*musl*|*freebsd*|*openbsd*], [true], [
++AS_CASE([$host_alias], [*-*-*android*|*-*-*uclibc*|*-*-*musl*|*openbsd*], [true], [
+   AX_GCC_FUNC_ATTRIBUTE([ifunc])
+   AX_GCC_FUNC_ATTRIBUTE([target])
+ ])
