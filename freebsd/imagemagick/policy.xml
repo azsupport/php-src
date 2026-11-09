@@ -13,8 +13,10 @@
 ]>
 <!--
   The policy of /usr/local/imagemagick6 and /usr/local/imagemagick7
-  (freebsd/imagemagick.conf, tools/build-imagemagick.sh installs it as
-  etc/ImageMagick-6/policy.xml and etc/ImageMagick-7/policy.xml).
+  (freebsd/imagemagick.conf; the ports graphics/ImageMagick6 and
+  graphics/ImageMagick7 of azsupport/ports install their copy of it,
+  graphics/ImageMagick7/files/policy.xml, as etc/ImageMagick-6/policy.xml and
+  etc/ImageMagick-7/policy.xml).
 
   It is the "websafe" policy of ImageMagick (config/policy-websafe.xml of 7.1.2-25
   and 6.9.13-50, the same in both) with the formats of the video sites and room

@@ -12,10 +12,11 @@
 # output to <prefix>.log: the libraries of ext/curl/deps (tools/curl-sources.sh
 # of the fork puts them there; ext/curl/deps/VERSIONS lists them) go into
 # <prefix>.deps, curl into <prefix>. The other two forms are for
-# tools/build-deps.sh (/usr/local/az): one library from an unpacked source
+# tools/az-build.sh of azsupport/ports (the package az, with a copy of this
+# script, az/az/files/curl/build-libcurl.sh): one library from an unpacked source
 # into <prefix>, and curl against the libraries in <libraries>; --features prints
 # the feature options of curl (curl_features), one per line, for the shared
-# libcurl.so that tools/build-deps.sh builds with the same ones.
+# libcurl.so that it builds with the same ones.
 #
 # Everything is built static and position independent, so that it can go into
 # php, php-fpm, php-cgi and libphp.so, and with only cc, make and ar: brotli, zstd
@@ -242,8 +243,8 @@ openssl_opt() {
 
 # The features of the bundled libcurl: the configure options of build_curl after
 # those of the libraries, one per line. "build-libcurl.sh --features" prints them
-# for tools/build-deps.sh, whose shared libcurl.so of /usr/local/az gets the
-# same ones as the static libcurl of PHP.
+# for tools/az-build.sh of azsupport/ports, whose shared libcurl.so of
+# /usr/local/az gets the same ones as the static libcurl of PHP.
 curl_features() {
     printf '%s\n' --enable-http --enable-ftp --enable-file \
         --enable-proxy --enable-cookies --enable-alt-svc --enable-hsts --enable-ipv6 \
