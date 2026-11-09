@@ -361,9 +361,12 @@ pcre_bundle() {
     pdir="$2" pimp="$pcre_dir/$5"
     tb="${TMPDIR:-/tmp}/sync-${pu##*/}"
     if [ ! -f "$tb" ] || [ "$(sha256_of < "$tb")" != "$ps" ]; then
-        # the distfiles cache of FreeBSD has the same file (the same SHA-256)
+        # the distfiles cache of FreeBSD has the same file (the same SHA-256);
+        # plain HTTP last (its HTTPS answered with a certificate of another
+        # name, 09.11.2026): the SHA-256 below checks the file
         if ! curl -fsSL --retry 3 -o "$tb" "$pu" &&
-            ! curl -fsSL --retry 3 -o "$tb" "https://distcache.freebsd.org/ports-distfiles/${pu##*/}"; then
+            ! curl -fsSL --retry 3 -o "$tb" "https://distcache.freebsd.org/ports-distfiles/${pu##*/}" &&
+            ! curl -fsSL --retry 3 -o "$tb" "http://distcache.freebsd.org/ports-distfiles/${pu##*/}"; then
             echo "sync: $target: cannot download PCRE $pv ($pu)" >&2
             return 1
         fi
