@@ -1,0 +1,131 @@
+name: PHP benchmark on FreeBSD
+
+# Compares the speed of PHP built in different ways (tools/bench.sh): the CLI of the
+# newest dated release tarball of each version, built in a FreeBSD VM with the base
+# clang, with the clang of the newest llvm package and with GCC of the packages, each
+# plain and with PGO (the clang of the package also with PGO and ThinLTO), then
+# Zend/bench.php and Zend/micro_bench.php of the same tree without OPcache, with
+# OPcache (on 8.x with the tracing JIT) and with the huge pages of the Zend allocator.
+# One job and one VM per version: all variants of a version are built and run in the
+# same VM, so that their numbers compare. The table goes to the job log (step Report)
+# and to the job summary. Publishes nothing.
+# Started by hand: Actions, "PHP benchmark on FreeBSD", "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'PHP versions, separated by spaces (one job and VM each)'
+        required: true
+        default: '7.4 8.3'
+      repeat:
+        description: 'Runs of each benchmark per variant and mode (the report gives the median)'
+        required: true
+        default: '5'
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+    steps:
+      - name: The versions as a list for the matrix
+        id: list
+        env:
+          VERSIONS: ${{ inputs.versions }}
+          REPEAT: ${{ inputs.repeat }}
+        run: |
+          case "$REPEAT" in ''|*[!0-9]*|0) echo "::error title=bench::repeat is not a number of runs: $REPEAT"; exit 1 ;; esac
+          list=""
+          for v in $VERSIONS; do
+            case "$v" in
+              [0-9].[0-9]|[0-9].[0-9][0-9]) list="$list${list:+,}\"$v\"" ;;
+              *) echo "::error title=bench::not a PHP version: $v"; exit 1 ;;
+            esac
+          done
+          [ -n "$list" ] || { echo "::error title=bench::no versions given"; exit 1; }
+          echo "list=[$list]" >> "$GITHUB_OUTPUT"
+
+  bench:
+    needs: versions
+    runs-on: ubuntu-latest
+    # the packages llvm23 and gcc16, 10 builds, 3 trainings of at most 5 minutes, the runs
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.versions.outputs.list) }}
+    name: bench ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The newest release tarball of ${{ matrix.version }}, SHA-256 checked
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ matrix.version }}
+        run: sh tools/bench.sh --fetch "$VERSION" dist
+
+      - name: Free space on the runner (the disk of the VM grows on it)
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost /usr/share/swift || true
+          sudo docker system prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
+      - name: Build and benchmark in FreeBSD 15.1
+        id: bench
+        uses: vmactions/freebsd-vm@v1
+        env:
+          BENCH_VERSION: ${{ matrix.version }}
+          BENCH_REPEAT: ${{ inputs.repeat }}
+        with:
+          release: '15.1'
+          envs: 'BENCH_VERSION BENCH_REPEAT'
+          prepare: |
+            sh tools/bench.sh --deps || true
+          run: |
+            sh tools/bench.sh -r "$BENCH_REPEAT" "$BENCH_VERSION" dist/php-"$BENCH_VERSION".*-fbsd-*.tar.xz || true
+            # the build trees not back to the runner
+            rm -rf bench-work
+
+      - name: Report
+        id: report
+        if: always()
+        env:
+          VERSION: ${{ matrix.version }}
+        run: |
+          r="bench-results/$VERSION"
+          if [ ! -s "$r/report.txt" ]; then
+            echo "::error title=bench $VERSION::no report (the log of the step before says why)"
+            printf '### PHP %s\n\nno report\n' "$VERSION" | tee report.md >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          cat "$r/report.txt"
+          cp "$r/report.md" report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          # every variant that failed, with its reason, on the run page
+          awk -F '\t' -v ver="$VERSION" '$2 ~ /^failed/ { print "::warning title=bench " ver " " $1 "::" $2 }' "$r/variants.txt"
+          grep -q -v ' fail$' "$r/runs.txt" || { echo "::error title=bench $VERSION::no benchmark ran"; exit 1; }
+
+      - name: Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.version }}
+          path: bench-results/
+          if-no-files-found: ignore
+
+      # the report into the branch runs of the private azsupport/azsupport (secret RUNS_TOKEN)
+      - name: Report to azsupport/azsupport
+        if: always()
+        continue-on-error: true
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: versions=${{ inputs.versions }} repeat=${{ inputs.repeat }}
+          RUNS_STEPS: bench=${{ steps.bench.outcome }} report=${{ steps.report.outcome }}
+          PART: php${{ matrix.version }}
+        run: sh tools/runs-report.sh report.md "$PART"

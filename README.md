@@ -30,6 +30,7 @@ Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
   - [az-menu.sh: the packages, and what goes into PHP](#az-menush-the-packages-and-what-goes-into-php)
   - [Built-in OPcache and no extension loading](#built-in-opcache-and-no-extension-loading)
   - [Build test on FreeBSD](#build-test-on-freebsd)
+  - [Benchmark of the builds](#benchmark-of-the-builds)
   - [Bundled PECL extensions](#bundled-pecl-extensions)
   - [OpenSSL](#openssl)
   - [Bundled curl](#bundled-curl)
@@ -597,6 +598,19 @@ longer needed.
 | Result | per version, on the run page |
 | With the packages of az | the input `az`: against the static libraries of the packages `az` and `ImageMagick7` of the repository az (`az_release`: its release, by default `az-fbsd<major>-amd64-v3`), in the layout of the packages |
 | On a FreeBSD machine | the same script, from a checkout of this branch with the tarballs in `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` installs the packages, `sh tools/build-test.sh --tests 5.6 7.4` builds and checks; the presets are in [`tools/build-test.sh`](tools/build-test.sh) |
+
+### Benchmark of the builds
+
+| What | How |
+|---|---|
+| Workflow | [`.github/workflows/bench.yml`](.github/workflows/bench.yml): start it on https://github.com/azsupport/php-src/actions/workflows/bench.yml with **Run workflow**; the inputs are the versions (by default `7.4 8.3`) and the runs of each benchmark (by default 5) |
+| Machine | one FreeBSD 15.1 VM per version: all the builds of a version are made and run in the same VM, so that their numbers compare (those of two versions come from two machines) |
+| Source | the newest dated release `freebsd-<version>-<YYYYMMDD>-<commit>`, its SHA-256 checked against the `.sha256` of the release |
+| Builds | the CLI only (`--disable-all --enable-cli --disable-cgi --disable-phpdbg --enable-opcache`), the same `CFLAGS` for all (`-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing -std=gnu17`): `clang19` (the base cc, the baseline), `clang19-pgo`, `clang23`, `clang23-pgo`, `clang23-pgo-lto` (ThinLTO, linked by the lld of llvm23), `gcc16`, `gcc16-pgo`. The compilers come from the packages `llvm23` and `gcc16`, or from the newest llvm and gcc of the package repository when those are not there; the report names them with their versions. With GCC, configure finds the global register variables that the Zend VM keeps its registers in (clang has none) |
+| PGO training | never the benchmarks: the `run-tests.php` of the same tree on `Zend/tests`, `ext/standard/tests/strings` and `ext/standard/tests/array`, without OPcache, then with OPcache (on 8.x with the JIT), each part at most 150 seconds |
+| Benchmarks | `Zend/bench.php` and `Zend/micro_bench.php` of the same tree, every build without OPcache, with OPcache (on 8.x with the tracing JIT) and with `USE_ZEND_ALLOC_HUGE_PAGES=1` (the Zend allocator maps its 2 MB chunks with `MAP_ALIGNED_SUPER`); the builds take turns, run by run |
+| Result | the median of the `Total` lines in seconds and its change against `clang19` in %, with the compiler versions, the CPU of the VM and what the training ran: in the log of the job (step Report) and in its summary |
+| On another machine | `sh tools/bench.sh --local -r 3 8.3 <tarball>` takes the compilers it finds there (Linux too); the details are in [`tools/bench.sh`](tools/bench.sh) |
 
 ### Bundled PECL extensions
 
