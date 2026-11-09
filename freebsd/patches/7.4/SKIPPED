@@ -6,5 +6,5 @@ patch-ext_mysqli_mysqli__api.c: ports split packaging of ext/mysqli (built alone
 patch-ext_mysqli_mysqli__nonapi.c: ports split packaging of ext/mysqli (built alone with phpize, where the ext/mysqlnd headers are missing); not needed when building from the full source tree
 patch-ext_mysqli_mysqli__prop.c: ports split packaging of ext/mysqli (built alone with phpize, where the ext/mysqlnd headers are missing); not needed when building from the full source tree
 patch-ext_mysqli_php__mysqli__structs.h: ports split packaging of ext/mysqli (built alone with phpize, where the ext/mysqlnd headers are missing); not needed when building from the full source tree
-patch-ext_pcre_pcre2lib_sljit_sljitConfigInternal.h: PowerPC 32-bit only; no effect on amd64
+patch-ext_pcre_pcre2lib_sljit_sljitConfigInternal.h: PowerPC 32-bit, for the copy of PCRE2 that upstream bundles; this fork bundles PCRE2 10.49 instead (freebsd/pcre.conf), whose sljit already leaves out __builtin___clear_cache on every PowerPC (SLJIT_CONFIG_PPC, 32 and 64 bit), so its change is there already
 php-fpm.in: the rc.d script of the port, not a source patch; your own rc.d scripts stay in use
