@@ -462,7 +462,10 @@ use_build() {
     prof_clean "$2"
     say "$4: make -j$ncpu (PROF_FLAGS: $(tr '\n' ' ' < "$rsp"))"
     if ! make_php "$2" "$logs/$1/make-$4.log" "$rsp"; then vfail "$4" "$mk_err"; return 1; fi
-    w="$(grep -c -E 'profile data may be|profile count data file not found|coverage mismatch|corrupted profile' "$logs/$1/make-$4.log")"
+    # the warnings about the profile of what php and opcache.so are made of: not those of
+    # the PIC copies of the core objects in .libs/, which libtool builds and php does not link
+    w="$(grep -E 'profile data may be|profile count data file not found|coverage mismatch|corrupted profile' "$logs/$1/make-$4.log" |
+        awk '/profile count data file not found/ && /\/\.libs\// && !/ext\/opcache\// { next } { n++ } END { print n + 0 }')"
     vinfo "$4" "build: ${mk_time}s, PROF_FLAGS: $(tr '\n' ' ' < "$rsp" | sed 's/ *$//'); warnings about the profile: $w"
     save "$4" "$2"
 }
@@ -634,7 +637,7 @@ table() {
                 }
                 printf "\n"
             }
-            if (nsp) {
+            if (nsp && runs > 1) {
                 isort(spr, nsp); split(spk, w, SUBSEP)
                 printf "\nSpread of the runs of a cell, (max - min) / median: %.1f%% in the middle cell, %.1f%% at most (%s, %s.php, %s).\n", (nsp % 2) ? spr[(nsp + 1) / 2] : (spr[nsp / 2] + spr[nsp / 2 + 1]) / 2, spmax, w[1], w[2], L[w[3]]
             }
@@ -645,6 +648,7 @@ table() {
             }
         }' "$res/runs.txt"
 }
+rw=runs; [ "$runs" = 1 ] && rw=run
 opc="-d zend_extension=opcache.so -d opcache.enable_cli=1"
 [ "$major" -ge 8 ] && opc="$opc -d opcache.jit=tracing -d opcache.jit_buffer_size=128M"
 {
@@ -662,7 +666,7 @@ opc="-d zend_extension=opcache.so -d opcache.enable_cli=1"
     done
     awk -F '\t' '$2 ~ /^skipped/ { print "  " $1 ": " $2 }' "$res/variants.txt"
     echo
-    echo "The median of the \"Total\" line of $runs runs in seconds; after it the change against $baseline (negative: faster); [n/$runs] when runs failed:"
+    echo "The median of the \"Total\" line of $runs $rw in seconds; after it the change against $baseline (negative: faster); [n/$runs] when runs failed:"
     echo
     table txt
 } > "$res/report.txt"
@@ -671,7 +675,7 @@ opc="-d zend_extension=opcache.so -d opcache.enable_cli=1"
     echo
     sed 's/^/- /' "$info"
     echo
-    echo "The median of the \"Total\" line of $runs runs in seconds, and the change against \`$baseline\` (negative: faster); [n/$runs] when runs failed."
+    echo "The median of the \"Total\" line of $runs $rw in seconds, and the change against \`$baseline\` (negative: faster); [n/$runs] when runs failed."
     echo
     table md | sed '/^$/,$d'
     echo
@@ -680,7 +684,7 @@ opc="-d zend_extension=opcache.so -d opcache.enable_cli=1"
     echo '```text'
     sed -n '/^training of the PGO/,/^variants:$/p' "$res/report.txt" | sed '$d'
     sed -n '/^variants:$/,/^The median of/p' "$res/report.txt" | sed '$d'
-    table txt | sed -n '/^Spread/,$p'
+    table txt | sed -n -E '/^(Spread|The runs)/,$p'
     echo '```'
     echo
     echo '</details>'
