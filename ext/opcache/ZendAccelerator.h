@@ -308,6 +308,7 @@ extern zend_accel_globals accel_globals;
 
 extern char *zps_api_failure_reason;
 
+void start_accel_extension(void);
 void accel_shutdown(void);
 zend_result  accel_activate(INIT_FUNC_ARGS);
 zend_result accel_post_deactivate(void);
