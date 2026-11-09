@@ -701,6 +701,8 @@ AC_CACHE_CHECK([for getaddrinfo], ac_cv_func_getaddrinfo,
   AC_TRY_RUN([
 #include <netdb.h>
 #include <sys/types.h>
+#include <stdlib.h>
+#include <string.h>
 #ifndef AF_INET
 # include <sys/socket.h>
 #endif
