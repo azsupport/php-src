@@ -139,6 +139,7 @@ if "$ref" -hide_banner -encoders 2>/dev/null | grep -q ' libsvtav1 '; then av1="
     mk h264_10_aac.mp4 -c:v libx264 -preset veryfast -pix_fmt yuv420p10le -c:a aac
     mk h264_422_aac.mov -c:v libx264 -preset veryfast -pix_fmt yuv422p -c:a aac
     mk h264_444_aac.mp4 -c:v libx264 -preset veryfast -pix_fmt yuv444p -c:a aac
+    mk h264_full_aac.mp4 -c:v libx264 -preset veryfast -pix_fmt yuvj420p -c:a aac
     mk mjpeg_pcm.mov -c:v mjpeg -pix_fmt yuvj422p -c:a pcm_s16le
     mk hevc_aac.mp4 $x265 -tag:v hvc1 -c:a aac
     mk hevc10_aac.mov $x265 -tag:v hvc1 -pix_fmt yuv420p10le -c:a aac
@@ -206,10 +207,11 @@ probe() {
 }
 dims() { "$fp" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x "$1" 2>/dev/null; }
 pfmt() { "$fp" -v error -select_streams v:0 -show_entries stream=profile,pix_fmt -of csv=p=0 "$1" 2>/dev/null; }
-# libx264 takes 8-bit 4:2:0 only (freebsd/ffmpeg/libx264-8bit-420.patch); an explicit
-# -pix_fmt of another format becomes yuv420p
+# libx264 takes 8-bit 4:2:0 in the limited range only
+# (freebsd/ffmpeg/libx264-8bit-420.patch); an explicit -pix_fmt of another format
+# becomes yuv420p
 v="$("$ff" -hide_banner -h encoder=libx264 2>/dev/null | sed -n 's/^ *Supported pixel formats: *//p')"
-[ "$v" = "yuv420p yuvj420p nv12 nv21" ] && pass "libx264: pixel formats $v" || fail "libx264: pixel formats ${v:-none} (not those of libx264-8bit-420.patch)"
+[ "$v" = "yuv420p nv12 nv21" ] && pass "libx264: pixel formats $v" || fail "libx264: pixel formats ${v:-none} (not those of libx264-8bit-420.patch)"
 if [ -f "$T/h264_aac.mp4" ]; then
     if "$ff" -hide_banner -loglevel error -y -i "$T/h264_aac.mp4" -c:v libx264 -pix_fmt yuv444p10le -an -f mp4 "$T/pix.mp4" > "$T/pix.log" 2>&1; then
         v="$(pfmt "$T/pix.mp4")"
@@ -219,6 +221,21 @@ if [ -f "$T/h264_aac.mp4" ]; then
     fi
 fi
 kvs="-vcodec libx264 -movflags +faststart -threads 0 -r 25 -g 50 -crf 25 -me_method hex -trellis 0 -bf 8"
+# the full range (an MJPEG of a camera, a phone video) becomes the limited range
+# with the -pix_fmt yuv420p of KVS too, as before FFmpeg 7.1 (the same patch)
+for s in mjpeg_pcm.mov h264_full_aac.mp4; do
+    [ -f "$T/$s" ] || continue
+    # shellcheck disable=SC2086
+    if "$ff" -hide_banner -loglevel error -y -i "$T/$s" -pix_fmt yuv420p $kvs -an -f mp4 "$T/range.mp4" > "$T/range.log" 2>&1; then
+        v="$(pfmt "$T/range.mp4")"
+        case "$v" in
+            "High,yuv420p") pass "$s: -pix_fmt yuv420p -> H.264 $v (the limited range)" ;;
+            *) fail "$s: -pix_fmt yuv420p -> H.264 $v (not the limited range)" ;;
+        esac
+    else
+        fail "$s: -pix_fmt yuv420p: $(tail -n 2 "$T/range.log" | tr '\n' ' ')"
+    fi
+done
 while read -r s; do
     f="$T/$s"
     p="$(probe "$f")"
@@ -247,11 +264,12 @@ while read -r s; do
         case "$s" in
             *rot90*) d="$(dims "$T/out.mp4")"; [ "$d" = 360x640 ] && pass "$s: turned: $d" || fail "$s: not turned: $d" ;;
         esac
-        # 8-bit 4:2:0 whatever the input (10 bit, 4:2:2, 4:4:4): what browsers play
+        # 8-bit 4:2:0 in the limited range whatever the input (10 bit, 4:2:2, 4:4:4,
+        # the full range): what browsers play
         v="$(pfmt "$T/out.mp4")"
         case "$v" in
-            "Constrained Baseline,yuv"*420p|"Main,yuv"*420p|"High,yuv"*420p) pass "$s: KVS -> H.264 $v" ;;
-            *) fail "$s: KVS -> H.264 $v (not 8-bit 4:2:0)" ;;
+            "Constrained Baseline,yuv420p"|"Main,yuv420p"|"High,yuv420p") pass "$s: KVS -> H.264 $v" ;;
+            *) fail "$s: KVS -> H.264 $v (not 8-bit 4:2:0 in the limited range)" ;;
         esac
     else
         fail "$s: KVS with AAC: $(tail -n 3 "$T/conv.log" | tr '\n' ' ')"

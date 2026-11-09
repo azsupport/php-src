@@ -85,6 +85,7 @@ if [ "${1:-}" = --samples ]; then
         mk v_h264_ac3.mkv $av $x264 -c:a ac3
         mk v_h264_eac3.mp4 $av $x264 -c:a eac3
         mk v_mjpeg_pcm.mov $av -c:v mjpeg -pix_fmt yuvj422p -c:a pcm_s16le
+        mk v_h264_full.mp4 $av -c:v libx264 -preset veryfast -pix_fmt yuvj420p -c:a aac
         mk v_sar.mp4 $av -vf scale=480:360,setsar=4/3 $x264 -c:a aac
         mk v_pre.mp4 -f lavfi -i testsrc2=size=320x240:rate=25:duration=2 $x264
         mk v_post.mp4 -f lavfi -i testsrc2=size=1280x720:rate=25:duration=2 -f lavfi -i sine=frequency=880:sample_rate=44100:duration=2 $x264 -c:a aac
@@ -489,10 +490,12 @@ for s in v_h264_aac.mp4 v_hevc10.mov v_vp9_opus.webm; do
 done
 # a format: the options of the database, the scale of the format, a watermark (the movie
 # filter reads the PNG), two watermarks; the preview without sound; then -movflags
-# +faststart with copies
+# +faststart with copies. yuv420p is the limited range: the full range of a camera
+# (MJPEG) or a phone (v_h264_full.mp4) stays full with -pix_fmt yuv420p since FFmpeg
+# 7.1 (yuvj420p), unless libx264 takes the limited range only (the patch of az)
 for s in v_h264_aac.mp4 v_h264_noaudio.mp4 v_h264_10.mp4 v_hevc_aac.mp4 v_hevc10.mov v_av1_opus.mkv v_av1_aac.mp4 \
-    v_vp9_opus.webm v_vp8_vorbis.webm v_h264_mp3.mp4 v_h264_ac3.mkv v_h264_eac3.mp4 v_mjpeg_pcm.mov v_h264_sub.mp4 \
-    v_h264_srt.mkv v_rot90.mp4; do
+    v_vp9_opus.webm v_vp8_vorbis.webm v_h264_mp3.mp4 v_h264_ac3.mkv v_h264_eac3.mp4 v_mjpeg_pcm.mov v_h264_full.mp4 \
+    v_h264_sub.mp4 v_h264_srt.mkv v_rot90.mp4; do
     have "$s" || continue
     id="conv-fmt-${s%.*}"; f="$S/$s"; rm -f "$O/$id"*.mp4
     # shellcheck disable=SC2086
