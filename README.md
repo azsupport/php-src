@@ -852,16 +852,22 @@ Until then this fork built them itself (the workflows `az.yml` and `az-php.yml`)
 | `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `yt-dlp` | the programs, in the place of the packages of the ports: [FFmpeg](#ffmpeg-for-the-video-sites), [ImageMagick 6 and 7](#imagemagick-6-and-7-for-the-video-sites) |
 | `phpXY`, `mod_phpXY`, `phpXY-<module>` | the PHP of this fork as the ports have it: the core (CLI, php-fpm, phpize), the Apache module and one package per module (`php74-gd`, `php74-redis`, ...), the versions side by side |
 
-On a server, `az-menu.sh --repo` writes the repository for the level of its CPU
-(`/usr/local/etc/pkg/repos/az.conf`: the release `az-fbsd15-amd64-v3` of
-azsupport/ports, `az-fbsd15-amd64-v2` without AVX2) and updates its catalog; the
-packages then go in with `pkg install -r az`, or through the menu of `sh az-menu.sh`:
+On a server, as root, `az-menu.sh --repo` writes the repository for the level of its
+CPU and updates its catalog: x86-64-v3 (the release `az-fbsd15-amd64-v3` of
+azsupport/ports) when `cc -march=native` has AVX2, BMI2, FMA, F16C, LZCNT and MOVBE,
+else x86-64-v2 (`az-fbsd15-amd64-v2`), with the public key; it says the level it took
+and why, and the SHA-256 of the key. The packages then go in with `pkg install -r az`,
+or through the menu of `sh az-menu.sh`:
 
 ```sh
 fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
 sh az-menu.sh --repo
 pkg install -r az curl ffmpeg ImageMagick6 ImageMagick7
+pkg install -r az php84 mod_php84 php84-opcache php84-gd php84-mbstring php84-openssl-legacy
 ```
+
+The same by hand, and the install lines of every version of PHP: the
+[README of azsupport/ports](https://github.com/azsupport/ports#a-server-and-the-repository-az).
 
 The catalog is signed with the key of aZ. `az-menu.sh --repo` takes its public key
 [`freebsd/az.pub`](freebsd/az.pub) (the same key as `keys/az.pub` of

@@ -45,7 +45,9 @@
 #                                   also build the package phpXY-static (and
 #                                   install it)
 #   sh az-menu.sh --repo            write /usr/local/etc/pkg/repos/az.conf (the
-#                                   repository of the x86-64 level of this CPU)
+#                                   repository of the x86-64 level of this CPU,
+#                                   with the public key) and pkg update -r az; it
+#                                   says the level and why, and the SHA-256 of the key
 #   sh az-menu.sh --list            the items of the branch, with their state, the
 #                                   values and the templates
 #   sh az-menu.sh --version         the version of this copy (its revision: the
@@ -1434,6 +1436,23 @@ cpu_level() {
     done
     echo v3
 }
+# cpu_level_note: the level of cpu_level in words, and why
+cpu_level_note() {
+    command -v cc > /dev/null 2>&1 ||
+        { echo "no cc (the compiler of the base system) to ask the CPU: x86-64-v2, which every x86-64 CPU runs"; return 0; }
+    _f="$(cc -march=native -dM -E - < /dev/null 2>/dev/null)"
+    _m=""
+    for _x in AVX2 BMI2 FMA F16C LZCNT MOVBE; do
+        printf '%s\n' "$_f" | grep -q "^#define __${_x}__ 1" || _m="$_m $_x"
+    done
+    if [ -z "$_m" ]; then
+        echo "this CPU has AVX2, BMI2, FMA, F16C, LZCNT and MOVBE (cc -march=native): the packages of x86-64-v3"
+    else
+        echo "this CPU has not$_m (cc -march=native): the packages of x86-64-v2"
+    fi
+}
+# key_sha256 <file>: its SHA-256 (sha256 of FreeBSD, else sha256sum)
+key_sha256() { sha256 -q "$1" 2>/dev/null || sha256sum "$1" 2>/dev/null | cut -d ' ' -f 1; }
 # the repository of the packages of /usr/local/az for this FreeBSD and this CPU (the
 # files of a release of azsupport/ports; AZ_CANDIDATE=1: the candidate); with the public key of
 # the repository in $AZ_REPO_KEY pkg checks the signature of its catalog with it
@@ -1489,11 +1508,12 @@ repo_key() {
 }
 if [ -n "$repo" ]; then
     [ "$(id -u)" = 0 ] || die "--repo writes $AZ_REPO_CONF: as root"
+    say "$(cpu_level_note)"
     repo_key
     mkdir -p "$(dirname "$AZ_REPO_CONF")" || exit 2
     repo_conf > "$AZ_REPO_CONF" || exit 2
     say "wrote $AZ_REPO_CONF:"; cat "$AZ_REPO_CONF"
-    if [ -s "$AZ_REPO_KEY" ]; then say "pkg checks the signature of the catalog of az with $AZ_REPO_KEY"
+    if [ -s "$AZ_REPO_KEY" ]; then say "pkg checks the signature of the catalog of az with $AZ_REPO_KEY, SHA-256 $(key_sha256 "$AZ_REPO_KEY") (the README of https://github.com/azsupport/ports names it)"
     else say "the repository az is without the check of the signature: no $AZ_REPO_KEY"; fi
     pkg update -r az || exit 1
     exit 0
