@@ -431,6 +431,57 @@ for fl in $fls; do
         g="$(img "$O/$id-xc.jpg")"; c=1; [ "$g" = "JPEG 320x180" ] && c=0
         v "$id-xc" ok "shot$fl $k: xc:#000000 + bmp -composite" "$c" "$g"
     done
+    # the im_options of the screenshot and album formats of live sites (the census of
+    # 08.11.2026: 26 lines, the most used first), as KVS runs them: the photo of 800x600
+    # into a box of 320x180, a BMP of 240x180. remote_cron.php keeps the BMP when the file
+    # is there, functions_screenshots.php fails on an exit code other than 0: both must
+    # hold. Operators before %INPUT_FILE% (defaults of old KVS) need convert or convert6:
+    # magick (the default of config.properties of the conversion servers) wants the
+    # image first
+    i=0
+    while IFS= read -r l; do
+        [ -n "$l" ] || continue
+        have i_photo.jpg || { skip "shot$fl: no i_photo.jpg for the live im_options"; break; }
+        i=$((i + 1)); id="shot$fl-live-$i"; rm -f "$O/$id.bmp"
+        a="$(printf '%s\n' "$l" | sed -e "s#%INPUT_FILE%#$S/i_photo.jpg#" -e 's#%SIZE%#320x180#' -e "s#%OUTPUT_FILE%#$O/$id.bmp#")"
+        # shellcheck disable=SC2086
+        x "$id" cv $a < /dev/null
+        g="$(img "$O/$id.bmp")"; c=1; [ "$rc:$g" = "0:BMP 240x180" ] && c=0
+        w=ok
+        case "$l" in
+            --*) w='bug:the line starts with --strip, a typo: ImageMagick takes it for a file and exits with 1 (the main server of KVS fails the format, remote_cron.php keeps the BMP)' ;;
+            %INPUT_FILE%*) ;;
+            *) [ "$fl" = 7 ] && w='bug:operators before %INPUT_FILE% (a default of old KVS): magick wants the image first, convert takes them' ;;
+        esac
+        v "$id" "$w" "shot$fl: live im_options $i -> ${g:-nothing}, exit $rc" "$c"
+    done <<'EOF'
+%INPUT_FILE% -enhance -strip -unsharp 1.0x1.0+0.5 -unsharp 1.0x1.0+0.5 -modulate 110,102,100 -unsharp 1.0x1.0+0.5 -contrast -gamma 1.2 -resize %SIZE% -filter Lanczos -filter Blackman -quality 80 %OUTPUT_FILE%
+%INPUT_FILE% -strip -resize %SIZE% -quality 80 %OUTPUT_FILE%
+-enhance -strip -unsharp 1.0x1.0+0.5 -unsharp 1.0x1.0+0.5 -modulate 110,102,100 -unsharp 1.0x1.0+0.5 -contrast -gamma 1.2 -resize %SIZE% %INPUT_FILE% -filter Lanczos -filter Blackman -quality 80 %OUTPUT_FILE%
+-strip -resize %SIZE% %INPUT_FILE% -quality 80 %OUTPUT_FILE%
+-strip -interlace Plane -sampling-factor 4:2:0 -define jpeg:dct-method=float -quality 95 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-strip -resize %SIZE% %INPUT_FILE% -quality 95 %OUTPUT_FILE%
+-strip -interlace Plane -enhance  -quality 92 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-strip -interlace Plane -sampling-factor 4:2:0 -define jpeg:dct-method=float -quality 85 -resize %SIZE% %INPUT_FILE% -filter Lanczos -filter Blackman %OUTPUT_FILE%
+-strip -interlace Plane -unsharp 1x0.9+1 -unsharp 1x0.3+1 -modulate 100,100 -enhance  -quality 92 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-strip -interlace Plane -unsharp 1x0.9+1 -unsharp 1x0.3+1 -modulate 100,100 -enhance -sampling-factor 4:2:0 -define jpeg:dct-method=float -quality 87 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-strip -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-enhance -strip -resize %SIZE% %INPUT_FILE% -quality 80 %OUTPUT_FILE%
+-resize %SIZE% %INPUT_FILE% -quality 80 %OUTPUT_FILE%
+%INPUT_FILE% -enhance -enhance -channel rgb -contrast-stretch 1.0% -modulate 105,107,100 -unsharp 3x1+1+0.05 -quality 87 -resize %SIZE% -filter Lanczos %OUTPUT_FILE%
+--strip -interlace Plane -sampling-factor 4:2:0 -define jpeg:dct-method=float -quality 95 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-enhance -strip -quality 92 -modulate 110,102,100 -unsharp 3x3+1.2 -contrast -resize %SIZE% %INPUT_FILE% -filter Lanczos -filter Blackman %OUTPUT_FILE%
+-enhance -strip -quality 92 -modulate 110,102,100 -unsharp 3x3+1.2 -resize %SIZE% %INPUT_FILE% -filter Lanczos -filter Blackman %OUTPUT_FILE%
+-enhance -strip -unsharp 1.0x1.0+0.5 -unsharp 1.0x1.0+0.5 -modulate 110,102,100 -unsharp 1.0x1.0+0.5 -contrast -gamma 1.2 -resize %SIZE% %INPUT_FILE% -filter Lanczos -filter Blackman -quality 95 %OUTPUT_FILE%
+-interlace Plane -enhance -strip -quality 92 -contrast -resize %SIZE% %INPUT_FILE% -filter Lanczos -filter Blackman %OUTPUT_FILE%
+-strip -interlace Plane -enhance  -quality 90 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-strip -interlace Plane -enhance -quality 92 -resize %SIZE% %INPUT_FILE% -filter Lanczos -filter Blackman %OUTPUT_FILE%
+-strip -interlace Plane -sampling-factor 4:2:0 -define jpeg:dct-method=float -quality 100 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-strip -interlace Plane -unsharp 1x0.9+1 -unsharp 1x0.3+1 -modulate 100,100 -enhance -sampling-factor 4:2:0 -define jpeg:dct-method=float -quality 85 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+-strip -quality 92 -unsharp 3x3+1.2 -resize %SIZE% %INPUT_FILE% -filter Lanczos -filter Blackman %OUTPUT_FILE%
+-strip -resize %SIZE% %INPUT_FILE% -quality 100 %OUTPUT_FILE%
+-unsharp 1x0.9+1 -unsharp 1x0.3+1 -modulate 100,100 -enhance  -quality 100 -resize %SIZE% %INPUT_FILE% %OUTPUT_FILE%
+EOF
     # the comment of a format goes in as it is: @file must not put a file into the picture
     rm -f "$O/cm$fl.jpg"
     x "shot$fl-comment" cv -quality 80 -comment @/etc/passwd -size 320x180 'xc:#000000' "$S/i_photo.jpg" -gravity center -composite "$O/cm$fl.jpg"
