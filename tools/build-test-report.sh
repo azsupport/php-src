@@ -4,9 +4,7 @@
 # built, error when not), so the outcome shows on the run page and in the API.
 #
 # Usage: sh tools/build-test-report.sh [results-dir]   (default: build-test-results)
-# REPORT_TITLE names the kind of the results in the titles (default "build test";
-# the workflow az-php.yml gives "pkg mode" for those of tools/build-pkg.sh, which
-# writes its results in the same form).
+# REPORT_TITLE names the kind of the results in the titles (default "build test").
 
 set -u
 res="${1:-build-test-results}"

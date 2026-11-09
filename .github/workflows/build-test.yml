@@ -31,11 +31,11 @@ on:
         options: [imagick, gmagick, none]
         default: imagick
       az:
-        description: 'Build against the static libraries of the repository az (az, ImageMagick7), in the layout of the packages, instead of pkg libraries'
+        description: 'Build against the static libraries of the repository az of azsupport/ports (az, ImageMagick7), in the layout of the packages, instead of pkg libraries'
         type: boolean
         default: false
       az_release:
-        description: 'With az: the release of the repository, such as az-fbsd15-amd64-v3-candidate (empty: az-fbsd<major>-amd64-v3)'
+        description: 'With az: the release of azsupport/ports, such as az-fbsd15-amd64-v2 (empty: az-fbsd<major>-amd64-v3)'
         type: string
         default: ''
       configure:
@@ -82,7 +82,7 @@ jobs:
         run: |
           major="${RELEASE%%.*}"
           mkdir -p az-repo
-          gh release download "${AZ_RELEASE:-az-fbsd$major-amd64-v3}" --repo "$GITHUB_REPOSITORY" --dir az-repo
+          gh release download "${AZ_RELEASE:-az-fbsd$major-amd64-v3}" --repo azsupport/ports --dir az-repo
           ls az-repo
 
       - name: Build in FreeBSD ${{ inputs.release }}

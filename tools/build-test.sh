@@ -7,13 +7,14 @@
 # Usage (from the top of a php-src checkout of master):
 #   sh tools/build-test.sh --deps 5.6 7.4        install the packages the presets need
 #   sh tools/build-test.sh --az <dir>            install az and ImageMagick7 from
-#                                                the repository of pkg in <dir> (az.yml)
+#                                                the repository of pkg in <dir> (a
+#                                                release of azsupport/ports)
 #   sh tools/build-test.sh [--tests] 5.6 7.4     build dist/php-<target>-fbsd-latest.tar.xz
 #
 # AZ_BUNDLE=1: build against the static libraries of /usr/local/az/static (the
 # static tree of az; curl and imagick with its libcurl and the ImageMagick 7 of
 # the package ImageMagick7 there; the shared libraries of /usr/local/az/lib are for the
-# packages of pkg mode, not for these builds), in the layout of the packages of
+# PHP packages of azsupport/ports, not for these builds), in the layout of the packages of
 # tools/az-menu.sh (/usr/local, bin/php84, etc/php84...) instead of the prefix of the
 # preset; AZ_PACKAGE=1 then also makes the static package phpXY-static of each
 # build (make install into a stage, tools/az-menu.sh --package) into dist/az-php/,
@@ -73,7 +74,7 @@ deps() {
 }
 
 # The CPU features of -march=$1 that this CPU has not (by the compiler's
-# -march=native, as tools/config-check.sh and tools/build-deps.sh): code built for
+# -march=native, as tools/config-check.sh): code built for
 # $1 stops here with "Illegal instruction".
 cpu_lacks() {
     cpu_feats() {
@@ -99,7 +100,7 @@ if [ "${1:-}" = "--deps" ]; then
     exit $?
 fi
 # az (with the curl of PHP) and ImageMagick7 from the files of a repository of pkg in $2 (the
-# release az-fbsd<major>-amd64-<level> of az.yml), as the repository az
+# release az-fbsd<major>-amd64-<level> of azsupport/ports), as the repository az
 if [ "${1:-}" = "--az" ]; then
     d="$(cd "${2:-.}" 2>/dev/null && pwd)"
     [ -n "$d" ] && [ -f "$d/meta.conf" ] || { echo "build-test: no repository of pkg (meta.conf) in ${2:-.}" >&2; exit 1; }

@@ -11,8 +11,9 @@
 # freebsd/curl/<name>-<version>.patch where there is one, and writes
 # <dir>/deps/VERSIONS ("name version SHA-256 distfile", ext/curl/build-libcurl.sh
 # rebuilds when it changes). Without <target>: the curl of the last line of
-# curl.conf. tools/sync.sh runs it for ext/curl of every target with a curl,
-# tools/build-deps.sh for the curl of /usr/local/phpdeps.
+# curl.conf. tools/sync.sh runs it for ext/curl of every target with a curl
+# (azsupport/ports has a copy, tools/az-curl-sources.sh, for the curl of the
+# package az).
 #
 # Two changes to the releases, both for a build with only cc and make:
 #   - libpsl gets src/suffixes_dafsa.h, the built-in list, made here with its

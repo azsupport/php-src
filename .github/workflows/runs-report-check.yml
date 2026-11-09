@@ -2,7 +2,7 @@ name: runs report check
 
 # Checks that the secret RUNS_TOKEN still commits the reports of the runs into the
 # branch runs of the private azsupport/azsupport (tools/runs-report.sh, which
-# az.yml and az-php.yml call at their end): a short report of this run lands
+# bench.yml, kvs-test.yml and take-sources.yml call at their end): a short report of this run lands
 # there, or the run fails. Started by hand: Actions, "runs report check",
 # "Run workflow" (after a new token, or when a report did not come).
 

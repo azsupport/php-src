@@ -92,7 +92,7 @@ mk_conf="${MAKE_CONF:-/etc/make.conf}"
 
 # The static libraries PHP is built against: those of /usr/local/az/static, the
 # static tree of the package az (with its libcurl, the curl of PHP, and ImageMagick
-# 7 of the package ImageMagick7: the repository of pkg of the fork, tools/build-az.sh;
+# 7 of the package ImageMagick7: the repository az of azsupport/ports;
 # its list of versions at the root of az, share/doc/az/VERSIONS, one for
 # the static and the shared tree), when the root has that list and the tree its
 # bin/pkg-config; else /usr/local/phpdeps of before (the release

@@ -12,9 +12,9 @@ small, curated set of FreeBSD ports patches and fixes for current FreeBSD.
 | Security fixes | for every PHP version a server still runs, the same day and without waiting for the ports: the official php-src releases for 8.2 to 8.4, Remi Collet's backports for the end-of-life 5.6, 7.4 and 8.1, and our own ports for 5.6 |
 | Release tarballs | every update, with `configure` and the bison/re2c parsers pre-generated: a server needs only a C compiler and `make`, exactly like with the tarballs from php.net |
 | One PHP with everything built in | the extensions, the [bundled PECL extensions](#bundled-pecl-extensions), [curl](#bundled-curl) with its libraries, [PCRE](#bundled-pcre), and [OPcache](#built-in-opcache-and-no-extension-loading) too, with no extensions loaded at run time if wanted |
-| Versions side by side | PHP 5.6, 7.4, 8.1, 8.2, 8.3 and 8.4: as the packages `php56-static` ... `php84-static` (or the core `php74` of pkg mode with its packages) all in `/usr/local`, with the version in their names (`bin/php84`, `sbin/php-fpm84` with its rc.d script `php_fpm84`, `etc/php84`), or each in its own `/usr/local/phpXY`; each with its own Apache module file (`libphp84.so`, ..., `libphp56.so`) |
+| Versions side by side | PHP 5.6, 7.4, 8.1, 8.2, 8.3 and 8.4: as the packages of the repository az (the core `phpXY` with one package per module, or `phpXY-static` built on the server) all in `/usr/local`, with the version in their names (`bin/php84`, `sbin/php-fpm84` with its rc.d script `php_fpm84`, `etc/php84`), or each in its own `/usr/local/phpXY`; each with its own Apache module file (`libphp84.so`, ..., `libphp56.so`) |
 | Scripts | [`config-check.sh`](tools/config-check.sh) writes the configure options of the PHP a server has; [`az-menu.sh`](tools/az-menu.sh) installs the packages of az, or chooses what goes into PHP with dialogs, as `make config` of the ports, and builds its package |
-| Packages | the repository of pkg [az](#packages-the-repository-az) for FreeBSD 15 (x86-64-v3 and v2), built from the FreeBSD ports in GitHub Actions: in the place of the packages of the ports `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7` and `php56` ... `php84`, static (their libraries are the package `az`, in `/usr/local/az/static`); PHP also in [pkg mode](#php-in-pkg-mode) (the core `php74` and one package per extension, as the ports), the static PHP as `php74-static` |
+| Packages | the repository of pkg [az](#packages-the-repository-az) for FreeBSD 15, built from the FreeBSD ports by [azsupport/ports](https://github.com/azsupport/ports): `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick` and `yt-dlp` in the place of the packages of the ports (their libraries are the package `az`), and the PHP of this fork as the ports have it (the core `phpXY`, `mod_phpXY` and one package per module) |
 | Checks | a [build test](#build-test-on-freebsd) in a FreeBSD VM; a daily [upstream check](#upstream-check) of the bundled code, the FreeBSD ports and the end of PHP support |
 
 Not affiliated with the PHP Group, Remi Collet or the FreeBSD Project.
@@ -226,10 +226,10 @@ have no `(fork: ...)` in the banner.
 Each block below rebuilds one version with the options of the PHP installed in
 `/usr/local/phpXY`: it downloads and checks the newest tarball, unpacks it in `/root`,
 writes `config.installed.sh` with [`tools/config-check.sh`](tools/config-check.sh),
-then configures, builds and installs. The packages `php56` ... `php84` go into
-`/usr/local` instead, as those of the ports: ready ones from the
-[repository az](#packages-the-repository-az), or built with the options of the
-installed PHP by [`az-menu.sh`](#az-menush-the-packages-and-what-goes-into-php).
+then configures, builds and installs. The packages go into `/usr/local` instead, as
+those of the ports: ready ones from the [repository az](#packages-the-repository-az)
+(the core `phpXY` with one package per module), or `phpXY-static` built with the
+options of the installed PHP by [`az-menu.sh`](#az-menush-the-packages-and-what-goes-into-php).
 
 - Paste a block as it is: the commands work in both `sh` and `csh` and have no
   comments on purpose, because an interactive csh does not treat `#` as a comment.
@@ -422,8 +422,9 @@ what it is built with: its description, for PHP the configure options and `CFLAG
 of the build, its mode `pkg` or `static`, the packages it depends on) or, for the
 static PHP, built here with your options: **Options** on `phpXY-static` "build here"
 opens the menu of the modules of that version and their options (below) and keeps the
-choices. Per version it lists the core `phpXY` of [pkg mode](#php-in-pkg-mode) with
-the packages of its extensions (`phpXY-<module>`) the repository has, and
+choices. Per version it lists the core `phpXY` with the packages of its modules
+(`phpXY-<module>`, [as the ports have them](https://github.com/azsupport/ports#the-packages))
+the repository has, and
 `phpXY-static`; it refuses the core and the static PHP of one version together, and
 `phpXY-openssl` with `phpXY-openssl-legacy`. OK then installs the ready ones with
 `pkg install -r az`, builds the package `phpXY-static` of each PHP to build with its
@@ -496,7 +497,7 @@ on and the other SAPIs and extensions it names off; the rest keeps its defaults,
 its items need is turned on as well, and every screen can still change it afterwards.
 Without dialogs: `sh az-menu.sh --batch --template=roundcube`.
 
-**The package `phpXY-static`** (origin `az/php84-static`, until now `phpXY` with the origin of the port; per version it or `phpXY` of pkg mode), for 8.4:
+**The package `phpXY-static`** (origin `az/php84-static`; per version it or `phpXY` of the repository az), for 8.4:
 
 | Files | What |
 |---|---|
@@ -510,12 +511,7 @@ Without dialogs: `sh az-menu.sh --batch --template=roundcube`.
 The files of `etc` are kept when changed (`@config`). The package depends on the
 packages of az it is linked with (`az`, `ImageMagick7`), and its
 annotations have the configure options, `CFLAGS` and the mode `static` (`pkg info -A
-php84-static`). The core `phpXY` of pkg mode (`az-menu.sh --package <branch> <source
-tree> <stage> <configure script> core`, for [`tools/build-pkg.sh`](tools/build-pkg.sh))
-has the same files and the empty directories `etc/php84/conf.d` and
-`lib/php/20240924` for the packages of its extensions, depends on `az` (the
-shared libraries of `/usr/local/az/lib`), not on `ImageMagick7`, and has the
-mode `pkg`.
+php84-static`).
 
 | Template | PHP | For |
 |---|---|---|
@@ -772,7 +768,7 @@ How it is built and used:
 | The system libcurl | plain `--with-curl` still takes it |
 | OpenSSL | curl 8.18.0 and later need OpenSSL 3.0 or later. FreeBSD 13.x has OpenSSL 1.1.1 in its base system, so there `config-check.sh` keeps `--with-curl` (the curl package) and says why; on FreeBSD 14 and 15 it writes `--with-curl=bundled` |
 | Security fixes | of curl or of one of its libraries reach PHP with a rebuild: the daily [upstream check](#upstream-check) opens an issue for each new release (the tags of their repositories), for changes of their FreeBSD ports, and when a port takes a release file the bundle has not (its distinfo). A release comes with its port; before it only for a vulnerability that touches us, or a bug we have: the release issues name the CVE and GHSA ids of the release notes |
-| The packages of az | [`tools/build-deps.sh`](tools/build-deps.sh) builds curl and these libraries from the same files the same way, static, into `/usr/local/az/static` (the package `az`): the static PHP packages of az link them (`--with-curl=/usr/local/az/static`). The package `curl` (`bin/curl`, `lib/libcurl.so.4`, in the place of those of the port) is a build of its own of the same release with the options of the port, apart from it ([Packages](#packages-the-repository-az)) |
+| The packages of az | `tools/az-build.sh` of azsupport/ports (the package `az`) builds curl and these libraries from the same files the same way, static into `/usr/local/az/static` (`phpXY-static` links them: `--with-curl=/usr/local/az/static`) and shared into `/usr/local/az/lib` (the module curl of the PHP packages). The package `curl` (`bin/curl`, `lib/libcurl.so.4`, in the place of those of the port) is a build of its own of the same release with the options of the port, apart from it ([Packages](#packages-the-repository-az)) |
 
 The options are those of the FreeBSD port, with these differences:
 
@@ -841,67 +837,24 @@ How a release gets into the tree:
 
 ## Packages: the repository az
 
-The programs of the video sites and PHP as packages of pkg for FreeBSD 15 (amd64),
-built in GitHub Actions from the FreeBSD ports with the compiler flags of our servers
-(`-O3 -pipe -march=<level> -fstack-protector-strong -fno-strict-aliasing`, PIE,
-RELRO, BIND_NOW), for x86-64-v3 (AVX2) and x86-64-v2. A package has the name, the
-origin and the epoch of the port whose package it replaces, and its files where the
-port puts them; the programs have their libraries linked in (those of `az`), so
-that none of them needs a library of `/usr/local/lib`. The repository is the files
-of the release `az-fbsd15-amd64-v3` (or `-v2`) of this fork.
+The repository of pkg az for FreeBSD 15 (amd64) is built and published by
+[azsupport/ports](https://github.com/azsupport/ports) since 08.11.2026: an overlay of
+the FreeBSD ports, one port per package, each changed from the official port only
+where it must be, with PHP from the release tarballs of this fork. Its
+[README](https://github.com/azsupport/ports#readme) has the packages, the layout of
+PHP on a server, how a server reads the repository and how the packages are built.
+Until then this fork built them itself (the workflows `az.yml` and `az-php.yml`).
 
-| Package | Origin | What it has |
-|---|---|---|
-| `curl` | `ftp/curl` | `bin/curl` and `lib/libcurl.so.4` (git and the other programs that take libcurl keep working): a build of its own with the options of the port (its protocols, HTTP/2, NTLM, IDN, PSL, brotli, zstd, the threaded resolver), without SCP and SFTP (libssh2) and GSSAPI; PHP does not need it |
-| `ffmpeg` | `multimedia/ffmpeg` | `bin/ffmpeg`, `bin/ffprobe`: [FFmpeg for the video sites](#ffmpeg-for-the-video-sites) |
-| `ImageMagick6` | `graphics/ImageMagick6` | `bin/convert6`, `bin/identify6`, `bin/mogrify6`, `bin/composite6`, ...: [ImageMagick 6 and 7](#imagemagick-6-and-7-for-the-video-sites) |
-| `ImageMagick7` | `graphics/ImageMagick7` | `bin/magick` and the names linked to it (`convert`, `identify`, ...); in `/usr/local/az/static` its static libraries and `static/bin/MagickWand-config`, for imagick |
-| `php56-static` ... `php84-static` | `az/php56-static` ... `az/php84-static` | the static PHP of this fork in the layout of [`az-menu.sh`](#az-menush-the-packages-and-what-goes-into-php) (`bin/php84`, `sbin/php-fpm84`, rc.d `php_fpm84`, `etc/php84`, `libphp84.so`), everything built into one PHP: ready ones with the options of the [build test](#build-test-on-freebsd), or built on the server with its own. Until now these were the packages `php56` ... `php84`; per version either `phpXY-static` or `phpXY` of pkg mode (the same files: pkg does not install both) |
-| `php74`, `php74-<module>` | `lang/php74`, `graphics/php74-gd`, `databases/php-redis`, ... | [pkg mode](#php-in-pkg-mode): the core `php74` and one package per extension, as the ports; PHP 7.4 for x86-64-v3 first |
-| `az` | `az/az` | the libraries the others are built with, in two trees ([below](#az-two-trees)): the static ones of `/usr/local/az/static` (OpenSSL, the curl of PHP with only what PHP needs ([Bundled curl](#bundled-curl)) and its libraries, libxml2, ICU, GD and its formats (JPEG of mozjpeg: the ports with `JPEG_PORT=graphics/mozjpeg`, as in make.conf of the servers), x264, dav1d, libheif and the others of [`freebsd/deps.conf`](freebsd/deps.conf)), for a build of PHP on the server, and the shared ones of `/usr/local/az/lib` the packages of pkg mode link |
-
-### az: two trees
-
-| Tree | What it has |
+| Package | What |
 |---|---|
-| `/usr/local/az/lib`, `lib/pkgconfig`, `include`, `bin` | the shared libraries (`*.so` with their SONAME, the run path `/usr/local/az/lib`, no ldconfig) the core `phpXY` and the extension packages of pkg mode link; `bin` has a `pkg-config` without `--static` and the `*-config` of the shared builds. OpenSSL, zlib and bzip2 are those of the base system |
-| `/usr/local/az/static/lib`, `static/include`, `static/bin` | the static libraries, their `.pc` in `static/lib/pkgconfig`, `static/bin/pkg-config`, `static/bin/MagickWand-config` of the package `ImageMagick7` and the static OpenSSL 3.5 of the port with its legacy provider: what everything static is built with (the packages `phpXY-static`, FFmpeg, the ImageMagick programs, `curl`, and a build of PHP on a server with `az-menu.sh` and `config-check.sh`, whose `PHPDEPS` is `/usr/local/az/static`) |
-| `/usr/local/az/share/doc/az/VERSIONS`, `/usr/local/az/LICENSES/` | one for both trees |
-
-Two trees, since with `libfoo.a` and `libfoo.so` in one directory the linker takes the
-`.so` and a static build would silently become a dynamic one; and the static tree has
-the headers of the OpenSSL of the port, which the shared builds (with the OpenSSL of the
-base system) must not see.
-
-### PHP in pkg mode
-
-PHP as the ports have it: the core `phpXY` (origin `lang/phpXY`, the extensions loaded
-with `extension=`) and one package per extension, each built on its own with
-`phpizeXY` against the installed core and linked with the shared libraries of
-`az` or of the base system ([`tools/build-pkg.sh`](tools/build-pkg.sh); the core is
-`az-menu.sh --package ... core`). PHP 7.4 for x86-64-v3 comes first; the other versions
-and x86-64-v2 are planned. The modules of a version are the extensions of the FreeBSD
-ports of that version: `lang/phpXY-extensions` and the ports of the PECL extensions, at
-the ports commit of that version in [`freebsd/targets.conf`](freebsd/targets.conf).
-
-| | |
-|---|---|
-| Names | one pattern, `phpXY-<module>`, for the bundled and the PECL extensions alike: `php74-gd` (origin `graphics/php74-gd`, as the port), `php74-redis` and `php74-swoole` (origins `databases/php-redis` and `devel/php-swoole`, as the ports since they moved from PECL in 2026), and in the same scheme, without "pecl", for the PECL ones whose ports still have it (`converters/pecl-igbinary` and so on): `php74-igbinary`, `php74-memcached`, `php74-memcache`, `php74-imagick`, `php74-mcrypt`, `php74-excimer`, `php74-openswoole` (`converters/php-igbinary`, `databases/php-memcached`, `databases/php-memcache`, `graphics/php-imagick`, `security/php-mcrypt`, `devel/php-excimer`, `devel/php-openswoole`). The PECL ones are built from `ext/` of the branch like the others ([Bundled PECL extensions](#bundled-pecl-extensions)) |
-| Modules | `/usr/local/lib/php/<API>/<module>.so`, the path of the ports (API: 5.6 `20131226`, 7.4 `20190902`, 8.1 `20210902`, 8.2 `20220829`, 8.3 `20230831`, 8.4 `20240924`) |
-| ini | `/usr/local/etc/phpXY/conf.d/ext-<NN>-<module>.ini`, from its `.ini.sample` with `@sample` as the ports do (changed, it is kept); `php.ini` stays `/usr/local/etc/phpXY/php.ini`. `conf.d`, since PHP reads every `*.ini` of the scan directory and would read `php.ini` twice there |
-| openssl | in two kinds, one of the two per version (the same files): `phpXY-openssl` and `phpXY-openssl-legacy` (with the legacy provider: RC4, Blowfish, DES, CAST5, MD4) |
-| swoole | `phpXY-swoole` and `phpXY-openswoole` can both be installed; the ini of openswoole is off |
-| Not built yet | the modules that need a library of the ports: enchant, imap, ldap, odbc, pdf, pdo_dblib, pdo_firebird, pdo_odbc, pdo_pgsql, pgsql, pspell, snmp |
-| The static PHP | per version either `phpXY-static` or `phpXY` with its modules: they have the same files, pkg does not install both |
-
-```sh
-pkg install -r az php74 php74-gd php74-redis php74-openssl-legacy
-pkg install -r az php74-static
-```
+| `az` | the libraries of the builds in `/usr/local/az`: the shared ones in `lib` (the run path `/usr/local/az/lib`, no ldconfig) for the PHP packages, the static ones in `/usr/local/az/static` for the programs and for a build of PHP on a server ([`az-menu.sh`](#az-menush-the-packages-and-what-goes-into-php) and [`config-check.sh`](tools/config-check.sh), whose `PHPDEPS` is `/usr/local/az/static`). OpenSSL, zlib and bzip2 are those of the base system |
+| `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `yt-dlp` | the programs, in the place of the packages of the ports: [FFmpeg](#ffmpeg-for-the-video-sites), [ImageMagick 6 and 7](#imagemagick-6-and-7-for-the-video-sites) |
+| `phpXY`, `mod_phpXY`, `phpXY-<module>` | the PHP of this fork as the ports have it: the core (CLI, php-fpm, phpize), the Apache module and one package per module (`php74-gd`, `php74-redis`, ...), the versions side by side |
 
 On a server, `az-menu.sh --repo` writes the repository for the level of its CPU
-(`/usr/local/etc/pkg/repos/az.conf`) and updates its catalog; the packages then go
-in with `pkg install -r az`, or through the menu of `sh az-menu.sh`:
+(`/usr/local/etc/pkg/repos/az.conf`: the release `az-fbsd15-amd64-v3` of
+azsupport/ports, `az-fbsd15-amd64-v2` without AVX2) and updates its catalog; the
+packages then go in with `pkg install -r az`, or through the menu of `sh az-menu.sh`:
 
 ```sh
 fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
@@ -909,63 +862,20 @@ sh az-menu.sh --repo
 pkg install -r az curl ffmpeg ImageMagick6 ImageMagick7
 ```
 
-`az.conf` on a CPU with AVX2 (`v2` without it), with the public key of the repository:
-
-```
-az: {
-    url: "https://github.com/azsupport/php-src/releases/download/az-fbsd15-amd64-v3",
-    signature_type: "pubkey",
-    pubkey: "/usr/local/etc/pkg/keys/az.pub",
-    priority: 100,
-    enabled: yes
-}
-```
-
-The catalog is signed, as those of the FreeBSD repositories: the workflows run
-`pkg repo <directory> <key>` (pkg-repo(8); [`tools/pkg-repo-sign.sh`](tools/pkg-repo-sign.sh))
-with the RSA key of the secret `PKG_SIGNING_KEY` of this fork, and the catalog holds the
-SHA-256 of each package, so the signature covers them all. The key goes into the build VM
-in one line (base64, masked in the log), into a file of mode 600 outside the directory
-that comes back to the runner, and is removed right after `pkg repo`; then the
-signature is checked there without the network (`pkg update -f` of the directory as a
-`file://` repository with the public key of that key), and the report of the build
-says so, with the SHA-256 of the public key. Without the secret the catalog is not
-signed: the build says so with a warning and goes on.
-
-On a server `az-menu.sh --repo` takes the public key [`freebsd/az.pub`](freebsd/az.pub)
-(next to the script, in the checkout of the fork it runs from, else fetched from
-`master`), puts it into `/usr/local/etc/pkg/keys/az.pub` and writes `signature_type:
-"pubkey"`: `pkg update -r az` then refuses a catalog whose signature does not verify.
-With no key anywhere it writes `signature_type: "none"`, as before, and says that the
-repository is without the check of the signature. `sha256 /usr/local/etc/pkg/keys/az.pub`
-is the SHA-256 in the report of the build.
-
-| A new key | |
-|---|---|
-| 1 | a new RSA key: `openssl genrsa -out az.key 4096`, `openssl rsa -in az.key -pubout -out az.pub` |
-| 2 | the secret `PKG_SIGNING_KEY` (the whole of `az.key`): https://github.com/azsupport/php-src/settings/secrets/actions |
-| 3 | `az.yml`, then `az-php.yml`, published: the catalogs are signed with the new key (the servers with the old one now refuse them) |
-| 4 | `az.pub` into the fork as `freebsd/az.pub`, then on each server `sh az-menu.sh --repo` (it puts the new key in the place of the old one) and `pkg update -f -r az` |
-
-The first key goes the same way: the secret and the signed catalogs first, `freebsd/az.pub`
-after them, since a server with the key refuses a catalog without a signature.
+The catalog is signed with the key of aZ. `az-menu.sh --repo` takes its public key
+[`freebsd/az.pub`](freebsd/az.pub) (the same key as `keys/az.pub` of
+azsupport/ports; next to the script, in the checkout of the fork it runs from, else
+fetched from `master`), puts it into `/usr/local/etc/pkg/keys/az.pub` and writes
+`signature_type: "pubkey"`: `pkg update -r az` then refuses a catalog whose
+signature does not verify. `sha256 /usr/local/etc/pkg/keys/az.pub` gives the SHA-256
+that the README of azsupport/ports names.
 
 | | |
 |---|---|
 | `priority: 100` | for a package both have, pkg prefers az to the repository of FreeBSD (priority 0) |
-| Versions | that of the port with the time of the build as its revision (`9.0.2_26110422,1`), so that a new build is an upgrade. What a package is built with: `/usr/local/share/doc/<package>/VERSIONS` (`az`: `/usr/local/az/share/doc/az/VERSIONS`) and its annotations (`pkg info -A php84-static`: the configure options, `CFLAGS`, the ports commit) |
-| Licences | `/usr/local/share/licenses/<package>/` (`az`: `/usr/local/az/LICENSES/`) |
-| A candidate | the workflows publish to `az-fbsd15-amd64-<level>-candidate` (a pre-release) by default, for a check on one server (`env AZ_CANDIDATE=1 sh az-menu.sh --repo`), and with `candidate` off to the release the servers read |
-| From the packages of the ports | `pkg install -r az <package>` puts the package of az in the place of that of the port. `ffmpeg`, `ImageMagick6` and `ImageMagick7` of az have the programs only, not the shared libraries of the ports (`libavcodec.so`, `libMagickWand-7.so`, ...): when another package needs them (`pkg info -r ffmpeg`), keep the package of the port |
+| From the packages of the ports | `pkg install -r az <package>` puts the package of az in the place of that of the port. `ffmpeg`, `ImageMagick6` and `ImageMagick7` of az do not have the shared libraries of the ports (`libavcodec.so`, `libMagickWand-7.so` in `/usr/local/lib`, ...): when another package needs them (`pkg info -r ffmpeg`), keep the package of the port |
+| The static PHP | `phpXY-static` (origin `az/phpXY-static`), everything built into one PHP and linked with the static libraries of `az`, is built on the server by `az-menu.sh` with the options chosen in its menu ([its files](#az-menush-the-packages-and-what-goes-into-php)); per version pkg installs it or `phpXY` of the repository, they have the same files. The repository has no ready `phpXY-static` |
 | From `/usr/local/phpXY` | `sh az-menu.sh` starts from the options of the PHP installed there and builds the package `phpXY-static`, in `/usr/local`: php.ini is then `/usr/local/etc/phpXY/php.ini`, php-fpm `service php_fpmXY`, the Apache module keeps its file `libexec/apache24/libphpXY.so`. The old directory stays until it is removed |
-
-Two workflows build the packages, started by hand with **Run workflow** (by default
-for FreeBSD 15.1, both levels, as a candidate):
-
-| Workflow | What it does |
-|---|---|
-| [`az.yml`](.github/workflows/az.yml) ("az packages for FreeBSD": https://github.com/azsupport/php-src/actions/workflows/az.yml) | builds `az`, `curl`, `ffmpeg`, `ImageMagick6` and `ImageMagick7` ([`tools/build-az.sh`](tools/build-az.sh)), installs them into an empty root and on the build machine, tests them ([`curl-test.sh`](tools/curl-test.sh), [`ffmpeg-test.sh`](tools/ffmpeg-test.sh), [`imagemagick-test.sh`](tools/imagemagick-test.sh)) and links a program with ImageMagick 7 as imagick does; when every test passed it publishes the repository (the PHP packages in it are kept) |
-| [`az-php.yml`](.github/workflows/az-php.yml) ("az PHP packages for FreeBSD": https://github.com/azsupport/php-src/actions/workflows/az-php.yml) | after `az.yml`: `php56-static` ... `php84-static` from the release tarballs with the presets of the build test, against the packages of az; the smoke checks of the build test, then the packages installed, all versions side by side, with php-fpm started by its rc.d script; then into the repository |
 
 ## FFmpeg for the video sites
 
@@ -997,8 +907,9 @@ ffmpeg -hide_banner -version
 ```
 
 The sites keep `/usr/local/bin/ffmpeg` and `/usr/local/bin/ffprobe` in their
-settings. `az.yml` builds it ([`tools/build-ffmpeg.sh`](tools/build-ffmpeg.sh)) and
-tests it with [`tools/ffmpeg-test.sh`](tools/ffmpeg-test.sh): samples of every
+settings. azsupport/ports builds it (its port `multimedia/ffmpeg`, with this
+`freebsd/ffmpeg.conf` as `files/ffmpeg.conf`, and its `tools/ffmpeg-build.sh`) and
+tests it with its `tools/ffmpeg-test.sh`: samples of every
 container and codec the sites take (made with the `ffmpeg` package of FreeBSD), also
 H.264 in 10 bit, 4:2:2 and 4:4:4 and MJPEG of a camera; the conversion of KVS, which
 must give 8-bit 4:2:0 H.264 from each; screenshots, a watermark, a rotated phone
@@ -1019,7 +930,7 @@ the video sites (KVS) on FreeBSD 15: static programs in `/usr/local/bin`, ImageM
 `mogrify6`, `composite6`, ...), so that both can be installed at once (the packages
 of the ports conflict): [`freebsd/imagemagick.conf`](freebsd/imagemagick.conf).
 ImageMagick 7 also has its static libraries, headers and `MagickWand-config` in
-`/usr/local/az/static`, which imagick of the static PHP packages is linked with. Like FFmpeg,
+`/usr/local/az/static`, which imagick of `phpXY-static` is linked with. Like FFmpeg,
 ImageMagick takes the format of a file from its content, and some of its formats
 run code or read other files (MVG and MSL scripts, SVG, PostScript through
 Ghostscript, `text:` and `@file`); here only what the sites need is built, and the
@@ -1046,9 +957,10 @@ magick -version
 The sites then take `/usr/local/bin/convert6` and the other names with 6
 (ImageMagick 6), or `/usr/local/bin/magick` and `/usr/local/bin/convert`
 (ImageMagick 7) in their settings; text by font name needs the `fontconfig` package
-and fonts (such as `dejavu`), as the packages of the ports do. `az.yml` builds both
-([`tools/build-imagemagick.sh`](tools/build-imagemagick.sh)) and tests them with
-[`tools/imagemagick-test.sh`](tools/imagemagick-test.sh): samples of every format
+and fonts (such as `dejavu`), as the packages of the ports do. azsupport/ports
+builds both (its ports `graphics/ImageMagick6` and `graphics/ImageMagick7`, with this
+`freebsd/imagemagick.conf`, and its `tools/imagemagick-build.sh`) and tests them with
+its `tools/imagemagick-test.sh`: samples of every format
 (made with the `ImageMagick7` package of FreeBSD), identify, thumbnails, WebP,
 animations, the BMP intermediate, a watermark, text, CMYK; refused: SVG, MVG, MSL,
 PostScript, PDF, TIFF, MNG, `text:`, `label:@`, `-comment @`, `@file`, `inline:`, URLs, `/etc`,
@@ -1105,7 +1017,8 @@ is applied on its own. What it follows is listed in
 [`freebsd/upstream.conf`](freebsd/upstream.conf) and, for the packages of az, in
 [`freebsd/deps.conf`](freebsd/deps.conf) (the libraries of `az` and curl),
 [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf) and
-[`freebsd/imagemagick.conf`](freebsd/imagemagick.conf). A new release of curl, of its
+[`freebsd/imagemagick.conf`](freebsd/imagemagick.conf) (azsupport/ports builds these
+packages, each with a copy of its file: a change here goes there too). A new release of curl, of its
 libraries, of PCRE2 and of the libraries and programs of az is taken when its
 FreeBSD port has it; before the port only when it fixes a vulnerability
 that touches us, or a bug we have (rule of 04.11.2026). Each release issue says what
