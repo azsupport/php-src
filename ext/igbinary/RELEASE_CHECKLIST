@@ -1,0 +1,11 @@
+* Update version in src/php7/igbinary.h to remove dev suffix.
+* Update version, release date in package.xml and NEWS.
+* Run `pecl package package.xml`.
+* Run `pecl install igbinary-XXX.tgz`.
+* Commit.
+* Create a release.
+* Bump version in igbinary.h and add dev suffix.
+* Copy release in package.xml into changelog.
+* Clear current changelog, bump versions and add dev suffix.
+* Commit.
+* Upload package on pecl.php.net.
