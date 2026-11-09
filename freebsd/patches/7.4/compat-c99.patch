@@ -1,4 +1,4 @@
-Description: Fix configure test programs that clang 16 and newer (FreeBSD 14/15 base: clang 19) and gcc 14 and newer reject for their implicit int return type, so they failed silently: whether write(2) to stdout works (the CLI then wrote through stdio instead of write(2)), the run check of PHP_CHECK_FUNC_LIB (functions found only in a separate library) and the reentrant time function type. The sources need no change for those compilers.
+Description: Fix configure test programs that clang 16 and newer (FreeBSD 14/15 base: clang 19) and gcc 14 and newer reject for their implicit int return type or an implicit function declaration, so they failed silently: whether write(2) to stdout works (the CLI then wrote through stdio instead of write(2)), the run check of PHP_CHECK_FUNC_LIB (functions found only in a separate library), the reentrant time function type, and the GNU libiconv check of iconv (printf without <stdio.h>: a GCC build took libiconv for an unknown iconv, dropped -liconv from the later checks and lost errno support, ICONV_SUPPORTS_ERRNO 0). The sources need no change for those compilers.
 Origin: azsupport; configure results checked against a run with those errors turned into warnings: identical main/php_config.h
 
 diff --git a/build/php.m4 b/build/php.m4
@@ -41,3 +41,15 @@ index 86b522a39..5f2206e89 100644
  {
    int n;
  
+diff --git a/ext/iconv/config.m4 b/ext/iconv/config.m4
+index 43e67e028..9ba0f5448 100644
+--- a/ext/iconv/config.m4
++++ b/ext/iconv/config.m4
+@@ -50,6 +50,7 @@ if test "$PHP_ICONV" != "no"; then
+       LDFLAGS="-liconv $LDFLAGS"
+       AC_RUN_IFELSE([AC_LANG_SOURCE([[
+ #include <$PHP_ICONV_H_PATH>
++#include <stdio.h>
+ int main() {
+   printf("%d", _libiconv_version);
+   return 0;
