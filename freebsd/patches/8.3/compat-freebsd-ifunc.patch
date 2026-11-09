@@ -1,0 +1,17 @@
+Description: configure checks the ifunc and target function attributes on FreeBSD too, as the official port does, so that PHP picks its SIMD code by the CPU at run time. Upstream 8.3 skips both checks on FreeBSD (PHP bug #77284, FreeBSD 11), and that code ran only where the -march of the build had the instructions: with x86-64-v3 no crc32 with PCLMUL (crc32(), the crc32 hashes) and no base64 with AVX-512, with x86-64-v2 also no base64 and mbstring with AVX2. PHP 8.4 runs these checks upstream on FreeBSD 12 and later.
+Origin: freebsd-ports lang/php83/files/patch-configure.ac @ eb0100f974b6, its ifunc hunk only, the same change; the port has carried it at least since its patch of 16.01.2024
+Note: only this hunk of that file; the others stay unapplied (freebsd/patches/8.3/SKIPPED): three are the build layout of the port (php_config.h includes ext/php_config.h, which only the port's Makefile creates, so a hand build fails without it; no configure pthreads check; the PEAR include_path of the port), and two do not matter here: the nanosleep hunk (libc before librt) would only drop a NEEDED librt.so.1 (librt is part of the base system), and php-src has no include/ for the header hunk to leave out.
+
+diff --git a/configure.ac b/configure.ac
+index 8e0de6f64..d91bb8380 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -570,7 +570,7 @@ dnl Fix for these systems is already included in GCC 7, but not on GCC 6.
+ dnl
+ dnl At least some versions of FreeBSD seem to have buggy ifunc support, see
+ dnl bug #77284. Conservatively don't use ifuncs on FreeBSD.
+-AS_CASE([$host_alias], [*-*-*android*|*-*-*uclibc*|*-*-*musl*|*freebsd*|*openbsd*], [true], [
++AS_CASE([$host_alias], [*-*-*android*|*-*-*uclibc*|*-*-*musl*|*openbsd*], [true], [
+   AX_GCC_FUNC_ATTRIBUTE([ifunc])
+   AX_GCC_FUNC_ATTRIBUTE([target])
+ ])

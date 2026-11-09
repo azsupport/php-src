@@ -200,7 +200,7 @@ Id сборки:
 
 | Файлы порта | Почему нет |
 |---|---|
-| `configure.ac` / `configure.in`, `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`, `ext/standard/image.c`, `php_session.h` | раздельная упаковка портов, где каждое расширение — отдельный пакет; `configure.ac` / `configure.in` подключают `ext/php_config.h`, который создаёт только Makefile портов, так что ручная сборка упала бы, и задают `include_path` PEAR портов |
+| `configure.ac` / `configure.in`, `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`, `ext/standard/image.c`, `php_session.h` | раздельная упаковка портов, где каждое расширение — отдельный пакет; `configure.ac` / `configure.in` подключают `ext/php_config.h`, который создаёт только Makefile портов, так что ручная сборка упала бы, и задают `include_path` PEAR портов (остальные их куски здесь ни на что не влияют; 8.3 берёт кусок `ifunc` своего `configure.ac` [патчем совместимости](#патчи-совместимости-сборки)) |
 | `sljit` и `xxhash` для PowerPC | другие архитектуры процессоров |
 | `ext/openssl/openssl.c` (8.4) | для LibreSSL |
 | `sapi/apache2filter/config.m4` (5.6) | экспериментальный SAPI apache2filter не используется; apache2handler получает то же изменение |
@@ -1112,6 +1112,7 @@ push.
 | 5.6 | [`compat-openssl3.patch`](freebsd/patches/5.6/compat-openssl3.patch) | OpenSSL 3: legacy-провайдер, `tls://`, `OPENSSL_SSLV23_PADDING`, открытый ключ CSR |
 | 7.4 | [`compat-c99.patch`](freebsd/patches/7.4/compat-c99.patch) | проверки configure, которые отвергают clang 16+ и gcc 14+ (`write(2)` в stdout, функции в отдельных библиотеках) |
 | 7.4 | [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch) | OpenSSL 3: legacy-провайдер, `OPENSSL_SSLV23_PADDING`, открытый ключ CSR |
+| 8.3 | [`compat-freebsd-ifunc.patch`](freebsd/patches/8.3/compat-freebsd-ifunc.patch) | кусок `ifunc` из патча `configure.ac` порта (`lang/php83`): configure проверяет атрибуты функций `ifunc` и `target` и на FreeBSD, где 8.3 апстрима их пропускает, так что PHP выбирает свой SIMD-код под процессор при запуске (раньше с `-march=x86-64-v3` у crc32 не было PCLMUL, у base64 — AVX-512, с `x86-64-v2` у base64 и mbstring не было ещё и AVX2). 8.4 делает эти проверки на FreeBSD 12+ сам; в портах 8.1 и 8.2 такого куска нет |
 
 ### Опции сборки
 

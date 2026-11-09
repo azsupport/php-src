@@ -199,7 +199,7 @@ Not applied, by kind:
 
 | Port files | Why not |
 |---|---|
-| `configure.ac` / `configure.in`, `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`, `ext/standard/image.c`, `php_session.h` | the ports' split packaging, where every extension is a separate package; `configure.ac` / `configure.in` include an `ext/php_config.h` that only the ports' Makefile creates, so a hand build would fail, and set the ports' PEAR `include_path` |
+| `configure.ac` / `configure.in`, `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`, `ext/standard/image.c`, `php_session.h` | the ports' split packaging, where every extension is a separate package; `configure.ac` / `configure.in` include an `ext/php_config.h` that only the ports' Makefile creates, so a hand build would fail, and set the ports' PEAR `include_path` (their other hunks do not matter here; 8.3 takes the `ifunc` hunk of its `configure.ac` as a [build compatibility patch](#build-compatibility-patches)) |
 | PowerPC `sljit` and `xxhash` | other CPU architectures |
 | `ext/openssl/openssl.c` (8.4) | for LibreSSL |
 | `sapi/apache2filter/config.m4` (5.6) | the experimental apache2filter SAPI is not used; apache2handler gets the same change |
@@ -1130,6 +1130,7 @@ gets reviewed.
 | 5.6 | [`compat-openssl3.patch`](freebsd/patches/5.6/compat-openssl3.patch) | OpenSSL 3: legacy provider, `tls://`, `OPENSSL_SSLV23_PADDING`, CSR public key |
 | 7.4 | [`compat-c99.patch`](freebsd/patches/7.4/compat-c99.patch) | configure tests that clang 16+ and gcc 14+ reject (`write(2)` to stdout, functions in separate libraries) |
 | 7.4 | [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch) | OpenSSL 3: legacy provider, `OPENSSL_SSLV23_PADDING`, CSR public key |
+| 8.3 | [`compat-freebsd-ifunc.patch`](freebsd/patches/8.3/compat-freebsd-ifunc.patch) | the `ifunc` hunk of the port's `configure.ac` patch (`lang/php83`): configure checks the `ifunc` and `target` function attributes on FreeBSD too, which upstream 8.3 skips there, so PHP picks its SIMD code by the CPU at run time (before, with `-march=x86-64-v3` crc32 had no PCLMUL and base64 no AVX-512, with `x86-64-v2` base64 and mbstring also had no AVX2). 8.4 runs these checks upstream on FreeBSD 12+; the ports of 8.1 and 8.2 have no such hunk |
 
 ### Build options
 
