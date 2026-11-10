@@ -428,7 +428,9 @@ choices. Per version it lists the core `phpXY`, its Apache module `mod_phpXY` an
 packages of its modules (`phpXY-<module>`,
 [as the ports have them](https://github.com/azsupport/ports#the-packages)) the repository
 has, and `phpXY-static`; it refuses the core or `mod_phpXY` and the static PHP of one
-version together, and `phpXY-openssl` with `phpXY-openssl-legacy`. OK then installs the
+version together, `phpXY-openssl` with `phpXY-openssl-legacy`, a module with its variant
+with OpenSSL (`phpXY-<module>-openssl`), and the modules on mysqlnd (mysqlnd, mysqli,
+pdo_mysql, mysql, swoole, openswoole) some with `-openssl` and some without. OK then installs the
 ready ones with `pkg install -r az` (`yt-dlp` with `pkg install yt-dlp`: its Python
 packages are those of FreeBSD), builds the package `phpXY-static` of each PHP to build with its
 choices and offers to install it; a PHP ticked without Options gets the menu of its
