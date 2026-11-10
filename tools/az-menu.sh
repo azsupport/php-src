@@ -1895,14 +1895,26 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             case "$sel" in *" $n "*) case "$sel" in *" $n.build "*) both="$both $n" ;; esac ;; esac
         done
         # per version the core of pkg mode (with the packages of its extensions) or the
-        # static PHP, and one of the two kinds of openssl: pkg would refuse both (the
-        # same files)
+        # static PHP, one of the two kinds of openssl, and a module or its variant with
+        # OpenSSL (phpXY-<module>-openssl): pkg would refuse both (the same files); the
+        # modules on mysqlnd all with the variant or all without it, as the variants
+        # go with phpXY-mysqlnd-openssl and the others with phpXY-mysqlnd
         mixed=""
         for b in $BRANCHES; do
             s_="$(echo "$b" | tr -d .)"
             case "$sel" in
                 *" php$s_-openssl "*) case "$sel" in *" php$s_-openssl-legacy "*) mixed="$mixed php$s_-openssl+php$s_-openssl-legacy" ;; esac ;;
             esac
+            for n in $sel; do
+                case "$n" in php"$s_"-?*-openssl) ;; *) continue ;; esac
+                case "$sel" in *" ${n%-openssl} "*) mixed="$mixed ${n%-openssl}+$n" ;; esac
+            done
+            o_="" d_=""
+            for m_ in mysqlnd mysql mysqli pdo_mysql swoole openswoole; do
+                case "$sel" in *" php$s_-$m_-openssl "*) o_="$o_+php$s_-$m_-openssl" ;; esac
+                case "$sel" in *" php$s_-$m_ "*) d_="$d_+php$s_-$m_" ;; esac
+            done
+            if [ -n "$o_" ] && [ -n "$d_" ]; then mixed="$mixed ${d_#+}$o_"; fi
             case "$sel" in *" php$s_-static "*|*" php$s_-static.build "*) ;; *) continue ;; esac
             for n in $names; do
                 case "$n" in php"$s_"-static) continue ;; php"$s_"|php"$s_"-*|mod_php"$s_") ;; *) continue ;; esac
@@ -1914,7 +1926,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             continue
         fi
         if [ -n "$mixed" ]; then
-            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with mod_phpXY and its packages phpXY-<module>) or phpXY-static, and phpXY-openssl or phpXY-openssl-legacy, not both:$mixed" 0 0
+            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with mod_phpXY and its packages phpXY-<module>) or phpXY-static, phpXY-openssl or phpXY-openssl-legacy, and phpXY-<module> or phpXY-<module>-openssl, not both; the modules on mysqlnd (mysqlnd, mysqli, pdo_mysql, mysql, swoole, openswoole) all with -openssl or all without it:$mixed" 0 0
             continue
         fi
         break
