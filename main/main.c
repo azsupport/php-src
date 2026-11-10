@@ -110,7 +110,7 @@ PHPAPI unsigned int php_version_id(void)
 PHPAPI char *php_get_version(sapi_module_struct *sapi_module)
 {
 	char *version_info;
-	spprintf(&version_info, 0, "PHP %s (%s) (built: %s %s) (%s)\nCopyright (c) The PHP Group\n%s%s",
+	spprintf(&version_info, 0, "PHP %s (%s) (built: %s %s) (fork: " PHP_FORK_BUILD ") (%s)\nCopyright (c) The PHP Group\n%s%s",
 		PHP_VERSION, sapi_module->name, __DATE__, __TIME__,
 #ifdef ZTS
 		"ZTS"
