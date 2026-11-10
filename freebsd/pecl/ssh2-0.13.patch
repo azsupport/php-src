@@ -1,0 +1,141 @@
+Description: Build with clang 16+ and GCC 14+, where incompatible function pointer types are errors: the stream wrapper functions of 0.13 took char * for the paths and modes that the php_stream_wrapper_ops of PHP 5.6 pass as const char * (the shell, exec, scp, tunnel and sftp wrappers). They take const char * now, as in ssh2 1.x, and the mode parser is static inline (a plain C99 inline that is not inlined has no definition).
+Origin: azsupport
+
+diff --git a/php_ssh2.h b/php_ssh2.h
+index 08dc87f..9f6e46d 100644
+--- a/php_ssh2.h
++++ b/php_ssh2.h
+@@ -195,7 +195,7 @@ PHP_FUNCTION(ssh2_sftp_realpath);
+ 
+ LIBSSH2_SESSION *php_ssh2_session_connect(char *host, int port, zval *methods, zval *callbacks TSRMLS_DC);
+ void php_ssh2_sftp_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC);
+-php_url *php_ssh2_fopen_wraper_parse_path(	char *path, char *type, php_stream_context *context,
++php_url *php_ssh2_fopen_wraper_parse_path(	const char *path, char *type, php_stream_context *context,
+ 											LIBSSH2_SESSION **psession, int *presource_id,
+ 											LIBSSH2_SFTP **psftp, int *psftp_rsrcid
+ 											TSRMLS_DC);
+diff --git a/ssh2_fopen_wrappers.c b/ssh2_fopen_wrappers.c
+index 8472ddd..f090d77 100644
+--- a/ssh2_fopen_wrappers.c
++++ b/ssh2_fopen_wrappers.c
+@@ -188,7 +188,7 @@ php_stream_ops php_ssh2_channel_stream_ops = {
+ /* {{{ php_ssh2_fopen_wraper_parse_path
+  * Parse an ssh2.*:// path
+  */
+-php_url *php_ssh2_fopen_wraper_parse_path(	char *path, char *type, php_stream_context *context,
++php_url *php_ssh2_fopen_wraper_parse_path(	const char *path, char *type, php_stream_context *context,
+ 											LIBSSH2_SESSION **psession, int *presource_id, 
+ 											LIBSSH2_SFTP **psftp, int *psftp_rsrcid
+ 											TSRMLS_DC)
+@@ -541,7 +541,7 @@ static php_stream *php_ssh2_shell_open(LIBSSH2_SESSION *session, int resource_id
+ /* {{{ php_ssh2_fopen_wrapper_shell
+  * ssh2.shell:// fopen wrapper
+  */
+-static php_stream *php_ssh2_fopen_wrapper_shell(php_stream_wrapper *wrapper, char *path, char *mode, int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
++static php_stream *php_ssh2_fopen_wrapper_shell(php_stream_wrapper *wrapper, const char *path, const char *mode, int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
+ {
+ 	LIBSSH2_SESSION *session = NULL;
+ 	php_stream *stream;
+@@ -789,7 +789,7 @@ static php_stream *php_ssh2_exec_command(LIBSSH2_SESSION *session, int resource_
+ /* {{{ php_ssh2_fopen_wrapper_exec
+  * ssh2.exec:// fopen wrapper
+  */
+-static php_stream *php_ssh2_fopen_wrapper_exec(php_stream_wrapper *wrapper, char *path, char *mode, int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
++static php_stream *php_ssh2_fopen_wrapper_exec(php_stream_wrapper *wrapper, const char *path, const char *mode, int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
+ {
+ 	LIBSSH2_SESSION *session = NULL;
+ 	php_stream *stream;
+@@ -978,7 +978,7 @@ static php_stream *php_ssh2_scp_xfer(LIBSSH2_SESSION *session, int resource_id,
+ /* {{{ php_ssh2_fopen_wrapper_scp
+  * ssh2.scp:// fopen wrapper (Read mode only, if you want to know why write mode isn't supported as a stream, take a look at the SCP protocol)
+  */
+-static php_stream *php_ssh2_fopen_wrapper_scp(php_stream_wrapper *wrapper, char *path, char *mode, int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
++static php_stream *php_ssh2_fopen_wrapper_scp(php_stream_wrapper *wrapper, const char *path, const char *mode, int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
+ {
+ 	LIBSSH2_SESSION *session = NULL;
+ 	php_stream *stream;
+@@ -1223,7 +1223,7 @@ static php_stream *php_ssh2_direct_tcpip(LIBSSH2_SESSION *session, int resource_
+ /* {{{ php_ssh2_fopen_wrapper_tunnel
+  * ssh2.tunnel:// fopen wrapper
+  */
+-static php_stream *php_ssh2_fopen_wrapper_tunnel(php_stream_wrapper *wrapper, char *path, char *mode, int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
++static php_stream *php_ssh2_fopen_wrapper_tunnel(php_stream_wrapper *wrapper, const char *path, const char *mode, int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
+ {
+ 	LIBSSH2_SESSION *session = NULL;
+ 	php_stream *stream = NULL;
+diff --git a/ssh2_sftp.c b/ssh2_sftp.c
+index 6a06525..a93535e 100644
+--- a/ssh2_sftp.c
++++ b/ssh2_sftp.c
+@@ -49,7 +49,7 @@ void php_ssh2_sftp_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC)
+    * SFTP File Ops *
+    ***************** */
+ 
+-inline unsigned long php_ssh2_parse_fopen_modes(char *openmode) {
++static inline unsigned long php_ssh2_parse_fopen_modes(const char *openmode) {
+ 	unsigned long flags = 0;
+ 
+ 	if (strchr(openmode, 'a')) {
+@@ -215,7 +215,7 @@ static php_stream_ops php_ssh2_sftp_stream_ops = {
+ 
+ /* {{{ php_ssh2_sftp_stream_opener
+  */
+-static php_stream *php_ssh2_sftp_stream_opener(	php_stream_wrapper *wrapper, char *filename, char *mode,
++static php_stream *php_ssh2_sftp_stream_opener(	php_stream_wrapper *wrapper, const char *filename, const char *mode,
+ 												int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
+ {
+ 	php_ssh2_sftp_handle_data *data;
+@@ -332,7 +332,7 @@ static php_stream_ops php_ssh2_sftp_dirstream_ops = {
+ 
+ /* {{{ php_ssh2_sftp_dirstream_opener
+  */
+-static php_stream *php_ssh2_sftp_dirstream_opener(	php_stream_wrapper *wrapper, char *filename, char *mode,
++static php_stream *php_ssh2_sftp_dirstream_opener(	php_stream_wrapper *wrapper, const char *filename, const char *mode,
+ 													int options, char **opened_path, php_stream_context *context STREAMS_DC TSRMLS_DC)
+ {
+ 	php_ssh2_sftp_handle_data *data;
+@@ -379,7 +379,7 @@ static php_stream *php_ssh2_sftp_dirstream_opener(	php_stream_wrapper *wrapper,
+ #ifdef ZEND_ENGINE_2
+ /* {{{ php_ssh2_sftp_urlstat
+  */
+-static int php_ssh2_sftp_urlstat(php_stream_wrapper *wrapper, char *url, int flags, php_stream_statbuf *ssb, php_stream_context *context TSRMLS_DC)
++static int php_ssh2_sftp_urlstat(php_stream_wrapper *wrapper, const char *url, int flags, php_stream_statbuf *ssb, php_stream_context *context TSRMLS_DC)
+ {
+ 	LIBSSH2_SFTP_ATTRIBUTES attrs;
+ 	LIBSSH2_SESSION *session = NULL;
+@@ -410,7 +410,7 @@ static int php_ssh2_sftp_urlstat(php_stream_wrapper *wrapper, char *url, int fla
+ 
+ /* {{{ php_ssh2_sftp_unlink
+  */
+-static int php_ssh2_sftp_unlink(php_stream_wrapper *wrapper, char *url, int options, php_stream_context *context TSRMLS_DC)
++static int php_ssh2_sftp_unlink(php_stream_wrapper *wrapper, const char *url, int options, php_stream_context *context TSRMLS_DC)
+ {
+ 	LIBSSH2_SESSION *session = NULL;
+ 	LIBSSH2_SFTP *sftp = NULL;
+@@ -438,7 +438,7 @@ static int php_ssh2_sftp_unlink(php_stream_wrapper *wrapper, char *url, int opti
+ 
+ /* {{{ php_ssh2_sftp_rename
+  */
+-static int php_ssh2_sftp_rename(php_stream_wrapper *wrapper, char *url_from, char *url_to, int options, php_stream_context *context TSRMLS_DC)
++static int php_ssh2_sftp_rename(php_stream_wrapper *wrapper, const char *url_from, const char *url_to, int options, php_stream_context *context TSRMLS_DC)
+ {
+ 	LIBSSH2_SESSION *session = NULL;
+ 	LIBSSH2_SFTP *sftp = NULL;
+@@ -481,7 +481,7 @@ static int php_ssh2_sftp_rename(php_stream_wrapper *wrapper, char *url_from, cha
+ 
+ /* {{{ php_ssh2_sftp_mkdir
+  */
+-static int php_ssh2_sftp_mkdir(php_stream_wrapper *wrapper, char *url, int mode, int options, php_stream_context *context TSRMLS_DC)
++static int php_ssh2_sftp_mkdir(php_stream_wrapper *wrapper, const char *url, int mode, int options, php_stream_context *context TSRMLS_DC)
+ {
+ 	LIBSSH2_SESSION *session = NULL;
+ 	LIBSSH2_SFTP *sftp = NULL;
+@@ -517,7 +517,7 @@ static int php_ssh2_sftp_mkdir(php_stream_wrapper *wrapper, char *url, int mode,
+ 
+ /* {{{ php_ssh2_sftp_rmdir
+  */
+-static int php_ssh2_sftp_rmdir(php_stream_wrapper *wrapper, char *url, int options, php_stream_context *context TSRMLS_DC)
++static int php_ssh2_sftp_rmdir(php_stream_wrapper *wrapper, const char *url, int options, php_stream_context *context TSRMLS_DC)
+ {
+ 	LIBSSH2_SESSION *session = NULL;
+ 	LIBSSH2_SFTP *sftp = NULL;
