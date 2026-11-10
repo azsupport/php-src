@@ -159,7 +159,7 @@ CVE-2024-8929), которого нет ни в 5.6 у Remi Collet, ни у Ond�
 | 1 | **Apply curated FreeBSD ports patches** | те патчи `lang/phpXY` из [коллекции портов FreeBSD](https://github.com/freebsd/freebsd-ports), которые здесь важны ([ниже](#патчи-портов-freebsd-что-применено-и-что-нет)), — файлами с описанием и строкой происхождения в [`freebsd/patches/`](freebsd/patches). Тот же коммит удаляет каталог `.github/` апстрима, чтобы собственный CI php-src не запускался в этом форке (в тарболах релизов его и так нет) |
 | 2 | **Apply build compatibility patches** | во всех ветках — имя файла модуля Apache (`libphpXY.so`), в 5.6 и 7.4 ещё и изменения, с которыми старая ветка собирается и работает на современной FreeBSD: [Патчи совместимости сборки](#патчи-совместимости-сборки) |
 | 3 | **Backport security fixes** | только пока такие есть (сейчас 5.6): [Временные бэкпорты](#временные-бэкпорты) |
-| 4 | **Bundle PECL extensions** | redis, memcached, memcache, igbinary, imagick, gmagick, swoole, OpenSwoole, excimer и mcrypt в `ext/`; собираются, только если включены: [Встроенные расширения PECL](#встроенные-расширения-pecl) |
+| 4 | **Bundle PECL extensions** | redis, memcached, memcache, igbinary, imagick, gmagick, swoole, OpenSwoole, excimer, mcrypt и ssh2 в `ext/`; собираются, только если включены: [Встроенные расширения PECL](#встроенные-расширения-pecl) |
 | 5 | **Bundle curl** | curl в `ext/curl/libcurl` и его библиотеки в `ext/curl/deps`, встраиваются в PHP с `--with-curl=bundled`: [Встроенный curl](#встроенный-curl) |
 | 6 | **Bundle PCRE** | новейшая PCRE2 (5.6: PCRE 8.45) вместо той, что встроена в апстриме: [Встроенная PCRE](#встроенная-pcre) |
 | 7 | **Add the build options of this fork** | встроенный OPcache и запрет загрузки расширений, выключены, пока не заданы в configure: [Встроенный OPcache и запрет загрузки расширений](#встроенный-opcache-и-запрет-загрузки-расширений) |
@@ -653,6 +653,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | OpenSwoole | 4.12.1 | 4.12.1 | 4.12.1 | — |
 | excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
 | mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | в самом PHP 5.6 |
+| ssh2 | 1.6.0 | 1.6.0 | 1.4.1 | 0.13 |
 
 Как их включить:
 
@@ -668,6 +669,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 | [OpenSwoole](https://pecl.php.net/package/openswoole) (7.4+) | `--enable-openswoole`; не вместе со swoole | |
 | [excimer](https://pecl.php.net/package/excimer) (7.4+) | `--enable-excimer` | |
 | [mcrypt](https://pecl.php.net/package/mcrypt) (7.4+) | `--with-mcrypt=/usr/local` | `libmcrypt` |
+| [ssh2](https://pecl.php.net/package/ssh2) | `--with-ssh2=/usr/local`: `ssh2_connect()`, SCP, `ssh2.sftp://` | `libssh2` |
 
 Версии — новейшие стабильные релизы PECL для каждой версии PHP, с такими исключениями:
 
@@ -779,6 +781,7 @@ PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведё�
 | libidn2 | 2.3.8 | `dns/libidn2` | международные доменные имена (IDN) |
 | libpsl | 0.23.3 | `dns/libpsl` | список публичных суффиксов: никаких cookies на целый публичный суффикс вроде `co.uk` |
 | список публичных суффиксов | 21.09.2026 | `dns/public_suffix_list` | встроен в libpsl |
+| libssh2 | 1.11.1 | `security/libssh2` | SCP и SFTP (`scp://`, `sftp://`), с OpenSSL самого curl и патчами своего порта |
 
 Как он собирается и работает:
 
@@ -802,7 +805,8 @@ PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведё�
 | нет WebSocket (`ws://`, `wss://`) | в PHP нет `curl_ws_send()` и `curl_ws_recv()`; в master php-src их тоже нет, только `CURLOPT_WS_OPTIONS` |
 | нет NTLM | слабый, в curl с 8.20 только по явному включению, curl собирается его удалить; нужен лишь старым серверам и прокси Microsoft |
 | нет headers API, экспорта TLS-сессий, `curl_easy_option_*`, текстового индикатора прогресса | PHP ничего из этого не вызывает; `CURLOPT_PROGRESSFUNCTION` и `CURLOPT_XFERINFOFUNCTION` работают |
-| нет DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP (libssh2), GSSAPI | редкие протоколы |
+| нет DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, GSSAPI | редкие протоколы |
+| SCP и SFTP (libssh2) | в порте выключены; здесь включены для передачи файлов на другие серверы (aZ, 10.11.2026) |
 
 c-ares здесь не ради скорости: время уходит на ответ DNS-сервера, а A и AAAA curl 8.23 и
 так спрашивает параллельно. Разница — когда DNS-сервер не отвечает:
@@ -817,7 +821,7 @@ c-ares здесь не ради скорости: время уходит на �
 
 | Оставлено | Что |
 |---|---|
-| Протоколы | HTTP(S), FTP(S), FILE (им могут пользоваться старые скрипты) |
+| Протоколы | HTTP(S), FTP(S), FILE (им могут пользоваться старые скрипты), SCP, SFTP |
 | Возможности | HTTP/2, прокси, cookies, multipart (`CURLFile`), Unix-сокеты, IDN, PSL, brotli, zstd |
 | Возможности, которые код должен включить сам | alt-svc, HSTS, DoH, AWS SigV4, `.netrc` |
 

@@ -71,7 +71,7 @@
 # PHP can do RC4, and always for PHP 5.6 and 7.4, so that RC4, Blowfish, DES and the
 # like keep working; the report says so.
 # Shared PECL modules that the source tree bundles (redis, memcached, memcache,
-# imagick, gmagick, igbinary, swoole, openswoole, excimer, mcrypt) are not added to
+# imagick, gmagick, igbinary, swoole, openswoole, excimer, mcrypt, ssh2) are not added to
 # the script: the report ends with the command that builds them in, with the
 # features they were built with (php --ri), and lists the extension= lines to
 # remove after make install.
@@ -423,7 +423,7 @@ pecl_feature_opts() {
                 [ -n "$(ri_row "$2" "$row")" ] && echo "$2: $row was enabled; add its --with-swoole-... option by hand (./configure --help)" >> "$tmp/pecl_note"
             done
             ;;
-        imagick | gmagick | mcrypt) o="--with-$2=/usr/local" ;;
+        imagick | gmagick | mcrypt | ssh2) o="--with-$2=/usr/local" ;;
         *) o="--enable-$2" ;;
     esac
     printf '%s\n' "$o"
@@ -450,7 +450,8 @@ deps_opts() {
         name == "--with-libmemcached-dir" || name == "--with-password-argon2" || name == "--with-gettext" || \
         name == "--with-libxml-dir" || name == "--with-jpeg-dir" || name == "--with-png-dir" || \
         name == "--with-freetype-dir" || name == "--with-webp-dir" || name == "--with-sodium" || \
-        name == "--with-icu-dir" || name == "--with-onig" || name == "--with-libzip" {
+        name == "--with-icu-dir" || name == "--with-onig" || name == "--with-libzip" || \
+        name == "--with-ssh2" {
             if (val == "no") { print; next }
             print to_deps(name, val); n++; next
         }
@@ -607,7 +608,7 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             zlib) if [ "$fam" = 5 ]; then echo "--with-zlib=/usr"; else echo "--with-zlib"; fi ;;
             # with the features the package was built with (php --ri of the package PHP)
             pecl-redis | pecl-memcached | pecl-memcache | pecl-imagick | pecl-igbinary | pecl-swoole | \
-pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt)
+pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt | pecl-ssh2)
                 pecl_feature_opts "$lb/bin/php" "${1#pecl-}" ;;
             pecl-*) echo "PECL extension, not part of ./configure: build it later with $prefix/bin/phpize"; return 1 ;;
             *) echo "not an extension of the PHP sources (a tool, or one this script does not know)"; return 1 ;;
@@ -1175,7 +1176,7 @@ fi
 : > "$tmp/pecl_opts"
 : > "$tmp/pecl_names"
 : > "$tmp/ini_lines"
-for m in igbinary redis memcached memcache imagick gmagick swoole openswoole excimer mcrypt; do
+for m in igbinary redis memcached memcache imagick gmagick swoole openswoole excimer mcrypt ssh2; do
     grep -qx "$m" "$tmp/modules" || continue
     grep -q -e "--enable-$m\$" -e "--enable-$m=" -e "--with-$m" "$tmp/installed" && continue
     if [ ! -d ext/standard ]; then

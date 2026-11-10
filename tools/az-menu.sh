@@ -475,6 +475,7 @@ menu_data() {
 *	O	--disable-sockets
 *	O	--disable-solid
 *	O	--disable-sqlite3
+*	O	--disable-ssh2
 5.6	O	--disable-sybase-ct
 *	O	--disable-system-ciphers
 *	O	--disable-sysvmsg
@@ -638,6 +639,7 @@ menu_data() {
 *	O	--enable-sockets
 *	O	--enable-solid
 *	O	--enable-sqlite3
+*	O	--enable-ssh2
 5.6	O	--enable-sybase-ct
 *	O	--enable-system-ciphers
 *	O	--enable-sysvmsg
@@ -804,6 +806,7 @@ menu_data() {
 *	O	--with-sockets
 *	O	--with-solid
 *	O	--with-sqlite3
+*	O	--with-ssh2
 5.6	O	--with-sybase-ct
 *	O	--with-system-ciphers
 *	O	--with-sysvmsg
@@ -959,6 +962,7 @@ menu_data() {
 *	O	--without-sockets
 *	O	--without-solid
 *	O	--without-sqlite3
+*	O	--without-ssh2
 5.6	O	--without-sybase-ct
 *	O	--without-system-ciphers
 *	O	--without-sysvmsg
@@ -1008,6 +1012,7 @@ menu_data() {
 7.4+	I	ext	047	PGSQL	0	--with-pgsql	-	PostgreSQL database support	PostgreSQL client package (postgresqlNN-client)
 7.4+	I	ext	060	SODIUM	0	--with-sodium	-	Sodium encryption support	package libsodium
 7.4+	I	ext	061	SQLITE3	0	--with-sqlite3	-	sqlite3 support	package sqlite3
+*	I	ext	061	SSH2	0	--with-ssh2=/usr/local	-	SSH2, SCP and SFTP functions (ssh2, PECL)	package libssh2
 7.4+	I	ext	062	SWOOLE	0	--enable-swoole	-	Swoole: coroutines, asynchronous servers (PECL)	heavy: only for applications on Swoole; not with openswoole
 7.4+	I	ext	074	XSL	0	--with-xsl	-	XSL support (Implies DOM)	package libxslt
 7.4+	I	ext	075	ZIP	0	--with-zip	-	ZIP support	package libzip
