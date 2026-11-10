@@ -21,8 +21,8 @@
 # Everything is built static and position independent, so that it can go into
 # php, php-fpm, php-cgi and libphp.so, and with only cc, make and ar: brotli, zstd
 # and libpsl are compiled here (their own builds want cmake, GNU make, or meson and
-# Python), c-ares, nghttp2 and libidn2 with their configure (the autotools are
-# never run, see notools). The libraries:
+# Python), c-ares, nghttp2, libidn2 and libssh2 with their configure (the autotools
+# are never run, see notools). The libraries:
 #   c-ares    the DNS resolver of curl (instead of getaddrinfo() in threads: a
 #             lookup that runs into a timeout is dropped at once, a getaddrinfo()
 #             can only be waited for)
@@ -33,9 +33,11 @@
 #             (--with-included-libunistring), so no libunistring
 #   libpsl    the Public Suffix List for cookies, built-in only (no IDN library:
 #             curl gives it the names in punycode)
+#   libssh2   SCP and SFTP (aZ, 10.11.2026), with the OpenSSL of curl and the zlib
+#             of the base system
 # curl gets the OpenSSL of the PHP build (the base system one unless PHP is given
 # another) and the options of the FreeBSD port ftp/curl minus what PHP has no use
-# for (README of the fork, "Bundled curl"). libcurl.a then takes the libraries in
+# for, with SCP and SFTP (libssh2) on (README of the fork, "Bundled curl"). libcurl.a then takes the libraries in
 # (ld -r) and all its symbols but curl_* are made local, so that a copy of one of
 # them in PHP or in another module (swoole carries nghttp2, libzip links zstd)
 # stays apart; the PHP link hides curl_* too (--exclude-libs, config.m4).
@@ -59,7 +61,7 @@ ncpu="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 2)"
 # (they are not there) for that.
 notools="ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=: MAKEINFO=:"
 # The libraries in link order, as libcurl.a takes them in.
-deplibs="psl idn2 nghttp2 cares brotlidec brotlicommon zstd"
+deplibs="ssh2 psl idn2 nghttp2 cares brotlidec brotlicommon zstd"
 
 say() { printf '== %s\n' "$*"; }
 
@@ -205,6 +207,19 @@ EOF
     pc_file "$2" libpsl "$v" "Public Suffix List C library" -lpsl "" ""
 }
 
+lib_libssh2() {
+    # the OpenSSL of curl (openssl_opt), zlib of the base system; the internal
+    # functions hidden, as the CMake build of the port does by default; -pthread for
+    # the link tests of its configure with a static libcrypto
+    openssl_opt
+    configure_dep libssh2 "$1" "$2" --with-crypto=openssl --with-libssl-prefix="${ossl_inc%/include}" \
+        --with-libz --enable-hidden-symbols --disable-examples-build --disable-docker-tests \
+        --disable-sshd-tests LIBS=-pthread
+    mk libssh2 -j"$ncpu" -C src
+    mk libssh2 -C src install
+    mk libssh2 install-includeHEADERS install-pkgconfigDATA
+}
+
 build_lib() {   # <name> <source> <prefix>
     case "$1" in
         c-ares) lib_c_ares "$2" "$3" ;;
@@ -213,6 +228,7 @@ build_lib() {   # <name> <source> <prefix>
         zstd) lib_zstd "$2" "$3" ;;
         libidn2) lib_libidn2 "$2" "$3" ;;
         libpsl) lib_libpsl "$2" "$3" ;;
+        libssh2) lib_libssh2 "$2" "$3" ;;
         *) echo "build-libcurl: no library $1" >&2; return 2 ;;
     esac
 }
@@ -256,7 +272,7 @@ curl_features() {
         --disable-httpsig --disable-unity --disable-werror \
         --disable-dict --disable-gopher --disable-ipfs --disable-mqtt --disable-rtsp \
         --disable-telnet --disable-tftp --disable-ldap --disable-ldaps \
-        --without-gssapi --without-libssh2 --without-libssh \
+        --without-gssapi --without-libssh \
         --disable-manual --disable-docs \
         --without-zsh-functions-dir --without-fish-functions-dir
 }
@@ -282,7 +298,7 @@ build_curl() {
         --with-ca-path=/etc/ssl/certs --without-ca-bundle \
         --enable-ares="$deps" --disable-threaded-resolver \
         --with-nghttp2="$deps" --with-brotli="$deps" --with-zstd="$deps" \
-        --with-libidn2="$deps" --with-libpsl="$deps" \
+        --with-libidn2="$deps" --with-libpsl="$deps" --with-libssh2="$deps" \
         $(curl_features))
     mk curl -j"$ncpu" -C lib
     mk curl -C lib install
@@ -302,7 +318,7 @@ build_curl() {
     left="$(nm -g --defined-only "$m" | awk 'NF >= 3 && $NF !~ /^curl_/ { print $NF }' | head -n 3 | tr '\n' ' ')"
     [ -z "$left" ] || { echo "build-libcurl: still global in libcurl.a: $left" >&2; exit 1; }
     # (weak references stay open on purpose: the trace hooks of zstd)
-    undef="$(nm -u "$m" | awk '$1 == "U" { print $2 }' | grep -E '^(ares_|nghttp2_|Brotli|ZSTD_|idn2_|psl_)' | head -n 3 | tr '\n' ' ' || true)"
+    undef="$(nm -u "$m" | awk '$1 == "U" { print $2 }' | grep -E '^(ares_|nghttp2_|Brotli|ZSTD_|idn2_|psl_|libssh2_)' | head -n 3 | tr '\n' ' ' || true)"
     [ -z "$undef" ] || { echo "build-libcurl: libraries missing in libcurl.a: $undef" >&2; exit 1; }
     rm -f "$prefix/lib/libcurl.a"
     $ar rcs "$prefix/lib/libcurl.a" "$m"
@@ -378,7 +394,7 @@ fi
 rm -rf "$prefix" "$obj" "$deps"
 mkdir -p "$obj"
 pc_wrap "$deps"
-for n in c-ares nghttp2 brotli zstd libidn2 libpsl; do
+for n in c-ares nghttp2 brotli zstd libidn2 libpsl libssh2; do
     say "$(awk -v n="$n" '$1 == n { print $1, $2 }' "$here/deps/VERSIONS")"
     build_lib "$n" "$here/deps/$n" "$deps"
 done

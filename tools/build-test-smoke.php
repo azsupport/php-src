@@ -131,9 +131,12 @@ if (function_exists('curl_version')) {
         $exp = preg_grep('/ T curl_(easy|multi|global|share|url|ws)_/', $nm);
         check('curl: libcurl symbols not exported', $nm ? !$exp : null, $nm ? ($exp ? count($exp) . ' exported, e.g. ' . trim(reset($exp)) : 'none exported') : 'no nm');
         $off = array_values(array_intersect($cv['protocols'], array('dict', 'gopher', 'gophers', 'ipfs', 'ipns',
-            'mqtt', 'mqtts', 'rtsp', 'telnet', 'tftp', 'ldap', 'ldaps', 'scp', 'sftp', 'smb', 'smbs',
+            'mqtt', 'mqtts', 'rtsp', 'telnet', 'tftp', 'ldap', 'ldaps', 'smb', 'smbs',
             'imap', 'imaps', 'pop3', 'pop3s', 'smtp', 'smtps', 'ws', 'wss')));
         check('curl: protocols PHP has no use for off', !$off, $off ? 'has ' . implode(' ', $off) : implode(' ', $cv['protocols']));
+        // SCP and SFTP with the libssh2 of the bundle (aZ, 10.11.2026)
+        $ssh = array_values(array_diff(array('scp', 'sftp'), $cv['protocols']));
+        check('curl: SCP and SFTP (libssh2)', !$ssh, $ssh ? 'missing ' . implode(' ', $ssh) : (isset($cv['libssh_version']) ? $cv['libssh_version'] : 'scp sftp'));
         // its libraries are built in: none of them from pkg, c-ares resolves. brotli and
         // zstd of pkg can be in the process all the same (freetype and swoole link
         // brotli, libzip and ImageMagick zstd): curl has its own, CURL_BROTLI (the
@@ -405,6 +408,28 @@ if (class_exists('ExcimerProfiler')) {
     $p->stop();
     $n = count($p->getLog());
     check('excimer', $n > 0, 'excimer ' . phpversion('excimer') . ", $n samples in 50 ms");
+}
+// ssh2 (PECL, bundled): the key exchange with the sshd of this machine (the VM has
+// one), which takes libssh2 and its OpenSSL; the curl of the bundle over SFTP to it,
+// turned away at the login (password or keyboard-interactive, 2 | 8: CURLE_LOGIN_DENIED,
+// 67) after the same handshake
+if (function_exists('ssh2_connect')) {
+    if (port_open(22)) {
+        $c = @ssh2_connect('127.0.0.1', 22);
+        check('ssh2: handshake with the local sshd', $c !== false,
+            'ssh2 ' . phpversion('ssh2') . ($c ? ', host key MD5 ' . ssh2_fingerprint($c) : ': ' . last_error()));
+    } else {
+        check('ssh2', null, 'ssh2 ' . phpversion('ssh2') . ', no sshd on port 22');
+    }
+}
+if (function_exists('curl_version') && in_array('sftp', curl_version()['protocols']) && port_open(22)) {
+    $ch = curl_init('sftp://127.0.0.1/');
+    curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20,
+        CURLOPT_USERPWD => 'nobody:-', CURLOPT_SSH_AUTH_TYPES => 10));
+    curl_exec($ch);
+    $e = curl_errno($ch);
+    check('curl: SFTP to the local sshd, the login refused', $e === 67, "errno $e " . curl_error($ch));
+    curl_close($ch);
 }
 if (function_exists('igbinary_serialize')) {
     $data = array('a' => 1, 'b' => array(1.5, 'x', true), 'c' => null);

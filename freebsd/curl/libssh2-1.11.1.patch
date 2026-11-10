@@ -1,0 +1,118 @@
+Description: the patches of the FreeBSD port security/libssh2 (its PATCHFILES, three upstream commits): CMake fixes (unused by this build, configure) and the bounds check of the user name length in userauth.c (#1858)
+Origin: freebsd-ports security/libssh2 @ f16b6dd0f7c1 (PATCHFILES 5d03b4f94ac6, d4e43c7b69d1, 256d04b60d80 of https://github.com/libssh2/libssh2), -p0
+
+--- CMakeLists.txt
++++ CMakeLists.txt
+@@ -115,6 +115,11 @@ else()
+   endif()
+ endif()
+ 
++if(BUILD_TESTING AND NOT BUILD_STATIC_LIBS)
++  # Build static for tests only, but do not install it.
++  set(BUILD_STATIC_FOR_TESTS ON)
++endif()
++
+ option(BUILD_EXAMPLES "Build libssh2 examples" ON)
+ option(BUILD_TESTING "Build libssh2 test suite" ON)
+ 
+--- src/CMakeLists.txt
++++ src/CMakeLists.txt
+@@ -94,7 +94,7 @@ set(_sources ${CSOURCES} ${HHEADERS})
+ # when building both static and shared library. On Windows, with certain
+ # toolchains (e.g. MSVC) these libraries get the same by default, overwriting
+ # each other. MinGW is not affected.
+-if(WIN32 AND BUILD_STATIC_LIBS AND BUILD_SHARED_LIBS AND
++if(WIN32 AND (BUILD_STATIC_LIBS OR BUILD_STATIC_FOR_TESTS) AND BUILD_SHARED_LIBS AND
+    NOT STATIC_LIB_SUFFIX AND NOT IMPORT_LIB_SUFFIX AND
+    CMAKE_STATIC_LIBRARY_SUFFIX STREQUAL CMAKE_IMPORT_LIBRARY_SUFFIX)
+   set(STATIC_LIB_SUFFIX "_static")
+@@ -103,8 +103,10 @@ endif()
+ unset(_libssh2_export)
+ 
+ # we want it to be called libssh2 on all platforms
+-if(BUILD_STATIC_LIBS)
+-  list(APPEND _libssh2_export ${LIB_STATIC})
++if(BUILD_STATIC_LIBS OR BUILD_STATIC_FOR_TESTS)
++  if(NOT BUILD_STATIC_FOR_TESTS)
++    list(APPEND _libssh2_export ${LIB_STATIC})
++  endif()
+   add_library(${LIB_STATIC} STATIC ${_sources})
+   add_library(${PROJECT_NAME}::${LIB_STATIC} ALIAS ${LIB_STATIC})
+   target_compile_definitions(${LIB_STATIC} PRIVATE ${PRIVATE_COMPILE_DEFINITIONS} ${_libssh2_definitions})
+--- tests/CMakeLists.txt
++++ tests/CMakeLists.txt
+@@ -90,7 +90,7 @@ foreach(_test IN LISTS DOCKER_TESTS STANDALONE_TESTS SSHD_TESTS)
+   endif()
+ 
+   # We support the same target as both Docker and SSHD test. Build those just once.
+-  # Skip building tests that require the static lib when the static lib is disabled.
++  # Skip building tests that require the static lib when the static lib is not built.
+   if(NOT TARGET ${_test} AND _lib_for_tests)
+     add_executable(${_test} "${_test}.c")
+     target_compile_definitions(${_test} PRIVATE "${CRYPTO_BACKEND_DEFINE}")
+--- cmake/FindLibgcrypt.cmake
++++ cmake/FindLibgcrypt.cmake
+@@ -32,6 +32,7 @@ else()
+   find_path(LIBGCRYPT_INCLUDE_DIR NAMES "gcrypt.h")
+   find_library(LIBGCRYPT_LIBRARY NAMES "gcrypt" "libgcrypt")
+ 
++  unset(LIBGCRYPT_VERSION CACHE)
+   if(LIBGCRYPT_INCLUDE_DIR AND EXISTS "${LIBGCRYPT_INCLUDE_DIR}/gcrypt.h")
+     set(_version_regex "#[\t ]*define[\t ]+GCRYPT_VERSION[\t ]+\"([^\"]*)\"")
+     file(STRINGS "${LIBGCRYPT_INCLUDE_DIR}/gcrypt.h" _version_str REGEX "${_version_regex}")
+--- cmake/FindMbedTLS.cmake
++++ cmake/FindMbedTLS.cmake
+@@ -32,6 +32,7 @@ else()
+   find_path(MBEDTLS_INCLUDE_DIR NAMES "mbedtls/version.h")
+   find_library(MBEDCRYPTO_LIBRARY NAMES "mbedcrypto" "libmbedcrypto")
+ 
++  unset(MBEDTLS_VERSION CACHE)
+   if(MBEDTLS_INCLUDE_DIR)
+     if(EXISTS "${MBEDTLS_INCLUDE_DIR}/mbedtls/build_info.h")  # 3.x
+       set(_version_header "${MBEDTLS_INCLUDE_DIR}/mbedtls/build_info.h")
+--- cmake/FindWolfSSL.cmake
++++ cmake/FindWolfSSL.cmake
+@@ -32,6 +32,7 @@ else()
+   find_path(WOLFSSL_INCLUDE_DIR NAMES "wolfssl/options.h")
+   find_library(WOLFSSL_LIBRARY NAMES "wolfssl")
+ 
++  unset(WOLFSSL_VERSION CACHE)
+   if(WOLFSSL_INCLUDE_DIR AND EXISTS "${WOLFSSL_INCLUDE_DIR}/wolfssl/version.h")
+     set(_version_regex "#[\t ]*define[\t ]+LIBWOLFSSL_VERSION_STRING[\t ]+\"([^\"]*)\"")
+     file(STRINGS "${WOLFSSL_INCLUDE_DIR}/wolfssl/version.h" _version_str REGEX "${_version_regex}")
+--- src/userauth.c
++++ src/userauth.c
+@@ -80,6 +80,12 @@ static char *userauth_list(LIBSSH2_SESSION *session, const char *username,
+         memset(&session->userauth_list_packet_requirev_state, 0,
+                sizeof(session->userauth_list_packet_requirev_state));
+ 
++        if(username_len > UINT32_MAX - 27) {
++            _libssh2_error(session, LIBSSH2_ERROR_PROTO,
++                           "username_len out of bounds");
++            return NULL;
++        }
++
+         session->userauth_list_data_len = username_len + 27;
+ 
+         if(session->userauth_list_data) {
+@@ -316,6 +322,11 @@ userauth_password(LIBSSH2_SESSION *session,
+          * 40 = packet_type(1) + username_len(4) + service_len(4) +
+          * service(14)"ssh-connection" + method_len(4) + method(8)"password" +
+          * chgpwdbool(1) + password_len(4) */
++        if(username_len > UINT32_MAX - 40) {
++            return _libssh2_error(session, LIBSSH2_ERROR_PROTO,
++                                  "username_len out of bounds");
++        }
++
+         session->userauth_pswd_data_len = username_len + 40;
+ 
+         session->userauth_pswd_data0 =
+@@ -456,7 +467,7 @@ password_response:
+                         }
+ 
+                         /* basic data_len + newpw_len(4) */
+-                        if(username_len + password_len + 44 <= UINT_MAX) {
++                        if(username_len <= UINT32_MAX - password_len - 44) {
+                             session->userauth_pswd_data_len =
+                                 username_len + password_len + 44;
+                             s = session->userauth_pswd_data =

@@ -240,6 +240,7 @@ pecl_option() {   # configure option (markdown) of a bundled extension
         excimer) echo '`--enable-excimer`' ;;
         gmagick) echo '`--with-gmagick=/usr/local` (package `GraphicsMagick`; not together with imagick)' ;;
         mcrypt) echo '`--with-mcrypt=/usr/local` (package `libmcrypt`)' ;;
+        ssh2) echo '`--with-ssh2=/usr/local` (package `libssh2`)' ;;
         *) echo "\`--enable-$1\`" ;;
     esac
 }
@@ -285,7 +286,7 @@ curl_notes() {   # $1: line prefix
         if [ -f "$cpatch" ]; then extra="; patch \`${cpatch##*/}\` (freebsd-ports): $(sed -n 's/^Description: //p' "$cpatch" | head -1)"; fi
         libs="$(awk '!/^#/ && NF >= 7 && $1 != "psl-list" { printf "%s%s %s", (n++ ? ", " : ""), $1, $2 }' "$curl_deps_conf")"
         psl="$(awk '!/^#/ && $1 == "psl-list" { print substr($2, 7, 2) "." substr($2, 5, 2) "." substr($2, 1, 4) }' "$curl_deps_conf")"
-        printf '%s- curl %s ([release tarball](%s), SHA-256 `%s`) in `ext/curl/libcurl`%s, and the libraries it needs in `ext/curl/deps`: %s, with the public suffix list of %s (their upstream release files, [`freebsd/curl-deps.conf`](https://github.com/%s/blob/HEAD/freebsd/curl-deps.conf)). `--with-curl=bundled` builds all of it into PHP, static, with the OpenSSL of the build (3.0 or later, so not FreeBSD 13.x base): no package needed. c-ares resolves names (a lookup that runs into the timeout ends at once); left out: IMAP, POP3, SMTP, WebSocket, NTLM, DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP, GSSAPI. Plain `--with-curl` still takes the libcurl of the system.\n' \
+        printf '%s- curl %s ([release tarball](%s), SHA-256 `%s`) in `ext/curl/libcurl`%s, and the libraries it needs in `ext/curl/deps`: %s, with the public suffix list of %s (their upstream release files, [`freebsd/curl-deps.conf`](https://github.com/%s/blob/HEAD/freebsd/curl-deps.conf)). `--with-curl=bundled` builds all of it into PHP, static, with the OpenSSL of the build (3.0 or later, so not FreeBSD 13.x base): no package needed. c-ares resolves names (a lookup that runs into the timeout ends at once); left out: IMAP, POP3, SMTP, WebSocket, NTLM, DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, GSSAPI; SCP and SFTP with libssh2. Plain `--with-curl` still takes the libcurl of the system.\n' \
             "$1" "$v" "$u" "$(short "$s" 16)" "$extra" "$libs" "$psl" "$gh_repo"
     done
 }

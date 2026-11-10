@@ -158,7 +158,7 @@ charset from the Content-Type of a libxml stream) and GHSA-h96m-rvf9-jgm2
 | 1 | **Apply curated FreeBSD ports patches** | the patches of `lang/phpXY` in the [FreeBSD ports collection](https://github.com/freebsd/freebsd-ports) that matter here ([below](#freebsd-ports-patches-applied-and-not-applied)), as files with a description and origin line in [`freebsd/patches/`](freebsd/patches). It also removes the upstream `.github/` directory, so that php-src's own CI does not run in this fork (release tarballs never contain it anyway) |
 | 2 | **Apply build compatibility patches** | in every branch the file name of the Apache module (`libphpXY.so`), in 5.6 and 7.4 also the changes that make an old branch build and work on current FreeBSD: [Build compatibility patches](#build-compatibility-patches) |
 | 3 | **Backport security fixes** | only while there is one (now 5.6): [Interim backports](#interim-backports) |
-| 4 | **Bundle PECL extensions** | redis, memcached, memcache, igbinary, imagick, gmagick, swoole, OpenSwoole, excimer and mcrypt in `ext/`, built only when enabled: [Bundled PECL extensions](#bundled-pecl-extensions) |
+| 4 | **Bundle PECL extensions** | redis, memcached, memcache, igbinary, imagick, gmagick, swoole, OpenSwoole, excimer, mcrypt and ssh2 in `ext/`, built only when enabled: [Bundled PECL extensions](#bundled-pecl-extensions) |
 | 5 | **Bundle curl** | curl in `ext/curl/libcurl` and its libraries in `ext/curl/deps`, built into PHP with `--with-curl=bundled`: [Bundled curl](#bundled-curl) |
 | 6 | **Bundle PCRE** | the newest PCRE2 (5.6: PCRE 8.45) instead of the one upstream bundles: [Bundled PCRE](#bundled-pcre) |
 | 7 | **Add the build options of this fork** | the built-in OPcache and no extension loading, off unless given to configure: [Built-in OPcache and no extension loading](#built-in-opcache-and-no-extension-loading) |
@@ -661,6 +661,7 @@ changes unless their option is given:
 | OpenSwoole | 4.12.1 | 4.12.1 | 4.12.1 | — |
 | excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
 | mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | in PHP 5.6 itself |
+| ssh2 | 1.6.0 | 1.6.0 | 1.4.1 | 0.13 |
 
 How to turn them on:
 
@@ -676,6 +677,7 @@ How to turn them on:
 | [OpenSwoole](https://pecl.php.net/package/openswoole) (7.4+) | `--enable-openswoole`; not together with swoole | |
 | [excimer](https://pecl.php.net/package/excimer) (7.4+) | `--enable-excimer` | |
 | [mcrypt](https://pecl.php.net/package/mcrypt) (7.4+) | `--with-mcrypt=/usr/local` | `libmcrypt` |
+| [ssh2](https://pecl.php.net/package/ssh2) | `--with-ssh2=/usr/local`: `ssh2_connect()`, SCP, `ssh2.sftp://` | `libssh2` |
 
 The versions are the newest stable PECL releases for each PHP version, with these
 exceptions:
@@ -790,6 +792,7 @@ what FreeBSD needs ([`freebsd/curl.conf`](freebsd/curl.conf),
 | libidn2 | 2.3.8 | `dns/libidn2` | international domain names (IDN) |
 | libpsl | 0.23.3 | `dns/libpsl` | the public suffix list: no cookies for a whole public suffix, such as `co.uk` |
 | public suffix list | 21.09.2026 | `dns/public_suffix_list` | built into libpsl |
+| libssh2 | 1.11.1 | `security/libssh2` | SCP and SFTP (`scp://`, `sftp://`), with the OpenSSL of curl and the patches of its port |
 
 How it is built and used:
 
@@ -813,7 +816,8 @@ The options are those of the FreeBSD port, with these differences:
 | no WebSocket (`ws://`, `wss://`) | PHP has no `curl_ws_send()` or `curl_ws_recv()`; php-src master has neither, only `CURLOPT_WS_OPTIONS` |
 | no NTLM | weak, opt-in in curl since 8.20 and to be removed by curl; only old Microsoft servers and proxies want it |
 | no headers API, TLS session export, `curl_easy_option_*`, text progress meter | PHP calls none of them; `CURLOPT_PROGRESSFUNCTION` and `CURLOPT_XFERINFOFUNCTION` keep working |
-| no DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, SCP/SFTP (libssh2), GSSAPI | rarely used protocols |
+| no DICT, Gopher, IPFS, MQTT, RTSP, Telnet, TFTP, LDAP, GSSAPI | rarely used protocols |
+| SCP and SFTP (libssh2) | off in the port; on here for transfers to other servers (aZ, 10.11.2026) |
 
 c-ares is not there for speed: the time goes into the answer of the DNS server, and
 curl 8.23 asks for A and AAAA in parallel either way. The difference is a DNS server
@@ -829,7 +833,7 @@ What the bundled curl keeps:
 
 | Kept | What |
 |---|---|
-| Protocols | HTTP(S), FTP(S), FILE (old scripts may use it) |
+| Protocols | HTTP(S), FTP(S), FILE (old scripts may use it), SCP, SFTP |
 | Features | HTTP/2, proxies, cookies, multipart (`CURLFile`), Unix sockets, IDN, PSL, brotli, zstd |
 | Features the code has to turn on | alt-svc, HSTS, DoH, AWS SigV4, `.netrc` |
 

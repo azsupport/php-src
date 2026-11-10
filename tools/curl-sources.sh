@@ -113,7 +113,7 @@ awk '!/^#/ && NF >= 7 { print $1, $2, $5, $6, $7 }' "$deps_conf" | while read -r
     patch_in "$dir/deps/$n" "$patches/$n-$v.patch"
     printf '%s %s %s %s\n' "$n" "$v" "$s" "$df" >> "$dir/deps/VERSIONS"
 done
-for n in c-ares nghttp2 brotli zstd libidn2 libpsl psl-list; do
+for n in c-ares nghttp2 brotli zstd libidn2 libpsl libssh2 psl-list; do
     [ -d "$dir/deps/$n" ] || { echo "curl-sources: $n is not in $deps_conf" >&2; exit 1; }
 done
 

@@ -240,7 +240,7 @@ def vkey(v):
 PROJECT_PREFIXES = {
     "curl-": "curl", "cares-": "c-ares", "c-ares-": "c-ares", "pcre2-": "pcre2",
     "libidn2-": "libidn2", "libpsl-": "libpsl", "nghttp2-": "nghttp2",
-    "libunistring-": "libunistring", "memcache-": "memcache",
+    "libunistring-": "libunistring", "memcache-": "memcache", "libssh2-": "libssh2",
 }
 
 
