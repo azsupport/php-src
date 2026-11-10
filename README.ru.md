@@ -17,7 +17,7 @@
 | Несколько версий рядом | PHP 5.6, 7.4, 8.1, 8.2, 8.3 и 8.4: пакетами репозитория az (ядро `phpXY` и по пакету на модуль или `phpXY-static`, собранный на сервере) все в `/usr/local`, с версией в именах (`bin/php84`, `sbin/php-fpm84` со своим rc.d-скриптом `php_fpm84`, `etc/php84`), или каждая в своём `/usr/local/phpXY`; у каждой свой файл модуля Apache (`libphp84.so`, …, `libphp56.so`) |
 | Скорость | пакеты [azsupport/ports](https://github.com/azsupport/ports) собирают PHP на GCC 16: с ним Zend VM держит свои регистры в глобальных регистровых переменных (у clang их нет): `Zend/bench.php` и `micro_bench.php` на 33–44% быстрее, чем с clang 19 базовой системы, у 7.4 и на 36–38% у 8.3 без OPcache (5–15% с его JIT), и через `libphp.so` mod_php — столько же ([Сравнение скорости сборок](#сравнение-скорости-сборок)) |
 | Скрипты | [`config-check.sh`](tools/config-check.sh) записывает опции configure того PHP, что стоит на сервере; [`az-menu.sh`](tools/az-menu.sh) ставит пакеты az или выбирает, что войдёт в PHP, диалогами — как `make config` портов, — и собирает его пакет |
-| Пакеты | репозиторий pkg [az](#пакеты-репозиторий-az) для FreeBSD 15, собранный из портов FreeBSD в [azsupport/ports](https://github.com/azsupport/ports): `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick` и `yt-dlp` вместо пакетов портов (их библиотеки — пакет `az`) и PHP этого форка так, как он в портах (ядро `phpXY`, `mod_phpXY` и по пакету на модуль) |
+| Пакеты | репозиторий pkg [az](#пакеты-репозиторий-az) для FreeBSD 15, собранный из портов FreeBSD в [azsupport/ports](https://github.com/azsupport/ports): `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `mc` и `yt-dlp` вместо пакетов портов (их библиотеки — пакет `az`) и PHP этого форка так, как он в портах (ядро `phpXY`, `mod_phpXY` и по пакету на модуль) |
 | Проверки | [тестовая сборка](#тестовая-сборка-на-freebsd) в виртуальной машине FreeBSD; ежедневная [проверка апстрима](#проверка-апстрима): встроенный код, порты FreeBSD и конец поддержки PHP |
 
 Не связано с PHP Group, Remi Collet и проектом FreeBSD.
@@ -873,7 +873,7 @@ php-src несёт старую PCRE с известными ошибками б
 | Пакет | Что в нём |
 |---|---|
 | `az` | библиотеки сборок в `/usr/local/az`: разделяемые в `lib` (run path `/usr/local/az/lib`, без ldconfig) — для PHP-пакетов, статические в `/usr/local/az/static` — для программ и для сборки PHP на сервере ([`az-menu.sh`](#az-menush-пакеты-и-что-войдёт-в-php) и [`config-check.sh`](tools/config-check.sh), у которых `PHPDEPS` — `/usr/local/az/static`). OpenSSL, zlib и bzip2 — базовой системы |
-| `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `yt-dlp` | программы, вместо пакетов портов: [FFmpeg](#ffmpeg-для-видеосайтов), [ImageMagick 6 и 7](#imagemagick-6-и-7-для-видеосайтов) |
+| `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `mc`, `yt-dlp` | программы, вместо пакетов портов: [FFmpeg](#ffmpeg-для-видеосайтов), [ImageMagick 6 и 7](#imagemagick-6-и-7-для-видеосайтов), [mc](https://github.com/azsupport/ports/blob/main/README.ru.md#пакеты) (Midnight Commander с SFTP, без X11 и переводов; zip, 7z, rar и ISO открывает через `tar` базы) |
 | `phpXY`, `mod_phpXY`, `phpXY-<модуль>` | PHP этого форка так, как он в портах: ядро (CLI, php-fpm, phpize), модуль Apache и по пакету на модуль (`php74-gd`, `php74-redis`, …), версии рядом |
 
 На сервере от root `az-menu.sh --repo` записывает репозиторий под уровень его
