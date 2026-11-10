@@ -13,6 +13,7 @@ small, curated set of FreeBSD ports patches and fixes for current FreeBSD.
 | Release tarballs | every update, with `configure` and the bison/re2c parsers pre-generated: a server needs only a C compiler and `make`, exactly like with the tarballs from php.net |
 | One PHP with everything built in | the extensions, the [bundled PECL extensions](#bundled-pecl-extensions), [curl](#bundled-curl) with its libraries, [PCRE](#bundled-pcre), and [OPcache](#built-in-opcache-and-no-extension-loading) too, with no extensions loaded at run time if wanted |
 | Versions side by side | PHP 5.6, 7.4, 8.1, 8.2, 8.3 and 8.4: as the packages of the repository az (the core `phpXY` with one package per module, or `phpXY-static` built on the server) all in `/usr/local`, with the version in their names (`bin/php84`, `sbin/php-fpm84` with its rc.d script `php_fpm84`, `etc/php84`), or each in its own `/usr/local/phpXY`; each with its own Apache module file (`libphp84.so`, ..., `libphp56.so`) |
+| Speed | the packages of [azsupport/ports](https://github.com/azsupport/ports) build PHP with GCC 16, with which the Zend VM keeps its registers in global register variables (clang has none): `Zend/bench.php` and `micro_bench.php` 33–44% faster than with the clang 19 of the base system for 7.4, 36–38% for 8.3 without OPcache (5–15% with its JIT), and through the `libphp.so` of mod_php as much ([Benchmark of the builds](#benchmark-of-the-builds)) |
 | Scripts | [`config-check.sh`](tools/config-check.sh) writes the configure options of the PHP a server has; [`az-menu.sh`](tools/az-menu.sh) installs the packages of az, or chooses what goes into PHP with dialogs, as `make config` of the ports, and builds its package |
 | Packages | the repository of pkg [az](#packages-the-repository-az) for FreeBSD 15, built from the FreeBSD ports by [azsupport/ports](https://github.com/azsupport/ports): `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick` and `yt-dlp` in the place of the packages of the ports (their libraries are the package `az`), and the PHP of this fork as the ports have it (the core `phpXY`, `mod_phpXY` and one package per module) |
 | Checks | a [build test](#build-test-on-freebsd) in a FreeBSD VM; a daily [upstream check](#upstream-check) of the bundled code, the FreeBSD ports and the end of PHP support |
@@ -195,16 +196,17 @@ Only patches that matter for a monolithic build on FreeBSD are applied:
 | `ext/pcre/php_pcre.h` | 8.4 | with `--with-external-pcre`, the system `<pcre2.h>` is included as in the port; no effect with the bundled PCRE |
 | `Zend/zend.h` | 5.6 | no `alloca()` in thread-safe (ZTS) builds on FreeBSD; no effect on non-ZTS builds |
 | `Zend/zend_compile.h`, `Zend/zend_execute.h`, `Zend/zend_list.[ch]` | 5.6 | pointer-arithmetic macros turned into inline functions (avoids undefined behaviour that newer clang miscompiles) and 64-bit resource list ids |
+| `ext/hash/xxhash/xxhash.h` | 8.1+ | xxHash on PowerPC with VSX and on s390x (`altivec.h` and `s390intrin.h` without their `bool`, `vector` and `pixel` macros leaking), as xxHash upstream; no effect on amd64, applied so that the patches of the port are whole (aZ, 09.11.2026) |
+| `TSRM/threads.m4` | 5.6 | the configure pthreads test passes without creating a thread (for build environments that cannot create one); the same result on FreeBSD; applied for the same reason |
 
 Not applied, by kind:
 
 | Port files | Why not |
 |---|---|
 | `configure.ac` / `configure.in`, `acinclude.m4`, `ext/mysqli/*`, `ext/zlib/config0.m4`, `ext/standard/image.c`, `php_session.h` | the ports' split packaging, where every extension is a separate package; `configure.ac` / `configure.in` include an `ext/php_config.h` that only the ports' Makefile creates, so a hand build would fail, and set the ports' PEAR `include_path` (their other hunks do not matter here; 7.4, 8.1, 8.2 and 8.3 take the `ifunc` hunk of the `configure.ac` of 8.3 as a [build compatibility patch](#build-compatibility-patches)) |
-| PowerPC `sljit` and `xxhash` | other CPU architectures |
+| PowerPC `sljit` | in the PCRE2 10.49 this fork bundles already ([Bundled PCRE](#bundled-pcre)) |
 | `ext/openssl/openssl.c` (8.4) | for LibreSSL |
 | `sapi/apache2filter/config.m4` (5.6) | the experimental apache2filter SAPI is not used; apache2handler gets the same change |
-| `TSRM/threads.m4` (5.6) | the ports' tweak of the configure pthreads check; on FreeBSD the upstream check passes |
 | `php-fpm.in`, `php_fpm.in` | the ports' rc.d scripts |
 
 The exact list for each version, one line per port file with the reason, is in
@@ -609,6 +611,37 @@ longer needed.
 | Through a shared libphp | the input `embed`: the builds `clang19`, `gcc16` and `gcc16-nsi` (`-fno-semantic-interposition`), each tree configured with `--enable-embed=shared` too, so that every build runs also as `<build>-embed`, through its own `libphp.so` (the embed SAPI, from the same PIC objects as the `libphp.so` of mod_php) with a driver of a few lines, without OPcache (it does not run in the embed SAPI), next to its CLI; the report adds the change of each `-embed` against the CLI of its build and against `clang19-embed`. With `-fPIC`, GCC takes every exported function (`ZEND_API`, `PHPAPI`) as replaceable at load time, so the engine's own calls to them go through the PLT and are not inlined; `-fno-semantic-interposition` lets it bind and inline them (the CLI, an executable, is not affected) |
 | Result | the median of the `Total` lines in seconds and its change against `clang19` in %, with the compiler versions, the CPU of the VM and what the training ran: in the log of the job (step Report) and in its summary |
 | On another machine | `sh tools/bench.sh --local -r 3 8.3 <tarball>` takes the compilers it finds there (Linux too); the details are in [`tools/bench.sh`](tools/bench.sh) |
+
+The results of 09.11.2026 on FreeBSD 15.1 (4 CPU of AMD EPYC, the median of 5 runs, the
+change against `clang19`; minus is faster; llvm23 23.1.5, gcc16 16.1.0):
+
+| PHP | Build | `bench.php` | `bench.php` with OPcache | `micro_bench.php` | `micro_bench.php` with OPcache |
+|---|---|--:|--:|--:|--:|
+| 8.3 ([42582372488](https://github.com/azsupport/php-src/actions/runs/42582372488)) | `clang19` | 0.304 s | 0.042 s (JIT) | 1.431 s | 0.428 s (JIT) |
+| | `clang19-pgo` | −3.0% | 0 | −2.4% | −4.0% |
+| | `clang23-pgo-lto` | +1.0% | 0 | −4.5% | −10.0% |
+| | `gcc16` | −36.2% | −4.8% | −37.5% | −12.6% |
+| | `gcc16-pgo` | −37.5% | −4.8% | −36.8% | −14.7% |
+| 7.4 (the same run) | `clang19` | 0.615 s | 0.420 s | 2.991 s | 2.186 s |
+| | `clang19-pgo` | +2.0% | −1.2% | −1.7% | −4.8% |
+| | `clang23-pgo-lto` | +3.3% | −3.1% | −5.6% | −7.0% |
+| | `gcc16` | −33.5% | −44.3% | −38.8% | −36.5% |
+| | `gcc16-pgo` | −29.9% | −43.8% | −33.9% | −33.5% |
+
+- GCC 16 is the gain: the Zend VM keeps its registers in global register variables,
+  which only GCC has. PGO, LTO and clang 23 stay within about ±5% (the spread of the
+  runs), the huge pages of the Zend allocator gain nothing (FreeBSD has transparent
+  superpages). In 7.4, OPcache only caches the opcodes for the same VM (no JIT), so
+  GCC gains with it too; in 8.3 the JIT compiles the hot code itself.
+- Through `libphp.so`, as mod_php runs PHP (the input `embed`,
+  [42623798085](https://github.com/azsupport/php-src/actions/runs/42623798085), without
+  OPcache): GCC against clang through their `libphp.so`, 8.3 −32.4%, with
+  `-fno-semantic-interposition` −34.0%; 7.4 −38.4% and −37.5%: the flag adds up to 2.4%
+  for 8.3 and takes nothing anywhere.
+- So the PHP packages of azsupport/ports build the cores, `mod_phpXY` and the modules
+  in C with GCC 16 and `-fno-semantic-interposition` (`-static-libgcc`: no file needs a
+  library of GCC); the C++ modules (intl, swoole, OpenSwoole) and imagick and gmagick
+  stay with the clang of the base system.
 
 ### Bundled PECL extensions
 
@@ -1058,12 +1091,14 @@ gets reviewed.
 |---|---|---|
 | all | `compat-apache-module-name.patch` ([8.4](freebsd/patches/8.4/compat-apache-module-name.patch)) | `make install` puts the Apache module into the modules directory of Apache as `libphpXY.so` (`libphp56.so`, `libphp74.so`, `libphp81.so` … `libphp84.so`) instead of `libphp5.so`, `libphp7.so` or `libphp.so`, so that the builds of several versions do not overwrite each other; `httpd.conf` is not changed, the install names the `LoadModule` line it needs |
 | 5.6 | [`compat-bison3.patch`](freebsd/patches/5.6/compat-bison3.patch) | parsers generated by bison 3.6+ (the tarballs use 3.8) report only "syntax error" and shift the `T_*` token numbers; now detailed errors and the token numbers of the php.net 5.6.40 tarball |
-| 5.6 | [`compat-c99.patch`](freebsd/patches/5.6/compat-c99.patch) | clang 16+ (FreeBSD 14/15: clang 19) and gcc 14+ reject pre-C99 code: configure tests failed silently (no `getaddrinfo`, so no IPv6 name resolution; wrong `readdir_r` and `fopencookie` types, which broke the build; no `pread`/`pwrite`, ...), and four sources did not compile |
+| 5.6 | [`compat-c99.patch`](freebsd/patches/5.6/compat-c99.patch) | clang 16+ (FreeBSD 14/15: clang 19) and gcc 14+ reject pre-C99 code: configure tests failed silently (no `getaddrinfo`, so no IPv6 name resolution; wrong `readdir_r` and `fopencookie` types, which broke the build; no `pread`/`pwrite`; the GNU libiconv check, so a GCC build lost the errno support of iconv, ...), and sources did not compile with GCC 16 (mbstring UTF-8-Mobile and ISO-2022-JP-KDDI, fileinfo, zip, zlib, the CLI process title, the session decoder, wddx): the configure results checked against a run with those errors as warnings, the same `main/php_config.h` |
 | 5.6 | [`compat-freetype-pkgconfig.patch`](freebsd/patches/5.6/compat-freetype-pkgconfig.patch) | FreeType without `freetype-config`: found through `pkg-config`, and the bundled GD is built with FreeType, so `imagettftext()` draws |
 | 5.6 | [`compat-libxml2.patch`](freebsd/patches/5.6/compat-libxml2.patch) | libxml2 2.12+ (FreeBSD 15.1: 2.15) API changes |
 | 5.6 | [`compat-oniguruma.patch`](freebsd/patches/5.6/compat-oniguruma.patch) | with the `oniguruma` package installed (7.4 and 8.x need it), its `oniguruma.h` shadowed the bundled one and `ext/mbstring` did not compile |
 | 5.6 | [`compat-openssl3.patch`](freebsd/patches/5.6/compat-openssl3.patch) | OpenSSL 3: legacy provider, `tls://`, `OPENSSL_SSLV23_PADDING`, CSR public key |
-| 7.4 | [`compat-c99.patch`](freebsd/patches/7.4/compat-c99.patch) | configure tests that clang 16+ and gcc 14+ reject (`write(2)` to stdout, functions in separate libraries) |
+| 7.4 | [`compat-c99.patch`](freebsd/patches/7.4/compat-c99.patch) | configure tests that clang 16+ and gcc 14+ reject (`write(2)` to stdout, functions in separate libraries, the reentrant time functions, the GNU libiconv check: a GCC build took libiconv for an unknown iconv and lost its errno support) |
+| 8.1, 8.2 | `compat-c99.patch` ([8.1](freebsd/patches/8.1/compat-c99.patch), [8.2](freebsd/patches/8.2/compat-c99.patch)) | the GNU libiconv check of `ext/iconv`, whose `printf` had no `<stdio.h>`: gcc 14+ failed it silently and the module said `ICONV_IMPL "unknown"`; as in php-src 8.3 |
+| 7.4, 8.1, 8.2 | `compat-curl-openssl3.patch` ([7.4](freebsd/patches/7.4/compat-curl-openssl3.patch), [8.1](freebsd/patches/8.1/compat-curl-openssl3.patch), [8.2](freebsd/patches/8.2/compat-curl-openssl3.patch)) | a libcurl with OpenSSL 3 was taken for an old OpenSSL (`HAVE_CURL_OLD_OPENSSL`, `curl.so` linked with libssl and libcrypto for nothing): the check program of php-src 8.3 (b222c020bf, GH-13262), with `<stdio.h>` |
 | 7.4 | [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch) | OpenSSL 3: legacy provider, `OPENSSL_SSLV23_PADDING`, CSR public key |
 | 7.4, 8.1, 8.2, 8.3 | `compat-freebsd-ifunc.patch` ([7.4](freebsd/patches/7.4/compat-freebsd-ifunc.patch), [8.1](freebsd/patches/8.1/compat-freebsd-ifunc.patch), [8.2](freebsd/patches/8.2/compat-freebsd-ifunc.patch), [8.3](freebsd/patches/8.3/compat-freebsd-ifunc.patch)) | the `ifunc` hunk of the `configure.ac` patch of the port `lang/php83` (the ports of 7.4, 8.1 and 8.2 have no such hunk; the fork takes it for them too, aZ 09.11.2026): configure checks the `ifunc` and `target` function attributes on FreeBSD too, which upstream skips there, so PHP picks its SIMD code by the CPU at run time (before, with `-march=x86-64-v3` crc32 had no PCLMUL in 8.1–8.3, and base64 no AVX-512 in 8.3; with `x86-64-v2` base64 also had no AVX2, and in 8.3 mbstring neither; the SIMD code of 7.4 is all in `x86-64-v3`, so only its v2 build changes). 8.4 runs these checks upstream on FreeBSD 12+; 5.6 has no such code |
 
