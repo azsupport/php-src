@@ -5,8 +5,9 @@
 # release, of its media-security patch (6.3.0-7.0.3) and of our
 # version, where they differ. Only the command lines: no code of KVS is here.
 #
-# What each call needs must work; what freebsd/ffmpeg.conf and
-# freebsd/imagemagick/policy.xml leave out on purpose must be refused. A call
+# What each call needs must work; what the ffmpeg.conf and the policy.xml of
+# azsupport/ports (multimedia/ffmpeg/files/, graphics/ImageMagick7/files/) leave out
+# on purpose must be refused. A call
 # that fails for a reason known and not ours is not a failure of the test:
 #   gap   the build does not have it (a decision to take: GIF out of ffmpeg,
 #         writing AVIF)
@@ -283,7 +284,7 @@ for s in v_test.avi; do
     if built demuxer avi; then skip "site off: $s: this ffmpeg has the demuxer avi (not the build of az)"; continue; fi
     x "site-off-${s%.*}" "$FF" -i "$S/$s"
     c=1; grep -q 'Duration:' "$L/site-off-${s%.*}.log" && c=0
-    v "site-off-${s%.*}" "no:not built (freebsd/ffmpeg.conf)" "site off: ffmpeg -i $s" "$c"
+    v "site-off-${s%.*}" "no:not built (ffmpeg.conf of azsupport/ports)" "site off: ffmpeg -i $s" "$c"
 done
 
 # --- ImageMagick: the class of the site and the screenshots ------------------------------

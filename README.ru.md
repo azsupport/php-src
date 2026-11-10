@@ -907,7 +907,7 @@ pkg install -r az php84 mod_php84 php84-opcache php84-gd php84-mbstring php84-op
 
 Пакет `ffmpeg` из [репозитория az](#пакеты-репозиторий-az) вместо пакета порта:
 `ffmpeg` и `ffprobe` для видеосайтов (KVS) на FreeBSD 15, только с тем, что сайтам
-нужно: [`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf). FFmpeg определяет формат файла по
+нужно: [`multimedia/ffmpeg/files/ffmpeg.conf`](https://github.com/azsupport/ports/blob/main/multimedia/ffmpeg/files/ffmpeg.conf) в azsupport/ports. FFmpeg определяет формат файла по
 содержимому, а не по имени, поэтому любой собранный демультиплексор доступен
 загруженному файлу: плейлист с именем `video.mp4` попадёт в демультиплексор HLS, а тот
 читает перечисленные в нём файлы и адреса. В этой сборке нет сети и плейлистов;
@@ -916,10 +916,10 @@ pkg install -r az php84 mod_php84 php84-opcache php84-gd php84-mbstring php84-op
 | | |
 |---|---|
 | Читает (по содержимому) | mov (mp4, m4v, mov), matroska (mkv, webm), MPEG-TS (HLS-загрузка yt-dlp — это MPEG-TS в `.mp4`: yt-dlp граберов переупаковывает её в MP4), картинки JPEG, PNG и WebP |
-| Читает, только когда попросят | image2 по имени файла (`task-%d.jpg`), concat с `-f concat` (не по содержимому: [`concat-no-probe.patch`](freebsd/ffmpeg/concat-no-probe.patch)), устройство lavfi с `-f lavfi` (`anullsrc`) |
+| Читает, только когда попросят | image2 по имени файла (`task-%d.jpg`), concat с `-f concat` (не по содержимому: [`concat-no-probe.patch`](https://github.com/azsupport/ports/blob/main/multimedia/ffmpeg/files/ffmpeg/concat-no-probe.patch)), устройство lavfi с `-f lavfi` (`anullsrc`) |
 | Декодеры | H.264, HEVC, AV1 (dav1d), VP9, VP8, MJPEG; AAC, MP3, Opus, Vorbis, AC3, E-AC3, PCM; JPEG, PNG, WebP. Декодеров и кодировщиков субтитров нет: конвертация и склейка с `-c copy` субтитры не переносят (сам ffmpeg берёт их, только если для них есть кодировщик) и из-за них не падают |
 | Фильтры битового потока | h264_mp4toannexb (склейки через concat); vp9_superframe, aac_adtstoasc и pgs_frame_merge приходят с мультиплексорами mov, mp4 и matroska, которые сами ставят их, где нужно (кадры VP9, ещё не собранные в суперкадры; AAC с заголовками ADTS из MPEG-TS) |
-| Пишет | H.264 (libx264) только в 8 бит 4:2:0 — то, что играют браузеры ([`libx264-8bit-420.patch`](freebsd/ffmpeg/libx264-8bit-420.patch)): загрузку в 10 бит (HEVC с телефона), 4:2:2 (MJPEG с фотоаппарата) или 4:4:4 он переводит в него без `-pix_fmt yuv420p` в команде — иначе вышли бы H.264 High 10, High 4:2:2 или High 4:4:4, которые Safari и айфоны не играют; AAC; скриншоты JPEG, PNG и WebP (libwebp); mp4, mov, matroska, image2, mjpeg, null |
+| Пишет | H.264 (libx264) только в 8 бит 4:2:0 — то, что играют браузеры ([`libx264-8bit-420.patch`](https://github.com/azsupport/ports/blob/main/multimedia/ffmpeg/files/ffmpeg/libx264-8bit-420.patch)): загрузку в 10 бит (HEVC с телефона), 4:2:2 (MJPEG с фотоаппарата) или 4:4:4 он переводит в него без `-pix_fmt yuv420p` в команде — иначе вышли бы H.264 High 10, High 4:2:2 или High 4:4:4, которые Safari и айфоны не играют; AAC; скриншоты JPEG, PNG и WebP (libwebp); mp4, mov, matroska, image2, mjpeg, null |
 | Фильтры | все фильтры FFmpeg, которым не нужны другие библиотеки (без drawtext: ему нужен HarfBuzz, как и в порту без HARFBUZZ) |
 | Протоколы | file и pipe: ни http, https, tcp, udp, rtmp, ftp, hls, concat, subfile, data, crypto |
 | Сборка | FFmpeg 9.0.2 из его порта FreeBSD (дистфайлы и патчи порта), с libx264, dav1d и libwebp из `az`, слинкованными статически: ничего из `/usr/local/lib`; `-O3 -pipe -march=<уровень> -fstack-protector-strong -fno-strict-aliasing`, LTO, PIE, RELRO, BIND_NOW |
@@ -932,8 +932,8 @@ ffmpeg -hide_banner -version
 ```
 
 В настройках сайтов остаются `/usr/local/bin/ffmpeg` и `/usr/local/bin/ffprobe`.
-azsupport/ports собирает его (свой порт `multimedia/ffmpeg` с этим `freebsd/ffmpeg.conf`
-как `files/ffmpeg.conf` и свой `tools/ffmpeg-build.sh`) и проверяет своим
+azsupport/ports собирает его (свой порт `multimedia/ffmpeg` с `files/ffmpeg.conf` и свой
+`tools/ffmpeg-build.sh`) и проверяет своим
 `tools/ffmpeg-test.sh`: образцы всех контейнеров и кодеков,
 которые принимают сайты (сделаны пакетом `ffmpeg` из FreeBSD), а также H.264 в 10 бит,
 4:2:2 и 4:4:4 и MJPEG с фотоаппарата; конвертация KVS, которая из каждого должна дать
@@ -953,13 +953,13 @@ pipe.
 `/usr/local/bin`, ImageMagick 7 — `magick` и имена-ссылки на него (`convert`,
 `identify`, `mogrify`, `composite`, …), ImageMagick 6 — с 6 на конце (`convert6`,
 `identify6`, `mogrify6`, `composite6`, …), так что их можно поставить одновременно
-(пакеты портов конфликтуют): [`freebsd/imagemagick.conf`](freebsd/imagemagick.conf).
+(пакеты портов конфликтуют): [`graphics/ImageMagick7/files/imagemagick.conf`](https://github.com/azsupport/ports/blob/main/graphics/ImageMagick7/files/imagemagick.conf) в azsupport/ports.
 У ImageMagick 7 ещё есть статические библиотеки, заголовки и `MagickWand-config` в
 `/usr/local/az/static` — с ними линкуется imagick в `phpXY-static`. Как и FFmpeg, ImageMagick
 определяет формат по содержимому файла, а часть его форматов выполняет код или
 читает другие файлы (скрипты MVG и MSL, SVG, PostScript через Ghostscript, `text:` и
 `@файл`); здесь собрано только нужное сайтам, и политика
-[`freebsd/imagemagick/policy.xml`](freebsd/imagemagick/policy.xml)
+[`graphics/ImageMagick7/files/policy.xml`](https://github.com/azsupport/ports/blob/main/graphics/ImageMagick7/files/policy.xml)
 (`etc/ImageMagick-6/policy.xml`, `etc/ImageMagick-7/policy.xml`; сохраняются, если их
 поменяли) разрешает только это.
 
@@ -983,7 +983,7 @@ magick -version
 (ImageMagick 6) или `/usr/local/bin/magick` и `/usr/local/bin/convert` (ImageMagick 7);
 для текста по имени шрифта нужны пакет `fontconfig` и шрифты (например, `dejavu`), как
 и пакетам портов. azsupport/ports собирает оба (свои порты `graphics/ImageMagick6` и
-`graphics/ImageMagick7` с этим `freebsd/imagemagick.conf` и свой
+`graphics/ImageMagick7` с `graphics/ImageMagick7/files/imagemagick.conf` и свой
 `tools/imagemagick-build.sh`) и проверяет своим `tools/imagemagick-test.sh`: образцы всех форматов
 (сделаны пакетом `ImageMagick7` из FreeBSD), identify, миниатюры, WebP, анимации,
 промежуточный BMP, водяной знак, текст, CMYK; отвергаются SVG, MVG, MSL, PostScript,
@@ -1037,25 +1037,26 @@ push.
 то, что веткам стоит взять. Каждая находка открывает одно issue с меткой `upstream`
 ([эти issue](https://github.com/azsupport/php-src/issues?q=label%3Aupstream)); само
 ничего не применяется. За чем он следит — в
-[`freebsd/upstream.conf`](freebsd/upstream.conf), а для пакетов az — в
-[`freebsd/deps.conf`](freebsd/deps.conf) (библиотеки `az` и curl),
-[`freebsd/ffmpeg.conf`](freebsd/ffmpeg.conf) и
-[`freebsd/imagemagick.conf`](freebsd/imagemagick.conf) (эти пакеты собирает
-azsupport/ports, у него копия каждого из этих файлов: правка здесь идёт и туда). Новый релиз curl, его
+[`freebsd/upstream.conf`](freebsd/upstream.conf), а для пакетов az — в файлах
+[azsupport/ports](https://github.com/azsupport/ports), который их собирает:
+[`az/az/files/deps.conf`](https://github.com/azsupport/ports/blob/main/az/az/files/deps.conf) (библиотеки `az` и curl),
+[`multimedia/ffmpeg/files/ffmpeg.conf`](https://github.com/azsupport/ports/blob/main/multimedia/ffmpeg/files/ffmpeg.conf) и
+[`graphics/ImageMagick7/files/imagemagick.conf`](https://github.com/azsupport/ports/blob/main/graphics/ImageMagick7/files/imagemagick.conf)
+(workflow берёт для них клон azsupport/ports). Новый релиз curl, его
 библиотек, PCRE2 и библиотек и программ az берётся, когда он есть в порту FreeBSD; раньше порта —
 только если закрывает уязвимость, которая нас касается, или нашу ошибку (правило от
 04.11.2026). Каждое issue о релизе пишет, что называют заметки к релизу (CVE и GHSA,
 для релизов на GitHub), и остаётся открытым, пока версии нет в порту. Такая
 библиотека или программа az тогда собирается из файла релиза апстрима с патчами
 порта (строка `take` в её файле, патчи проверяет
-[`tools/deps-take-check.sh`](tools/deps-take-check.sh)). Порты отслеживаются ради
+[`tools/deps-take-check.sh`](https://github.com/azsupport/ports/blob/main/tools/deps-take-check.sh) из azsupport/ports). Порты отслеживаются ради
 патчей сборки и нужного для FreeBSD. Новый релиз встроенного расширения берётся
 сразу.
 
 | Что ищет | Чего |
 |---|---|
 | Новые релизы | встроенных расширений PECL (теги репозиториев и PECL, сверяя с версиями PHP, которые поддерживает каждый релиз), curl, библиотек curl, PCRE2, библиотек `az`, FFmpeg, ImageMagick 6 и 7 (теги репозиториев или каталог релизов) |
-| Коммиты портов FreeBSD, которые меняют патчи или сборку | их портов, `lang/php8x` и портов `freebsd/deps.conf`, `freebsd/ffmpeg.conf` и `freebsd/imagemagick.conf` (после их коммита портов) |
+| Коммиты портов FreeBSD, которые меняют патчи или сборку | их портов, `lang/php8x` и портов из файлов az, FFmpeg и ImageMagick в azsupport/ports (после их коммита портов) |
 | Порт, в котором теперь есть версия строки `take` | библиотек и программ az: строку можно убрать |
 | Файлы релизов в distinfo порта, которых нет в бандле | портов curl и его библиотек (не пока бандл впереди порта) |
 | Конец security-поддержки, начиная за 60 дней до него | веток, которые собираются из тегов php-src (8.2 — 31.12.2026), с отметкой, есть ли у бэкпортов Remi Collet ветка, на которую можно перейти |

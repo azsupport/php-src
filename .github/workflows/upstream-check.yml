@@ -7,7 +7,10 @@ name: Upstream check
 # Each finding opens or updates one issue (label "upstream"); nothing is applied.
 # Closing an issue means "not wanted", the check does not reopen it.
 # What is followed: freebsd/pecl.conf, freebsd/curl.conf, freebsd/curl-deps.conf,
-# freebsd/pcre.conf, freebsd/targets.conf, freebsd/upstream.conf, php.net.
+# freebsd/pcre.conf, freebsd/targets.conf, freebsd/upstream.conf, php.net; and the
+# libraries of az, FFmpeg and ImageMagick by the conf files of azsupport/ports
+# (az/az/files/deps.conf, multimedia/ffmpeg/files/ffmpeg.conf,
+# graphics/ImageMagick7/files/imagemagick.conf), checked out into ports/.
 # By hand: Actions, "Upstream check", "Run workflow".
 
 on:
@@ -34,8 +37,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # the conf files of the bundles (the packages az, ffmpeg, ImageMagick6 and 7)
+      - uses: actions/checkout@v5
+        with:
+          repository: azsupport/ports
+          path: ports
+          persist-credentials: false
+
       - name: Check releases and FreeBSD ports
         env:
           GH_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-        run: python3 tools/upstream-check.py --repo "$GITHUB_REPOSITORY" $DRY_RUN
+        run: python3 tools/upstream-check.py --repo "$GITHUB_REPOSITORY" --ports ports $DRY_RUN
