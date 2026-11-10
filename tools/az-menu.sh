@@ -25,7 +25,7 @@
 # Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree or not:
 #   sh az-menu.sh                   outside a PHP source tree: the packages of the
 #                                   repository az (curl, ffmpeg, ImageMagick6 and 7,
-#                                   GraphicsMagick, yt-dlp; az; per version of PHP
+#                                   GraphicsMagick, mc, yt-dlp; az; per version of PHP
 #                                   the core phpXY with mod_phpXY and its packages
 #                                   phpXY-<module>, or
 #                                   phpXY-static), each the ready one (Options:
@@ -1820,7 +1820,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
     pkg update -r az > /dev/null 2>&1 || say "pkg update -r az failed: the list of the repository may be old"
     mt="$(mktemp -d)" || exit 2
     pkg rquery -r az '%n	%v	%c' > "$mt/ready" 2>/dev/null
-    names="az curl ffmpeg ImageMagick6 ImageMagick7 GraphicsMagick yt-dlp"
+    names="az curl ffmpeg ImageMagick6 ImageMagick7 GraphicsMagick mc yt-dlp"
     for b in $BRANCHES; do
         s_="$(echo "$b" | tr -d .)"
         # pkg mode: the core phpXY, its Apache module, the packages of its extensions
