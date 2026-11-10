@@ -28,12 +28,13 @@ have. So a release issue says what the release notes name (CVE and GHSA ids, on
 GitHub) and what the commit messages since the tag of the version built name (any
 git repository), and it stays open as a note until the port has the version.
 
-The libraries of /usr/local/az built from ports (freebsd/deps.conf: static in
-/usr/local/az/static, shared in /usr/local/az/lib), and
-the packages built against them (FFmpeg, freebsd/ffmpeg.conf; ImageMagick,
-freebsd/imagemagick.conf). The ports of azsupport/ports build these packages
-(since 08.11.2026), each with a copy of its conf file (PORTS_CONF); the conf
-files here are what this check reads:
+The libraries of /usr/local/az built from ports (static in /usr/local/az/static,
+shared in /usr/local/az/lib), and the packages built against them (FFmpeg,
+ImageMagick): the ports of azsupport/ports build them (since 08.11.2026), each from
+a conf file of its own there (PORTS_CONF: az/az/files/deps.conf,
+multimedia/ffmpeg/files/ffmpeg.conf, graphics/ImageMagick7/files/imagemagick.conf),
+which this check reads from a checkout of azsupport/ports (--ports, default
+ports/ of this checkout: the workflow checks it out there):
 their upstream releases ("upstream" lines: tags or a directory listing) newer than
 the version built (taken before the port only for a security fix: "take" lines);
 the commits to their ports after the ports commit of the conf file; and a port
@@ -51,12 +52,15 @@ the reviewed revision moved on) is closed; a closed one stays closed, so
 closing an issue is how to say "not wanted". Nothing is applied.
 
 Usage: python3 tools/upstream-check.py [--dry-run] [--repo OWNER/NAME]
-                                       [--workdir DIR] [--days N]
+                                       [--workdir DIR] [--days N] [--ports DIR]
   --dry-run   print the findings, do not read or change issues
   --repo      repository of the issues (default: $GITHUB_REPOSITORY)
   --workdir   where the git clones go (default: a temporary directory)
   --days      freebsd-ports history to fetch (default 180); a reviewed revision
               older than that is reported, with all commits of these days
+  --ports     a checkout of azsupport/ports, for the conf files of the bundles
+              (default: ports/ of this checkout); without them az, FFmpeg and
+              ImageMagick are not checked, and their issues stay as they are
 """
 
 import argparse
@@ -107,9 +111,24 @@ def ok(cmd, cwd=None):
     return subprocess.run(cmd, cwd=cwd, capture_output=True).returncode == 0
 
 
+def conf_file(name):
+    """The path of a conf file: freebsd/<name>, or that of a bundle in the checkout of
+    azsupport/ports (PORTS_CONF)."""
+    if name in PORTS_CONF:
+        return os.path.join(PORTS_DIR, PORTS_CONF[name])
+    return os.path.join(ROOT, "freebsd", name)
+
+
+def conf_ref(name):
+    """How an issue names a conf file: `freebsd/<name>`, or `<path>` of azsupport/ports."""
+    if name in PORTS_CONF:
+        return "`%s` of azsupport/ports" % PORTS_CONF[name]
+    return "`freebsd/%s`" % name
+
+
 def conf(name):
-    """Rows of freebsd/<name>, without comments and blank lines."""
-    with open(os.path.join(ROOT, "freebsd", name)) as f:
+    """Rows of a conf file (conf_file), without comments and blank lines."""
+    with open(conf_file(name)) as f:
         rows = (line.split("#", 1)[0].split() for line in f)
         return [r for r in rows if r]
 
@@ -245,17 +264,21 @@ def tag_version(tag, name=None):
 
 # What is built from FreeBSD ports, each from a conf file of its own: (conf file,
 # name, where it goes, the workflow that builds it, the steps after a take line).
-# The builds are the ports of azsupport/ports, each with a copy of its conf file.
+# The builds are the ports of azsupport/ports, with their conf files and patches there.
 PORTS_CONF = {
     "deps.conf": "az/az/files/deps.conf",
     "ffmpeg.conf": "multimedia/ffmpeg/files/ffmpeg.conf",
     "imagemagick.conf": "graphics/ImageMagick7/files/imagemagick.conf",
 }
+# the checkout of azsupport/ports (main() sets it from --ports)
+PORTS_DIR = os.path.join(ROOT, "ports")
+# where the reviewed revision of the ports of a bundle is kept
+KEPT_BUNDLE = "the ports commit of %s of azsupport/ports"
 PORTS_BUILD = "build.yml of azsupport/ports"
-PORTS_STEPS = ("the same change in its copy in azsupport/ports (`%s`), then %s on main with `publish` "
-               "(https://github.com/azsupport/ports/actions/workflows/build.yml: it builds and tests the packages "
-               "and publishes the release `az-fbsd<major>-amd64-<level>` when everything passed).")
-BUNDLES = [(c, n, w, PORTS_BUILD, PORTS_STEPS % (PORTS_CONF[c], PORTS_BUILD)) for c, n, w in (
+PORTS_STEPS = ("run %s on main with `publish` (https://github.com/azsupport/ports/actions/workflows/build.yml: "
+               "it builds and tests the packages and publishes the release `az-fbsd<major>-amd64-<level>` "
+               "when everything passed).")
+BUNDLES = [(c, n, w, PORTS_BUILD, PORTS_STEPS % PORTS_BUILD) for c, n, w in (
     ("deps.conf", "phpdeps", "the packages az (/usr/local/az) and curl"),
     ("ffmpeg.conf", "ffmpeg", "the package ffmpeg"),
     ("imagemagick.conf", "imagemagick", "the packages ImageMagick6 and ImageMagick7"),
@@ -265,9 +288,9 @@ MASTER_PORTS = {"multimedia/libx264": "multimedia/x264"}
 
 
 def deps_rows(kind, cfile="deps.conf"):
-    """The rows of freebsd/<cfile> (deps.conf, ffmpeg.conf) of one kind ("ports", "lib",
-    "take", "upstream"), without it."""
-    if not os.path.exists(os.path.join(ROOT, "freebsd", cfile)):
+    """The rows of a conf file of a bundle (deps.conf, ffmpeg.conf, imagemagick.conf of
+    azsupport/ports) of one kind ("ports", "lib", "take", "upstream"), without it."""
+    if not os.path.exists(conf_file(cfile)):
         return []
     return [r[1:] for r in conf(cfile) if r[0] == kind]
 
@@ -373,17 +396,18 @@ def check_bundle_releases(cfile, bundle, prefix, steps):
         lines = [
             "**%s %s** is out (%s of %s)." % (name, newest, where, source),
             "",
-            "Built now in `%s`: %s (`%s`, `freebsd/%s`)%s." % (
-                prefix, built, port, cfile, ", the release of its take line" if name in takes else ", the version of the port"),
+            "Built now in `%s`: %s (`%s`, %s)%s." % (
+                prefix, built, port, conf_ref(cfile), ", the release of its take line" if name in takes else ", the version of the port"),
             "",
         ] + ([notes, ""] if notes else []) + [
             "By the rule it comes with the port `%s`: when the port has it, move the ports commit of "
-            "`freebsd/%s` and the version of the upstream line, then %s This issue closes then. Before the "
+            "%s and the version of the upstream line, then %s This issue closes then. Before the "
             "port only when it fixes a vulnerability that touches us or a bug we have: then a take line in "
-            "`freebsd/%s` (the release file, its SHA-256 checked against a second source such as a signature "
-            "or the checksums of another distribution, the source directory inside it), the patches of the port "
-            "checked against it (`tools/deps-take-check.sh`; ones brought up to %s into `freebsd/deps/%s-%s/`), "
-            "and the same steps." % (port, ports_conf(cfile), steps, cfile, newest, name, newest),
+            "%s (the release file, its SHA-256 checked against a second source such as a signature "
+            "or the checksums of another distribution, the source directory inside it: the workflow take-sources.yml "
+            "of azsupport/ports), the patches of the port checked against it (its deps-take-check.yml; ones brought "
+            "up to %s into `az/az/files/deps/%s-%s/`), and the same steps." % (
+                port, conf_ref(ports_conf(cfile)), steps, conf_ref(cfile), newest, name, newest),
         ]
         findings.append({
             "key": "release:%s:%s:%s" % (kb, name, newest),
@@ -414,12 +438,12 @@ def check_takes(git):
                     "key": "%s%s:%s" % (kt, name, ver),
                     "kind": "ports",
                     "title": "%s: %s has %s now, the take line of %s %s can go" % (bundle, port, pv, name, ver),
-                    "body": "freebsd-ports `%s` (main) has version %s; `freebsd/%s` takes %s %s before it "
-                            "(take line). To go back to the port: move the ports commit of `freebsd/%s` to one "
-                            "with that version, delete the take line (and `freebsd/deps/%s-%s/`, if there is one "
-                            "and no other conf file takes it), set the upstream line to the version of the port, "
-                            "then %s The next check closes this issue." % (
-                                port, pv, cfile, name, ver, ports_conf(cfile), name, ver, steps),
+                    "body": "freebsd-ports `%s` (main) has version %s; %s takes %s %s before it "
+                            "(take line). To go back to the port: move the ports commit of %s to one "
+                            "with that version, delete the take line (and `az/az/files/deps/%s-%s/` of "
+                            "azsupport/ports, if there is one and no other conf file takes it), set the upstream "
+                            "line to the version of the port, then %s The next check closes this issue." % (
+                                port, pv, conf_ref(cfile), name, ver, conf_ref(ports_conf(cfile)), name, ver, steps),
                 })
     return findings, checked
 
@@ -750,7 +774,7 @@ def ports_followed():
             for p in (port, MASTER_PORTS.get(port)):
                 if p and p != "bundle" and p not in listed:
                     listed.add(p)
-                    ports.append((p, commit, "the ports commit of freebsd/%s" % ports_conf(cfile)))
+                    ports.append((p, commit, KEPT_BUNDLE % PORTS_CONF[ports_conf(cfile)]))
     seen = set()
     for target, _url, _ref, port, portrev in conf("targets.conf"):
         if port not in seen:
@@ -939,13 +963,13 @@ def port_finding(git, port, rev, kept, commits, moved, base):
         lines += ["The reviewed revision `%s` is older than the fetched history, so these are all "
                   "commits of that time." % rev, ""]
     newest = commits[0][0][:12] if commits else "<new revision>"
-    if kept == "the ports commit of freebsd/deps.conf":
-        lines += ["After the review: take what /usr/local/az needs (patches of the port for a take line into "
-                  "`freebsd/deps/<name>-<version>/`, of multimedia/ffmpeg into `freebsd/ffmpeg/` and of the "
-                  "ImageMagick ports into `freebsd/imagemagick/` when they are not the port's own), then move "
-                  "the ports commit of `freebsd/deps.conf` to `%s` (the ports of all the libraries, FFmpeg and "
-                  "ImageMagick move with it), then %s The next check closes this issue." % (
-                      newest, PORTS_STEPS % (PORTS_CONF["deps.conf"], PORTS_BUILD))]
+    if kept == KEPT_BUNDLE % PORTS_CONF["deps.conf"]:
+        lines += ["After the review, in azsupport/ports: take what /usr/local/az needs (patches of the port for "
+                  "a take line into `az/az/files/deps/<name>-<version>/`, of multimedia/ffmpeg into "
+                  "`multimedia/ffmpeg/files/ffmpeg/` and of the ImageMagick ports into `graphics/ImageMagick6/files/` "
+                  "and `graphics/ImageMagick7/files/` when they are not the port's own), then move the ports commit "
+                  "of `az/az/files/deps.conf` to `%s` (the ports of all the libraries, FFmpeg and ImageMagick move "
+                  "with it), then %s The next check closes this issue." % (newest, PORTS_STEPS % PORTS_BUILD)]
     else:
         lines += ["After the review: take what we need into `freebsd/pecl/` (or `freebsd/patches/<target>/` "
                   "for lang ports), then set the reviewed revision (%s) of `%s` to `%s`; the next check "
@@ -1013,12 +1037,19 @@ class Issues:
 
 
 def main():
+    global PORTS_DIR
     ap = argparse.ArgumentParser(description="Releases of the bundled PECL extensions and FreeBSD ports changes.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     ap.add_argument("--workdir")
     ap.add_argument("--days", type=int, default=180)
+    ap.add_argument("--ports", default=PORTS_DIR,
+                    help="a checkout of azsupport/ports, for the conf files of the bundles (default: ports/ here)")
     args = ap.parse_args()
+    PORTS_DIR = os.path.abspath(args.ports)
+    if not all(os.path.exists(conf_file(c)) for c in PORTS_CONF):
+        warn("no conf files of the bundles in %s (a checkout of azsupport/ports): az, FFmpeg and ImageMagick "
+             "are not checked this time" % PORTS_DIR)
     if not args.dry_run and not args.repo:
         ap.error("--repo (or $GITHUB_REPOSITORY) is needed unless --dry-run")
     workdir = args.workdir or tempfile.mkdtemp(prefix="upstream-check-")
