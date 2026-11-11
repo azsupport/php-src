@@ -50,6 +50,7 @@ if test "$PHP_ICONV" != "no"; then
       LDFLAGS="-liconv $LDFLAGS"
       AC_RUN_IFELSE([AC_LANG_SOURCE([[
 #include <$PHP_ICONV_H_PATH>
+#include <stdio.h>
 int main() {
   printf("%d", _libiconv_version);
   return 0;
