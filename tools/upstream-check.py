@@ -50,6 +50,13 @@ of a package to the PPA of Ondrej Sury or to Ubuntu, with their changelog (the
 fixes of the PHP branches out of upstream support); for a "cve" line the CVEs of
 NVD that name a library without an upstream (t1lib), published after its date.
 
+Default versions. The "default" rows of freebsd/upstream.conf: PYTHON_DEFAULT and
+PERL5_DEFAULT of Mk/bsd.default-versions.mk of freebsd-ports main against the
+recorded values (aZ, 11.11.2026: our python312 and perl5 of azsupport/ports under
+FreeBSD's names, so that the py312-* and p5-* packages of the FreeBSD repository
+work with them): a switch of the ports tree opens an issue, as the packages built
+after it take the new version, which no port of ours is.
+
 PHP branches. For the targets that follow the php-src release tags: the end of
 security support of the branch (php.net/releases/branches.php), from 60 days
 before it on, with whether Remi Collet's php-src-security has a
@@ -946,6 +953,60 @@ def check_github():
     return findings, checked
 
 
+DEFAULT_VERSIONS = "Mk/bsd.default-versions.mk"
+
+
+def check_defaults():
+    """The rows "default <variable> <value> <ours>" of upstream.conf: a default version
+    of the ports tree (PYTHON_DEFAULT, PERL5_DEFAULT) in Mk/bsd.default-versions.mk of
+    freebsd-ports main that is no longer <value>, the version of <ours>: the packages of
+    the FreeBSD repository built after the switch (py3XX-*, p5-*) take the new version."""
+    rows = [r for r in conf("upstream.conf") if r[0] == "default" and len(r) >= 4]
+    if not rows:
+        return [], set()
+    try:
+        text = http("https://raw.githubusercontent.com/freebsd/freebsd-ports/main/" + DEFAULT_VERSIONS)
+    except Exception as e:  # noqa: BLE001 - the source is down: leave its issues alone
+        warn("freebsd-ports %s: %s" % (DEFAULT_VERSIONS, e))
+        return [], set()
+    findings, checked, commits = [], set(), None
+    for _kind, var, want, what in (r[:4] for r in rows):
+        checked.add("default:%s:" % var)
+        # the first assignment with ?= (PERL5_DEFAULT has another one, from bin/perl)
+        m = re.search(r"^\s*%s\?=\s*(\S+)" % re.escape(var), text, re.M)
+        have = m.group(1) if m else None
+        if have == want:
+            continue
+        if commits is None:
+            try:
+                commits = github_json("repos/freebsd/freebsd-ports/commits?path=%s&sha=main&per_page=5"
+                                      % DEFAULT_VERSIONS)
+            except Exception as e:  # noqa: BLE001 - only the list of the commits is missing then
+                warn("freebsd-ports %s: the commits: %s" % (DEFAULT_VERSIONS, e))
+                commits = []
+        link = "[`%s`](https://github.com/freebsd/freebsd-ports/blob/main/%s)" % (DEFAULT_VERSIONS, DEFAULT_VERSIONS)
+        if have:
+            lines = ["`%s` of %s of freebsd-ports main is `%s`, not `%s` as recorded for %s: the packages of "
+                     "the FreeBSD repository built since then take `%s` (their dependencies and the version in "
+                     "their names), not our `%s`." % (var, link, have, want, ours(what), have, want)]
+        else:
+            lines = ["%s of freebsd-ports main has no `%s?=` any more (recorded: `%s` for %s): see where the "
+                     "default went." % (link, var, want, ours(what))]
+        if commits:
+            lines += ["", "The last commits of the file (newest first):", ""]
+            for c in commits:
+                msg = c["commit"]["message"].splitlines()[0].replace("|", "\\|")
+                lines.append("- [`%s`](https://github.com/freebsd/freebsd-ports/commit/%s) %s %s" % (
+                    c["sha"][:12], c["sha"], c["commit"]["committer"]["date"][:10], msg))
+        lines += ["", "After aZ's decision (a port of the new version in azsupport/ports, under its FreeBSD name): "
+                      "set the value of `default %s` in `freebsd/upstream.conf` to it; the next check closes this "
+                      "issue." % var]
+        findings.append({"key": "default:%s:%s" % (var, want), "kind": "ports",
+                         "title": "freebsd-ports: %s is %s, not %s (%s)" % (var, have or "gone", want, what),
+                         "body": "\n".join(lines)})
+    return findings, checked
+
+
 # the advisories of Debian (security team: DSA; LTS: DLA) and of Freexian's Extended LTS
 # (ELA), as their security trackers keep them: one entry per advisory, with its
 # packages, CVEs and the fixed versions per release
@@ -1449,7 +1510,7 @@ def main():
     more, checked_eol = check_php_eol()
     findings += more
     checked |= checked_eol
-    for check in (check_trees, check_github, check_debian, check_launchpad):
+    for check in (check_trees, check_github, check_defaults, check_debian, check_launchpad):
         more, checked_more = check()
         findings += more
         checked |= checked_more

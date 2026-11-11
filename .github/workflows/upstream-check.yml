@@ -5,7 +5,9 @@ name: Upstream check
 # of these and of PHP, and release files in their distinfo that the bundle has
 # not; the end of security support of the PHP branches taken from php-src tags;
 # for t1lib (devel/t1lib of azsupport/ports, no upstream since 2007) the commits of
-# Gentoo to media-libs/t1lib and the new CVEs of NVD that name it.
+# Gentoo to media-libs/t1lib and the new CVEs of NVD that name it; a switch of the
+# default version of Python or Perl of the ports tree (PYTHON_DEFAULT, PERL5_DEFAULT
+# of Mk/bsd.default-versions.mk: our python312 and perl5 of azsupport/ports).
 # Each finding opens or updates one issue (label "upstream"); nothing is applied.
 # Closing an issue means "not wanted", the check does not reopen it.
 # What is followed: freebsd/pecl.conf, freebsd/curl.conf, freebsd/curl-deps.conf,

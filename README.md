@@ -1090,6 +1090,7 @@ a bundled extension is taken when it is out.
 | Uploads of PHP to the PPA of Ondřej Surý and to Ubuntu, with their changelog: the fixes they backport to branches out of upstream support | 5.6, 7.4, 8.1 … 8.4 of Surý, php8.1 of Ubuntu 22.04, php8.3 of 24.04 (`sury` and `ubuntu` rows) |
 | CVEs of NVD that name a library without an upstream | t1lib (`cve` rows) |
 | Commits of a branch of an upstream on GitHub after the last one reviewed: the fixes of a port of ours ahead of its FreeBSD port | 3proxy, its LTS branch 0.9 (`github` rows) |
+| A switch of the default version of Python or Perl of the ports tree (`PYTHON_DEFAULT`, `PERL5_DEFAULT` of `Mk/bsd.default-versions.mk` of freebsd-ports main): the packages of FreeBSD built after it take the new version | `python312` and `perl5` of azsupport/ports, under the names of the official packages (`default` rows: 3.12, 5.42) |
 
 ### Build compatibility patches
 
