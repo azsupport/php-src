@@ -1,0 +1,134 @@
+Description: Build ext/gd with a system libgd (--with-gd=DIR, libgd 2.1 and newer) as PHP 7.4 does: the libraries from the gdlib.pc of that libgd, so that a static libgd.a links with those it needs itself; imageantialias() also with a system libgd, as in PHP 7.2 (the AA flag of a true colour image, which imageline() turns into gdAntiAliased); XPM only with --with-xpm-dir, since libgd has gdImageCreateFromXpm also when it is built without libXpm, and HAVE_GD_XPM makes gd.c include X11/xpm.h.
+Origin: azsupport; imageantialias() as PHP 7.2 has it (its UPGRADING: "imageantialias() is now also available if compiled with a system libgd"), the libraries of gdlib.pc as ext/gd/config.m4 of PHP 7.4 takes them
+
+diff --git a/ext/gd/config.m4 b/ext/gd/config.m4
+index e24eb02..1ca6bda 100644
+--- a/ext/gd/config.m4
++++ b/ext/gd/config.m4
+@@ -257,7 +257,12 @@ AC_DEFUN([PHP_GD_CHECK_VERSION],[
+   PHP_CHECK_LIBRARY(gd, gdImageCreateFromPng,   [AC_DEFINE(HAVE_GD_PNG,              1, [ ])], [], [ $GD_SHARED_LIBADD ])
+   PHP_CHECK_LIBRARY(gd, gdImageCreateFromWebp,  [AC_DEFINE(HAVE_GD_WEBP,             1, [ ])], [], [ $GD_SHARED_LIBADD ])
+   PHP_CHECK_LIBRARY(gd, gdImageCreateFromJpeg,  [AC_DEFINE(HAVE_GD_JPG,              1, [ ])], [], [ $GD_SHARED_LIBADD ])
+-  PHP_CHECK_LIBRARY(gd, gdImageCreateFromXpm,   [AC_DEFINE(HAVE_GD_XPM,              1, [ ])], [], [ $GD_SHARED_LIBADD ])
++  dnl XPM only with --with-xpm-dir: libgd has gdImageCreateFromXpm also when it is
++  dnl built without libXpm (it fails then), and HAVE_GD_XPM makes gd.c include
++  dnl X11/xpm.h and call XpmLibraryVersion()
++  if test "$PHP_XPM_DIR" != "no"; then
++    PHP_CHECK_LIBRARY(gd, gdImageCreateFromXpm, [AC_DEFINE(HAVE_GD_XPM,              1, [ ])], [], [ $GD_SHARED_LIBADD ])
++  fi
+   PHP_CHECK_LIBRARY(gd, gdImageStringFT,        [AC_DEFINE(HAVE_GD_FREETYPE,         1, [ ])], [], [ $GD_SHARED_LIBADD ])
+   PHP_CHECK_LIBRARY(gd, gdVersionString,        [AC_DEFINE(HAVE_GD_LIBVERSION,       1, [ ])], [], [ $GD_SHARED_LIBADD ])
+ ])
+@@ -364,15 +369,31 @@ dnl Header path
+   fi
+ 
+ dnl Library path
++dnl With the gdlib.pc of that libgd (libgd 2.1 and newer install it) the libraries
++dnl come from pkg-config: a static libgd.a also needs those of its Libs.private
++dnl (a pkg-config that runs with --static gives them), as with PHP 7.4 and newer.
++
++  GDLIB_LIBS=""
++  if test -f "$PHP_GD/$PHP_LIBDIR/pkgconfig/gdlib.pc"; then
++    AC_PATH_PROG(PKG_CONFIG, pkg-config, no)
++    if test "$PKG_CONFIG" != "no" && $PKG_CONFIG --exists gdlib && \
++       test "`$PKG_CONFIG --variable=libdir gdlib`" = "$PHP_GD/$PHP_LIBDIR"; then
++      GDLIB_LIBS=`$PKG_CONFIG --libs gdlib`
++    fi
++  fi
+ 
+   PHP_CHECK_LIBRARY(gd, gdSetErrorMethod,
+   [
+-    PHP_ADD_LIBRARY_WITH_PATH(gd, $PHP_GD/$PHP_LIBDIR, GD_SHARED_LIBADD)
++    if test -n "$GDLIB_LIBS"; then
++      PHP_EVAL_LIBLINE($GDLIB_LIBS, GD_SHARED_LIBADD)
++    else
++      PHP_ADD_LIBRARY_WITH_PATH(gd, $PHP_GD/$PHP_LIBDIR, GD_SHARED_LIBADD)
++    fi
+     AC_DEFINE(HAVE_LIBGD, 1, [ ])
+   ],[
+     AC_MSG_ERROR([Unable to find libgd.(a|so) >= 2.1.0 anywhere under $PHP_GD])
+   ],[
+-    -L$PHP_GD/$PHP_LIBDIR
++    -L$PHP_GD/$PHP_LIBDIR $GDLIB_LIBS
+   ])
+   PHP_GD_CHECK_VERSION
+ 
+diff --git a/ext/gd/gd.c b/ext/gd/gd.c
+index 39cb4eb..a797d04 100644
+--- a/ext/gd/gd.c
++++ b/ext/gd/gd.c
+@@ -835,12 +835,10 @@ ZEND_BEGIN_ARG_INFO(arginfo_imageflip, 0)
+ 	ZEND_ARG_INFO(0, mode)
+ ZEND_END_ARG_INFO()
+ 
+-#ifdef HAVE_GD_BUNDLED
+ ZEND_BEGIN_ARG_INFO(arginfo_imageantialias, 0)
+ 	ZEND_ARG_INFO(0, im)
+ 	ZEND_ARG_INFO(0, on)
+ ZEND_END_ARG_INFO()
+-#endif
+ 
+ ZEND_BEGIN_ARG_INFO(arginfo_imagecrop, 0)
+ 	ZEND_ARG_INFO(0, im)
+@@ -933,9 +931,7 @@ const zend_function_entry gd_functions[] = {
+ 	PHP_FE(imagerotate,     						arginfo_imagerotate)
+ 	PHP_FE(imageflip,								arginfo_imageflip)
+ 
+-#ifdef HAVE_GD_BUNDLED
+ 	PHP_FE(imageantialias,							arginfo_imageantialias)
+-#endif
+ 	PHP_FE(imagecrop,								arginfo_imagecrop)
+ 	PHP_FE(imagecropauto,							arginfo_imagecropauto)
+ 	PHP_FE(imagescale,								arginfo_imagescale)
+@@ -3154,6 +3150,11 @@ PHP_FUNCTION(imageline)
+ 	if (im->antialias) {
+ 		gdImageAALine(im, x1, y1, x2, y2, col);
+ 	} else
++#else
++	if (im->AA) {
++		gdImageSetAntiAliased(im, col);
++		gdImageLine(im, x1, y1, x2, y2, gdAntiAliased);
++	} else
+ #endif
+ 	{
+ 		gdImageLine(im, x1, y1, x2, y2, col);
+@@ -5011,7 +5012,6 @@ PHP_FUNCTION(imageflip)
+ }
+ /* }}} */
+ 
+-#ifdef HAVE_GD_BUNDLED
+ /* {{{ proto bool imageantialias(resource im, bool on)
+    Should antialiased functions used or not*/
+ PHP_FUNCTION(imageantialias)
+@@ -5025,11 +5025,16 @@ PHP_FUNCTION(imageantialias)
+ 	}
+ 
+ 	ZEND_FETCH_RESOURCE(im, gdImagePtr, &IM, -1, "Image", le_gd);
++#ifdef HAVE_GD_BUNDLED
+ 	gdImageAntialias(im, alias);
++#else
++	if (im->trueColor) {
++		im->AA = alias;
++	}
++#endif
+ 	RETURN_TRUE;
+ }
+ /* }}} */
+-#endif
+ 
+ /* {{{ proto void imagecrop(resource im, array rect)
+    Crop an image using the given coordinates and size, x, y, width and height. */
+diff --git a/ext/gd/php_gd.h b/ext/gd/php_gd.h
+index 980976e..f30418a 100644
+--- a/ext/gd/php_gd.h
++++ b/ext/gd/php_gd.h
+@@ -123,9 +123,7 @@ PHP_FUNCTION(imagerotate);
+ 
+ PHP_FUNCTION(imageflip);
+ 
+-#ifdef HAVE_GD_BUNDLED
+ PHP_FUNCTION(imageantialias);
+-#endif
+ 
+ PHP_FUNCTION(imagecrop);
+ PHP_FUNCTION(imagecropauto);
