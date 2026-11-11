@@ -1101,7 +1101,8 @@ def check_launchpad():
                                        e.get("pocket", "")))
         uploads = []
         try:
-            cl = json.loads(http(pubs[0]["self_link"] + "?ws.op=changelogUrl"))
+            # changelogUrl is in the devel version of the API only (1.0 answers 400)
+            cl = json.loads(http(pubs[0]["self_link"].replace("/1.0/", "/devel/", 1) + "?ws.op=changelogUrl"))
             uploads = parse_changelog(http(cl), date)
         except Exception as e:  # noqa: BLE001 - the versions are enough to know there is something
             warn("Launchpad %s %s changelog: %s" % (kind, pkg, e))
