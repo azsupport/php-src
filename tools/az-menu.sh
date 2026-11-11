@@ -1883,7 +1883,9 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
         # (phpXY-redis without compression, -redis-lz4, -redis-zstd, -redis-lz4-zstd)
         # and php56-gd or php56-gd-t1lib: pkg would refuse both (the same files); the
         # modules on mysqlnd all with the variant or all without it, as the variants
-        # go with phpXY-mysqlnd-openssl and the others with phpXY-mysqlnd
+        # go with phpXY-mysqlnd-openssl and the others with phpXY-mysqlnd (swoole of
+        # 7.4 only: swoole 6.1 and 6.2 of the ports need no mysqlnd, and 8.2 to 8.4
+        # have no php8X-swoole-openssl, azsupport/ports e103486)
         mixed=""
         for b in $BRANCHES; do
             s_="$(echo "$b" | tr -d .)"
@@ -1894,8 +1896,9 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
                 case "$n" in php"$s_"-?*-openssl) ;; *) continue ;; esac
                 case "$sel" in *" ${n%-openssl} "*) mixed="$mixed ${n%-openssl}+$n" ;; esac
             done
-            o_="" d_=""
-            for m_ in mysqlnd mysql mysqli pdo_mysql swoole openswoole; do
+            o_="" d_="" ms_="mysqlnd mysql mysqli pdo_mysql openswoole"
+            [ "$s_" = 74 ] && ms_="$ms_ swoole"
+            for m_ in $ms_; do
                 case "$sel" in *" php$s_-$m_-openssl "*) o_="$o_+php$s_-$m_-openssl" ;; esac
                 case "$sel" in *" php$s_-$m_ "*) d_="$d_+php$s_-$m_" ;; esac
             done
@@ -1917,7 +1920,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             continue
         fi
         if [ -n "$mixed" ]; then
-            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with mod_phpXY and its packages phpXY-<module>) or phpXY-static, phpXY-openssl or phpXY-openssl-legacy, phpXY-<module> or phpXY-<module>-openssl, one of phpXY-redis, phpXY-redis-lz4, phpXY-redis-zstd and phpXY-redis-lz4-zstd, and php56-gd or php56-gd-t1lib, not both; the modules on mysqlnd (mysqlnd, mysqli, pdo_mysql, mysql, swoole, openswoole) all with -openssl or all without it:$mixed" 0 0
+            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with mod_phpXY and its packages phpXY-<module>) or phpXY-static, phpXY-openssl or phpXY-openssl-legacy, phpXY-<module> or phpXY-<module>-openssl, one of phpXY-redis, phpXY-redis-lz4, phpXY-redis-zstd and phpXY-redis-lz4-zstd, and php56-gd or php56-gd-t1lib, not both; the modules on mysqlnd (mysqlnd, mysqli, pdo_mysql, mysql, openswoole, swoole of 7.4) all with -openssl or all without it:$mixed" 0 0
             continue
         fi
         break
