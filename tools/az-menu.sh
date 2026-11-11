@@ -7,7 +7,7 @@
 # is built into one PHP. What needs what is checked as you choose (an extension
 # that another one needs is turned on, two that cannot go together are refused),
 # from the sources of every branch. An extension with a screen of its own (the
-# options of GD, the drivers of PDO) is marked ---> in the list: its screen
+# libcurl of curl, the drivers of PDO) is marked ---> in the list: its screen
 # follows the list when it is on, and the button Options of the list opens the
 # screen of the item under the cursor at once.
 #
@@ -154,19 +154,18 @@ menu_data() {
     cat <<'EOF'
 *	S	000	core	check	-	-	PHP %B: build options (OPcache is always built)
 *	S	001	ext	check	-	-	PHP %B: extensions, built into PHP
-*	S	015	pdo	check	PDO	-	PDO: drivers
+*	S	014	pdo	check	PDO	-	PDO: drivers
 *	S	003	curl	radio	CURL	-	curl: which libcurl
-*	S	013	openssl	check	OPENSSL	-	OpenSSL options
-5.6	S	006	gd	check	GD	-	GD options
-*	S	010	mbstring	check	MBSTRING	-	mbstring options
-5.6	S	007	hash	check	HASH	-	hash options
+*	S	012	openssl	check	OPENSSL	-	OpenSSL options
+*	S	009	mbstring	check	MBSTRING	-	mbstring options
+5.6	S	006	hash	check	HASH	-	hash options
 *	S	004	dba	check	DBA	-	DBA handlers
-*	S	009	ldap	check	LDAP	-	LDAP options
-5.6-8.3	S	008	imap	check	IMAP	-	IMAP options
-*	S	016	readline	radio	READLINE	-	readline for php -a: which library
-*	S	017	redis	check	REDIS	-	phpredis options
-*	S	012	memcached	check	MEMCACHED	-	php-memcached options
-*	S	011	memcache	check	MEMCACHE	-	php-memcache options
+*	S	008	ldap	check	LDAP	-	LDAP options
+5.6-8.3	S	007	imap	check	IMAP	-	IMAP options
+*	S	015	readline	radio	READLINE	-	readline for php -a: which library
+*	S	016	redis	check	REDIS	-	phpredis options
+*	S	011	memcached	check	MEMCACHED	-	php-memcached options
+*	S	010	memcache	check	MEMCACHE	-	php-memcache options
 *	I	core	000	CLI	1	-	--disable-cli	Build CLI version	bin/php: scripts, cron, composer; config-check.sh runs it
 *	I	core	001	APACHE	0	--with-apxs2=/usr/local/sbin/apxs	-	Apache 2 module mod_php (www/mod_phpXY)	libexec/apache24/libphpXY.so (libphp84.so: named after the version, LoadModule must name it); a non-ZTS module needs the prefork MPM
 *	I	core	002	FPM	0	--enable-fpm --with-fpm-user=www --with-fpm-group=www --localstatedir=/var	-	Build FPM version	sbin/php-fpm; pid and error_log relative to /var
@@ -192,7 +191,7 @@ menu_data() {
 *	I	ext	012	FILEINFO	0	--enable-fileinfo	-	fileinfo support	mime types of uploads; magic database built in
 *	I	ext	013	FILTER	0	--enable-filter	-	input filter support	-
 *	I	ext	014	FTP	0	--enable-ftp	-	FTP support	-
-5.6	I	ext	015	GD	0	--with-gd=/usr/local --with-png-dir=/usr/local	-	GD library support	package libgd, its formats; FreeType text and T1lib: next screen
+5.6	I	ext	015	GD	0	--with-gd=/usr/local --with-png-dir=/usr/local --with-freetype-dir=/usr/local	-	GD library support	package libgd, its formats
 *	I	ext	016	GETTEXT	0	--with-gettext=/usr/local	-	gettext library support	package gettext-runtime
 *	I	ext	017	GMAGICK	0	--with-gmagick=/usr/local	-	GraphicsMagick image library (Gmagick, PECL)	package GraphicsMagick; not with imagick
 *	I	ext	018	GMP	0	--with-gmp=/usr/local	-	GNU MP support	package gmp
@@ -237,26 +236,25 @@ menu_data() {
 *	I	ext	058	SOAP	0	--enable-soap	-	SOAP support	-
 *	I	ext	059	SOCKETS	0	--enable-sockets	-	sockets support	-
 5.6	I	ext	061	SQLITE3	0	--with-sqlite3	-	sqlite3 support	SQLite built in
-5.6	I	ext	063	SYBASE_CT	0	--with-sybase-ct=/usr/local	-	Sybase database support	package freetds
-*	I	ext	064	SYSVMSG	0	--enable-sysvmsg	-	System V message support	-
-*	I	ext	065	SYSVSEM	0	--enable-sysvsem	-	System V semaphore support	-
-*	I	ext	066	SYSVSHM	0	--enable-sysvshm	-	System V shared memory support	-
-*	I	ext	067	TIDY	0	--with-tidy=/usr/local	-	TIDY support	package tidy-html5
-*	I	ext	068	TOKENIZER	0	--enable-tokenizer	-	tokenizer support	needed by composer packages, Laravel, Symfony
-5.6	I	ext	069	WDDX	0	--enable-wddx	-	WDDX support (implies XML)	removed from PHP in 7.4
-*	I	ext	070	XML	0	--enable-xml	-	XML support	-
-*	I	ext	071	XMLREADER	0	--enable-xmlreader	-	XMLReader support	-
-5.6-7.4	I	ext	072	XMLRPC	0	--with-xmlrpc	-	XMLRPC-EPI support	removed from PHP in 8.0
-*	I	ext	073	XMLWRITER	0	--enable-xmlwriter	-	XMLWriter support	-
-5.6	I	ext	074	XSL	0	--with-xsl=/usr/local	-	XSL support (Implies DOM)	package libxslt
-5.6	I	ext	075	ZIP	0	--enable-zip	-	ZIP support	libzip built in
-5.6	I	ext	076	ZLIB	0	--with-zlib=/usr	-	ZLIB support	zlib of the base system
+*	I	ext	062	SSH2	0	--with-ssh2=/usr/local	-	SSH2, SCP and SFTP functions (ssh2, PECL)	package libssh2
+5.6	I	ext	064	SYBASE_CT	0	--with-sybase-ct=/usr/local	-	Sybase database support	package freetds
+*	I	ext	065	SYSVMSG	0	--enable-sysvmsg	-	System V message support	-
+*	I	ext	066	SYSVSEM	0	--enable-sysvsem	-	System V semaphore support	-
+*	I	ext	067	SYSVSHM	0	--enable-sysvshm	-	System V shared memory support	-
+*	I	ext	068	TIDY	0	--with-tidy=/usr/local	-	TIDY support	package tidy-html5
+*	I	ext	069	TOKENIZER	0	--enable-tokenizer	-	tokenizer support	needed by composer packages, Laravel, Symfony
+5.6	I	ext	070	WDDX	0	--enable-wddx	-	WDDX support (implies XML)	removed from PHP in 7.4
+*	I	ext	071	XML	0	--enable-xml	-	XML support	-
+*	I	ext	072	XMLREADER	0	--enable-xmlreader	-	XMLReader support	-
+5.6-7.4	I	ext	073	XMLRPC	0	--with-xmlrpc	-	XMLRPC-EPI support	removed from PHP in 8.0
+*	I	ext	074	XMLWRITER	0	--enable-xmlwriter	-	XMLWriter support	-
+5.6	I	ext	075	XSL	0	--with-xsl=/usr/local	-	XSL support (Implies DOM)	package libxslt
+5.6	I	ext	076	ZIP	0	--enable-zip	-	ZIP support	libzip built in
+5.6	I	ext	077	ZLIB	0	--with-zlib=/usr	-	ZLIB support	zlib of the base system
 *	I	curl	000	CURL.BUNDLED	1	--with-curl=bundled	-	curl bundled in the fork, built into PHP	static, with the OpenSSL of the build (3.0 or later: FreeBSD 14 and later) and its own c-ares, nghttp2, brotli, zstd, libidn2, libpsl: nothing from pkg
 *	I	curl	001	CURL.SYSTEM	0	--with-curl=/usr/local	-	libcurl of ftp/curl, as the ports	package curl; for FreeBSD 13 with OpenSSL 1.1.1 in base
 *	I	openssl	000	OPENSSL.LEGACY	1	--with-openssl-legacy-provider	-	Load the OpenSSL legacy provider	RC4, Blowfish, DES, CAST5, MD4 with OpenSSL 3 (sites that encrypt with RC4)
 *	I	openssl	001	OPENSSL.SYSCIPHERS	0	--with-system-ciphers	-	Use the system default cipher list	instead of the list hardcoded in PHP
-5.6	I	gd	000	GD.FREETYPE	1	--with-freetype-dir=/usr/local	-	FreeType 2 support	imagettftext() and imagefttext(); package freetype2
-5.6	I	gd	001	GD.T1LIB	0	--with-t1lib=/usr/local	-	Include T1lib support	PostScript Type 1 fonts (imagepstext); package t1lib
 5.6	I	mbstring	000	MBSTRING.REGEX	1	-	--disable-mbregex	Enable multibyte regex support	mb_ereg_*; 5.6 has oniguruma built in
 5.6	I	hash	000	HASH.MHASH	1	--with-mhash	-	mhash compatibility functions (mhash_*)	no library; the php56-hash port had it
 *	I	dba	000	DBA.CDB	1	-	--without-cdb	cdb database support	built in
@@ -762,6 +760,7 @@ menu_data() {
 *	O	--with-odbcver
 5.6	O	--with-onig
 *	O	--with-opcache
+*	O	--with-opcache-static
 *	O	--with-openssl
 *	O	--with-openssl-argon2
 *	O	--with-openssl-legacy-provider
@@ -919,6 +918,7 @@ menu_data() {
 *	O	--without-odbcver
 5.6	O	--without-onig
 *	O	--without-opcache
+*	O	--without-opcache-static
 *	O	--without-openssl
 *	O	--without-openssl-dir
 *	O	--without-openssl-legacy-provider
@@ -984,8 +984,8 @@ menu_data() {
 5.6	N	ZSIGNALS
 *	V	PREFIX	/usr/local	-	Install directory	--prefix=%V --program-suffix=%S --sysconfdir=%V/etc/php%S --libdir=%V/lib/php%S --includedir=%V/include/php%S --datadir=%V/share/php%S --mandir=%V/share/man	as the ports, the version at the end of the names: bin/php%S, sbin/php-fpm%S, etc/php%S (php.ini with --with-layout=GNU, php-fpm.conf), lib/php%S, include/php%S, share/php%S
 5.6	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysql/mysqli/pdo_mysql.default_socket; 5.6 takes it only with the mysql extension; empty: none (mysqlnd uses /tmp/mysql.sock)
-7.4+	S	018	swoole	check	SWOOLE	-	Swoole options
-7.4+	S	014	openswoole	check	OPENSWOOLE	-	OpenSwoole options
+7.4+	S	017	swoole	check	SWOOLE	-	Swoole options
+7.4+	S	013	openswoole	check	OPENSWOOLE	-	OpenSwoole options
 7.4+	I	core	005	PHPDBG	0	--enable-phpdbg	--disable-phpdbg	Interactive PHP debugger	bin/phpdbg; PHP builds it by default, also with --disable-all (configure reads the SAPIs first)
 7.4	I	core	007	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
 7.4+	I	core	016	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
@@ -1006,11 +1006,10 @@ menu_data() {
 7.4+	I	ext	047	PGSQL	0	--with-pgsql	-	PostgreSQL database support	PostgreSQL client package (postgresqlNN-client)
 7.4+	I	ext	060	SODIUM	0	--with-sodium	-	Sodium encryption support	package libsodium
 7.4+	I	ext	061	SQLITE3	0	--with-sqlite3	-	sqlite3 support	package sqlite3
-*	I	ext	061	SSH2	0	--with-ssh2=/usr/local	-	SSH2, SCP and SFTP functions (ssh2, PECL)	package libssh2
-7.4+	I	ext	062	SWOOLE	0	--enable-swoole	-	Swoole: coroutines, asynchronous servers (PECL)	heavy: only for applications on Swoole; not with openswoole
-7.4+	I	ext	074	XSL	0	--with-xsl	-	XSL support (Implies DOM)	package libxslt
-7.4+	I	ext	075	ZIP	0	--with-zip	-	ZIP support	package libzip
-7.4+	I	ext	076	ZLIB	0	--with-zlib	-	ZLIB support	zlib of the base system
+7.4+	I	ext	063	SWOOLE	0	--enable-swoole	-	Swoole: coroutines, asynchronous servers (PECL)	heavy: only for applications on Swoole; not with openswoole
+7.4+	I	ext	075	XSL	0	--with-xsl	-	XSL support (Implies DOM)	package libxslt
+7.4+	I	ext	076	ZIP	0	--with-zip	-	ZIP support	package libzip
+7.4+	I	ext	077	ZLIB	0	--with-zlib	-	ZLIB support	zlib of the base system
 7.4+	I	mbstring	000	MBSTRING.REGEX	1	-	--disable-mbregex	Enable multibyte regex support	mb_ereg_*; needs the package oniguruma
 7.4+	I	dba	007	DBA.LMDB	0	--with-lmdb=/usr/local	-	LMDB database support	package lmdb
 7.4	I	redis	001	REDIS.JSON	1	-	--disable-redis-json	JSON serializer	needs the json extension
@@ -2361,7 +2360,7 @@ elif [ -z "$reset" ] && [ -f "$installed" ]; then
 fi
 
 # one screen: 0 OK, 1 cancel. In a list with items that have screens of their own
-# (marked --->: the options of GD, the drivers of PDO) the button Options opens the
+# (marked --->: the libcurl of curl, the drivers of PDO) the button Options opens the
 # screens of the item under the cursor at once (open_options); then the list comes
 # back, with the cursor on that item. The dialog answers the button with the
 # status of Help (2; 4 is ITEM_HELP of older dialogs): "HELP <item>", then the

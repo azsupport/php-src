@@ -571,9 +571,7 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
                 # the libgd of the package libgd in every version, not the bundled one
                 if [ "$fam" = 5 ]; then
                     has gd.h || note "--with-gd=/usr/local needs the libgd package ($lb/include/gd.h is missing)."
-                    f="--with-gd=/usr/local --with-png-dir=/usr/local"
-                    has freetype2/ft2build.h && f="$f --with-freetype-dir=/usr/local"
-                    echo "$f"
+                    echo "--with-gd=/usr/local --with-png-dir=/usr/local --with-freetype-dir=/usr/local"
                 else
                     has gd.h || note "--with-external-gd needs the libgd package ($lb/include/gd.h is missing)."
                     echo "--enable-gd --with-external-gd"
