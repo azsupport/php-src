@@ -1,5 +1,5 @@
-Description: FreeBSD ports patch of the curl configure: accept -D in CFLAGS and -l in LDFLAGS, keep the -O flags of CFLAGS (PR 150854, 177401, 180944)
-Origin: freebsd-ports ftp/curl/files/patch-configure @ f3611d920828, unchanged
+Description: FreeBSD ports patch of the curl configure: accept -D in CFLAGS and -l in LDFLAGS, keep the -O flags of CFLAGS (PR 150854, 177401, 180944); conncache: an idle HTTP/1.1 connection with input pending is not reused (the stray bytes came back as the response to the next request, and every later one was shifted)
+Origin: freebsd-ports ftp/curl/files/patch-configure @ f3611d920828, unchanged; upstream https://github.com/curl/curl/commit/ef6b17cf12d4af4dfb2af4f9bc35861772be71c7 (lib/conncache.c, after 8.23.0; as Gentoo net-misc/curl 8.23.0-r1 carries it)
 
 --- configure.orig	2026-04-29 05:45:57 UTC
 +++ configure
@@ -156,3 +156,37 @@ Origin: freebsd-ports ftp/curl/files/patch-configure @ f3611d920828, unchanged
        -U*)
          xc_bad_var_cflags=yes
          ;;
+--- lib/conncache.c
++++ lib/conncache.c
+@@ -1044,11 +1044,20 @@ bool Curl_cpool_conn_seems_healthy(struct connectdata *conn,
+ {
+   struct Curl_easy *admin;
+   bool healthy = TRUE;
++  bool poll_input;
+ 
+   DEBUGASSERT(!data->conn);
+   if(cpool_conn_can_be_closed(conn) && cpool_conn_too_old(data, conn, pnow))
+     return FALSE;
+-  if((curlx_ptimediff_ms(pnow, &conn->created) - conn->lastchecked_ms) < 1000)
++
++  /* An idle, non-multiplexed connection must not be reused when it has
++   * input pending (RFC 9112, section 9.2), so that is polled on every
++   * reuse. The once a second limit only applies to the other checks. */
++  poll_input = cpool_conn_can_be_closed(conn) &&
++    !Curl_conn_is_multiplex(conn, FIRSTSOCKET) &&
++    !conn->scheme->run->connection_is_dead;
++  if(!poll_input &&
++     (curlx_ptimediff_ms(pnow, &conn->created) - conn->lastchecked_ms) < 1000)
+     return TRUE;
+ 
+   admin = Curl_get_admin(data);
+@@ -1063,8 +1072,7 @@ bool Curl_cpool_conn_seems_healthy(struct connectdata *conn,
+     Curl_attach_connection(admin, conn, FALSE);
+     healthy = Curl_conn_is_alive(admin, conn, &input_pending);
+     Curl_detach_connection(admin);
+-    if(healthy && input_pending && cpool_conn_can_be_closed(conn) &&
+-       !Curl_conn_is_multiplex(conn, FIRSTSOCKET)) {
++    if(healthy && input_pending && poll_input) {
+       /* Non-multiplexed connections without attached transfers should
+        * not have input pending. The input might be a TLS Notify Close,
+        * for all we know. */
