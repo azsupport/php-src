@@ -84,6 +84,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -905,6 +906,46 @@ def check_trees():
     return findings, checked
 
 
+
+def check_github():
+    """The rows "github <owner>/<repo>@<branch> <commit> <ours>" of upstream.conf: the
+    commits of a branch of an upstream on GitHub after <commit>, the last one reviewed,
+    for a port of ours ahead of its FreeBSD port (3proxy: the fixes of its LTS branch
+    after the release we build)."""
+    findings, checked = [], set()
+    for r in conf("upstream.conf"):
+        if r[0] != "github" or len(r) < 4:
+            continue
+        src, base, what = r[1], r[2], r[3]
+        repo, _, branch = src.partition("@")
+        branch = branch or "master"
+        try:
+            cmp = github_json("repos/%s/compare/%s...%s" % (repo, base, urllib.parse.quote(branch, safe="")))
+        except Exception as e:  # noqa: BLE001 - the source is down: leave its issue alone
+            warn("%s %s: %s" % (repo, branch, e))
+            continue
+        checked.add("github:%s:" % src)
+        commits = cmp.get("commits") or []
+        if not commits and cmp.get("status") in ("identical", "behind"):
+            continue
+        n = cmp.get("ahead_by", len(commits))
+        lines = ["Commits of the branch [`%s`](https://github.com/%s/commits/%s) of %s after `%s` (oldest first), "
+                 "for %s:" % (branch, repo, branch, repo, base, ours(what)), ""]
+        if cmp.get("status") == "diverged":
+            lines += ["The branch no longer has `%s` (rewritten): review it whole." % base, ""]
+        for c in commits:
+            msg = c["commit"]["message"].splitlines()[0].replace("|", "\\|")
+            lines.append("- [`%s`](https://github.com/%s/commit/%s) %s %s" % (
+                c["sha"][:12], repo, c["sha"], c["commit"]["committer"]["date"][:10], msg))
+        lines += ["", "After the review: what %s needs (a fix it lacks) into its patches, then set the commit of "
+                      "`github %s` in `freebsd/upstream.conf` to the newest one reviewed; the next check closes "
+                      "this issue." % (ours(what), src)]
+        findings.append({"key": "github:%s:%s" % (src, base), "kind": "ports",
+                         "title": "%s %s: %d commit%s after %s" % (repo, branch, n, "" if n == 1 else "s", base[:12]),
+                         "body": "\n".join(lines)})
+    return findings, checked
+
+
 # the advisories of Debian (security team: DSA; LTS: DLA) and of Freexian's Extended LTS
 # (ELA), as their security trackers keep them: one entry per advisory, with its
 # packages, CVEs and the fixed versions per release
@@ -1408,7 +1449,7 @@ def main():
     more, checked_eol = check_php_eol()
     findings += more
     checked |= checked_eol
-    for check in (check_trees, check_debian, check_launchpad):
+    for check in (check_trees, check_github, check_debian, check_launchpad):
         more, checked_more = check()
         findings += more
         checked |= checked_more

@@ -1072,6 +1072,7 @@ push.
 | Бюллетени Debian (DSA, DLA) и Extended LTS от Freexian (ELA); загрузки в Debian unstable пакетов, у которых нет живого апстрима (unzip, zip, libgd, libmcrypt, libxslt, t1lib, vsftpd, 3proxy) | того же, а для веток PHP — php7.0, php7.3, php7.4 (ELTS), php8.2, php8.4 Debian (строки `debian`) |
 | Загрузки PHP в PPA Ондржея Сури и в Ubuntu с их changelog: исправления, которые они переносят в ветки без поддержки апстрима | 5.6, 7.4, 8.1 … 8.4 у Сури, php8.1 Ubuntu 22.04, php8.3 Ubuntu 24.04 (строки `sury` и `ubuntu`) |
 | CVE в NVD, где названа библиотека без апстрима | t1lib (строки `cve`) |
+| Коммиты ветки апстрима на GitHub после последнего разобранного: исправления нашего порта, который впереди своего порта FreeBSD | 3proxy, его LTS-ветка 0.9 (строки `github`) |
 
 ### Патчи совместимости сборки
 
