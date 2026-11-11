@@ -154,19 +154,19 @@ menu_data() {
     cat <<'EOF'
 *	S	000	core	check	-	-	PHP %B: build options (OPcache is always built)
 *	S	001	ext	check	-	-	PHP %B: extensions, built into PHP
-*	S	016	pdo	check	PDO	-	PDO: drivers
+*	S	015	pdo	check	PDO	-	PDO: drivers
 *	S	003	curl	radio	CURL	-	curl: which libcurl
-*	S	014	openssl	check	OPENSSL	-	OpenSSL options
-*	S	006	gd	check	GD	-	GD options
-*	S	011	mbstring	check	MBSTRING	-	mbstring options
-5.6	S	008	hash	check	HASH	-	hash options
+*	S	013	openssl	check	OPENSSL	-	OpenSSL options
+5.6	S	006	gd	check	GD	-	GD options
+*	S	010	mbstring	check	MBSTRING	-	mbstring options
+5.6	S	007	hash	check	HASH	-	hash options
 *	S	004	dba	check	DBA	-	DBA handlers
-*	S	010	ldap	check	LDAP	-	LDAP options
-5.6-8.3	S	009	imap	check	IMAP	-	IMAP options
-*	S	017	readline	radio	READLINE	-	readline for php -a: which library
-*	S	018	redis	check	REDIS	-	phpredis options
-*	S	013	memcached	check	MEMCACHED	-	php-memcached options
-*	S	012	memcache	check	MEMCACHE	-	php-memcache options
+*	S	009	ldap	check	LDAP	-	LDAP options
+5.6-8.3	S	008	imap	check	IMAP	-	IMAP options
+*	S	016	readline	radio	READLINE	-	readline for php -a: which library
+*	S	017	redis	check	REDIS	-	phpredis options
+*	S	012	memcached	check	MEMCACHED	-	php-memcached options
+*	S	011	memcache	check	MEMCACHE	-	php-memcache options
 *	I	core	000	CLI	1	-	--disable-cli	Build CLI version	bin/php: scripts, cron, composer; config-check.sh runs it
 *	I	core	001	APACHE	0	--with-apxs2=/usr/local/sbin/apxs	-	Apache 2 module mod_php (www/mod_phpXY)	libexec/apache24/libphpXY.so (libphp84.so: named after the version, LoadModule must name it); a non-ZTS module needs the prefork MPM
 *	I	core	002	FPM	0	--enable-fpm --with-fpm-user=www --with-fpm-group=www --localstatedir=/var	-	Build FPM version	sbin/php-fpm; pid and error_log relative to /var
@@ -192,7 +192,7 @@ menu_data() {
 *	I	ext	012	FILEINFO	0	--enable-fileinfo	-	fileinfo support	mime types of uploads; magic database built in
 *	I	ext	013	FILTER	0	--enable-filter	-	input filter support	-
 *	I	ext	014	FTP	0	--enable-ftp	-	FTP support	-
-5.6	I	ext	015	GD	0	--with-gd	-	GD library support	libgd of PHP; formats: next screen
+5.6	I	ext	015	GD	0	--with-gd=/usr/local --with-png-dir=/usr/local	-	GD library support	package libgd, its formats; FreeType text and T1lib: next screen
 *	I	ext	016	GETTEXT	0	--with-gettext=/usr/local	-	gettext library support	package gettext-runtime
 *	I	ext	017	GMAGICK	0	--with-gmagick=/usr/local	-	GraphicsMagick image library (Gmagick, PECL)	package GraphicsMagick; not with imagick
 *	I	ext	018	GMP	0	--with-gmp=/usr/local	-	GNU MP support	package gmp
@@ -255,14 +255,8 @@ menu_data() {
 *	I	curl	001	CURL.SYSTEM	0	--with-curl=/usr/local	-	libcurl of ftp/curl, as the ports	package curl; for FreeBSD 13 with OpenSSL 1.1.1 in base
 *	I	openssl	000	OPENSSL.LEGACY	1	--with-openssl-legacy-provider	-	Load the OpenSSL legacy provider	RC4, Blowfish, DES, CAST5, MD4 with OpenSSL 3 (sites that encrypt with RC4)
 *	I	openssl	001	OPENSSL.SYSCIPHERS	0	--with-system-ciphers	-	Use the system default cipher list	instead of the list hardcoded in PHP
-5.6	I	gd	000	GD.JPEG	1	--with-jpeg-dir=/usr/local	-	JPEG support (mozjpeg)	package mozjpeg
-5.6	I	gd	001	GD.PNG	1	--with-png-dir=/usr/local	-	PNG support	package png
-5.6	I	gd	002	GD.FREETYPE	1	--with-freetype-dir=/usr/local	-	FreeType 2 support	package freetype2
-5.6	I	gd	003	GD.X11	0	--with-xpm-dir=/usr/local	-	Enable XPM support	package libXpm
-5.6	I	gd	004	GD.VPX	0	--with-vpx-dir=/usr/local	-	Enable VP8 codec support	package libvpx
-5.6	I	gd	005	GD.T1LIB	0	--with-t1lib=/usr/local	-	Include T1lib support	PostScript Type 1 fonts (imagepstext); package t1lib
-5.6	I	gd	006	GD.TRUETYPE	0	--enable-gd-native-ttf	-	Enable TrueType string function	-
-5.6	I	gd	007	GD.JIS	0	--enable-gd-jis-conv	-	Enable JIS-mapped Japanese font support	-
+5.6	I	gd	000	GD.FREETYPE	1	--with-freetype-dir=/usr/local	-	FreeType 2 support	imagettftext() and imagefttext(); package freetype2
+5.6	I	gd	001	GD.T1LIB	0	--with-t1lib=/usr/local	-	Include T1lib support	PostScript Type 1 fonts (imagepstext); package t1lib
 5.6	I	mbstring	000	MBSTRING.REGEX	1	-	--disable-mbregex	Enable multibyte regex support	mb_ereg_*; 5.6 has oniguruma built in
 5.6	I	hash	000	HASH.MHASH	1	--with-mhash	-	mhash compatibility functions (mhash_*)	no library; the php56-hash port had it
 *	I	dba	000	DBA.CDB	1	-	--without-cdb	cdb database support	built in
@@ -286,6 +280,7 @@ menu_data() {
 *	I	memcached	004	MEMCACHED.SASL	0	-	--disable-memcached-sasl	SASL authentication support	package cyrus-sasl; on by default in php-memcached and the port
 *	I	memcache	000	MEMCACHE.SESSION	1	-	--disable-memcache-session	Sessions in memcache	-
 5.6	R	DOM	LIBXML	ext/dom/config.m4:16 AC_MSG_ERROR, ext/dom/config.m4:34 PHP_ADD_EXTENSION_DEP
+5.6	R	GD	ZLIB	ext/gd/config.m4: PNG is always on, and "PNG support requires ZLIB" (the zlib extension finds it)
 5.6	R	MEMCACHE.SESSION	SESSION	ext/memcache/config9.m4:98 PHP_ADD_EXTENSION_DEP
 5.6	R	MEMCACHED.IGBINARY	IGBINARY	ext/memcached/config.m4:250 PHP_ADD_EXTENSION_DEP, ext/memcached/php_memcached.c:4177 ZEND_MOD_REQUIRED
 5.6-7.4	R	MEMCACHED.JSON	JSON	php_json_encode of the json extension
@@ -989,16 +984,15 @@ menu_data() {
 5.6	N	ZSIGNALS
 *	V	PREFIX	/usr/local	-	Install directory	--prefix=%V --program-suffix=%S --sysconfdir=%V/etc/php%S --libdir=%V/lib/php%S --includedir=%V/include/php%S --datadir=%V/share/php%S --mandir=%V/share/man	as the ports, the version at the end of the names: bin/php%S, sbin/php-fpm%S, etc/php%S (php.ini with --with-layout=GNU, php-fpm.conf), lib/php%S, include/php%S, share/php%S
 5.6	V	MYSQL_SOCK	/tmp/mysql.sock	MYSQL	MySQL socket	--with-mysql-sock=%V	default of mysql/mysqli/pdo_mysql.default_socket; 5.6 takes it only with the mysql extension; empty: none (mysqlnd uses /tmp/mysql.sock)
-7.4+	S	007	gdformats	check	GD	GD.EXTERNAL=0	GD: formats of the libgd of PHP
-7.4+	S	019	swoole	check	SWOOLE	-	Swoole options
-7.4+	S	015	openswoole	check	OPENSWOOLE	-	OpenSwoole options
+7.4+	S	018	swoole	check	SWOOLE	-	Swoole options
+7.4+	S	014	openswoole	check	OPENSWOOLE	-	OpenSwoole options
 7.4+	I	core	005	PHPDBG	0	--enable-phpdbg	--disable-phpdbg	Interactive PHP debugger	bin/phpdbg; PHP builds it by default, also with --disable-all (configure reads the SAPIs first)
 7.4	I	core	007	ZTS	0	--enable-maintainer-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
 7.4+	I	core	016	PCRE	0	--with-external-pcre=/usr/local	-	Use system pcre instead of bundled one	the bundled PCRE2 10.49 is newer than the package pcre2: not needed
 7.4	I	ext	000	ARGON2	0	--with-password-argon2=/usr/local	-	Argon2 in password_hash()	package libargon2
 7.4+	I	ext	009	EXCIMER	0	--enable-excimer	-	Excimer sampling profiler (PECL)	-
 7.4+	I	ext	011	FFI	0	--with-ffi	-	Foreign Function Interface support	package libffi
-7.4+	I	ext	015	GD	0	--enable-gd	-	GD library support	libgd of graphics/gd or of PHP: next screen
+7.4+	I	ext	015	GD	0	--enable-gd --with-external-gd	-	GD library support	package libgd, its formats
 7.4+	I	ext	025	INTL	0	--enable-intl	-	Internationalization(ICU)	package icu
 7.4+	I	ext	028	LIBXML	0	--with-libxml	-	libxml2 support (needed by the XML extensions)	package libxml2
 7.4+	I	ext	029	MBSTRING	0	--enable-mbstring	-	multibyte string support	mb_ereg_* need the package oniguruma: next screen
@@ -1017,12 +1011,6 @@ menu_data() {
 7.4+	I	ext	074	XSL	0	--with-xsl	-	XSL support (Implies DOM)	package libxslt
 7.4+	I	ext	075	ZIP	0	--with-zip	-	ZIP support	package libzip
 7.4+	I	ext	076	ZLIB	0	--with-zlib	-	ZLIB support	zlib of the base system
-7.4+	I	gd	008	GD.EXTERNAL	1	--with-external-gd	-	Use libgd of graphics/gd	package gd; its formats (JPEG of mozjpeg); off: the libgd of PHP with the formats of the next screen
-7.4+	I	gdformats	000	GD.F_JPEG	1	--with-jpeg	-	JPEG support (mozjpeg)	package mozjpeg
-7.4+	I	gdformats	001	GD.F_FREETYPE	1	--with-freetype	-	FreeType 2 support	package freetype2
-7.4+	I	gdformats	002	GD.F_WEBP	1	--with-webp	-	WebP image format support	package webp
-7.4+	I	gdformats	004	GD.F_X11	0	--with-xpm	-	Enable XPM support	package libXpm
-7.4+	I	gdformats	005	GD.F_JIS	0	--enable-gd-jis-conv	-	Enable JIS-mapped Japanese font support	-
 7.4+	I	mbstring	000	MBSTRING.REGEX	1	-	--disable-mbregex	Enable multibyte regex support	mb_ereg_*; needs the package oniguruma
 7.4+	I	dba	007	DBA.LMDB	0	--with-lmdb=/usr/local	-	LMDB database support	package lmdb
 7.4	I	redis	001	REDIS.JSON	1	-	--disable-redis-json	JSON serializer	needs the json extension
@@ -1223,9 +1211,6 @@ menu_data() {
 7.4+	U	roundcube	FILEINFO	1
 7.4+	U	roundcube	FILTER	1
 7.4+	U	roundcube	GD	1
-7.4+	U	roundcube	GD.F_JPEG	1
-7.4+	U	roundcube	GD.F_WEBP	1
-7.4+	U	roundcube	GD.F_FREETYPE	1
 7.4+	U	roundcube	ICONV	1
 7.4+	U	roundcube	IMAGICK	1
 7.4+	U	roundcube	INTL	1
@@ -1250,7 +1235,6 @@ menu_data() {
 8.1+	I	core	007	ZTS	0	--enable-zts	-	Force Zend Thread Safety (ZTS) build	for Apache with the event or worker MPM; slower
 8.1+	I	core	013	JIT	1	-	--disable-opcache-jit	OPcache JIT	compiled in by default; turned on in php.ini (opcache.jit, opcache.jit_buffer_size)
 8.1-8.3	I	ext	000	ARGON2	0	--with-password-argon2	-	Argon2 in password_hash()	package libargon2
-8.1+	I	gdformats	003	GD.F_AVIF	0	--with-avif	-	AVIF image format support	package libavif
 8.1+	I	swoole	003	SWOOLE.PGSQL	0	--enable-swoole-pgsql	-	Coroutine PostgreSQL client	PostgreSQL client package
 8.1+	I	swoole	004	SWOOLE.SQLITE	0	--enable-swoole-sqlite	-	Coroutine SQLite (PDO)	package sqlite3
 8.1+	I	swoole	005	SWOOLE.ODBC	0	--with-swoole-odbc=unixODBC,/usr/local	-	Coroutine ODBC (PDO)	package unixODBC
@@ -2039,7 +2023,7 @@ sort -t "$TAB" -k1,1 -k2,2 "$tmp/items.u" > "$tmp/items"
 # --- the state: the items that are on, " A B C " ---------------------------------------
 # The engine (one awk run) answers from the data and the state: an item counts
 # ("active") when it is on, its parent counts (REDIS for REDIS.LZ4) and the
-# show-if of its screen holds (GD.EXTERNAL=0 for the formats of the libgd of PHP).
+# show-if of its screen holds (ITEM=0 or ITEM=1; no screen has one at present).
 ON=" "
 is_on() { case "$ON" in *" $1 "*) return 0 ;; esac; return 1; }
 set_on() { is_on "$1" || ON="$ON$1 "; }
@@ -2047,8 +2031,8 @@ set_off() { case "$ON" in *" $1 "*) ON="${ON%%" $1 "*} ${ON#*" $1 "}" ;; esac; }
 
 engine() {
     awk -F '\t' -v mode="$1" -v on="$ON" -v d="$tmp" '
-    # the parent of an item: the item its screen belongs to (PDO for PDO_MYSQL, GD
-    # for GD.F_JPEG), else the part of its id before the dot
+    # the parent of an item: the item its screen belongs to (PDO for PDO_MYSQL),
+    # else the part of its id before the dot
     function parent(id,   p) {
         p = sparent[scr[id]]
         if (p != "" && p != "-") return p
