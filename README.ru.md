@@ -427,7 +427,9 @@ sh az-menu.sh
 [как в портах](https://github.com/azsupport/ports#the-packages)), какие есть в репозитории,
 и `phpXY-static`; ядро или `mod_phpXY` и статический PHP одной версии вместе не
 принимаются, как и `phpXY-openssl` вместе с `phpXY-openssl-legacy`, модуль вместе с его
-вариантом с OpenSSL (`phpXY-<модуль>-openssl`) и модули на mysqlnd (mysqlnd, mysqli,
+вариантом с OpenSSL (`phpXY-<модуль>-openssl`), два из четырёх пакетов redis (`phpXY-redis`
+без сжатия, `phpXY-redis-lz4`, `phpXY-redis-zstd`, `phpXY-redis-lz4-zstd`), `php56-gd`
+вместе с `php56-gd-t1lib` и модули на mysqlnd (mysqlnd, mysqli,
 pdo_mysql, mysql, swoole, openswoole) частью с `-openssl`, частью без. По OK готовые
 ставятся через `pkg install -r az` (`yt-dlp` — через `pkg install yt-dlp`: его пакеты
 Python — из FreeBSD), пакет `phpXY-static` каждого PHP, который надо
