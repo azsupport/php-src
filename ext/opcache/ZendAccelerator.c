@@ -88,7 +88,13 @@ typedef int gid_t;
 		} \
 	} while (0)
 
+#ifdef COMPILE_DL_OPCACHE
 ZEND_EXTENSION();
+#else
+/* OPcache built into PHP (--enable-opcache-static, azsupport/php-src): the module
+ * registers this zend_extension in its MINIT, as in PHP 8.5 */
+static zend_extension opcache_extension_entry;
+#endif
 
 #ifndef ZTS
 zend_accel_globals accel_globals;
@@ -2598,6 +2604,13 @@ static void accel_globals_dtor(zend_accel_globals *accel_globals TSRMLS_DC)
 	zend_hash_destroy(&accel_globals->function_table);
 }
 
+#ifndef COMPILE_DL_OPCACHE
+void start_accel_extension(void)
+{
+	zend_register_extension(&opcache_extension_entry, NULL);
+}
+#endif
+
 static int accel_startup(zend_extension *extension)
 {
 	zend_function *func;
@@ -2614,11 +2627,16 @@ static int accel_startup(zend_extension *extension)
 	_setmaxstdio(2048); /* The default configuration is limited to 512 stdio files */
 #endif
 
+#ifdef COMPILE_DL_OPCACHE
 	if (start_accel_module() == FAILURE) {
 		accel_startup_ok = 0;
 		zend_error(E_WARNING, ACCELERATOR_PRODUCT_NAME ": module registration failed!");
 		return FAILURE;
 	}
+#else
+	/* built in: the module is there, its INI entries come now, after the globals */
+	zend_accel_register_ini_entries(TSRMLS_C);
+#endif
 
 	/* no supported SAPI found - disable acceleration and stop initialization */
 	if (accel_find_sapi(TSRMLS_C) == FAILURE) {
@@ -2871,7 +2889,11 @@ void accelerator_shm_read_unlock(TSRMLS_D)
 	}
 }
 
+#ifdef COMPILE_DL_OPCACHE
 ZEND_EXT_API zend_extension zend_extension_entry = {
+#else
+static zend_extension opcache_extension_entry = {
+#endif
 	ACCELERATOR_PRODUCT_NAME,               /* name */
 	ACCELERATOR_VERSION,					/* version */
 	"Zend Technologies",					/* author */
