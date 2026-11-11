@@ -40,11 +40,15 @@ the version built (taken before the port only for a security fix: "take" lines);
 the commits to their ports after the ports commit of the conf file; and a port
 that has caught up with a take line, which can go then.
 
-Libraries without an upstream (t1lib, devel/t1lib of azsupport/ports): for a
-"gentoo" line of freebsd/upstream.conf the commits of gentoo/gentoo to its
-directory after the date of the line (the fixes of their vulnerabilities come
-from there), for a "cve" line the CVEs of NVD that name the library, published
-after its date.
+Other distributions (aZ, 11.11.2026: the FreeBSD tree lacked fixes that they
+carry), each row of freebsd/upstream.conf with the date of its last review:
+"gentoo" and "openbsd" lines, the commits of gentoo/gentoo or openbsd/ports to a
+directory after that date (their patches); "debian" lines, the advisories of
+Debian (DSA, DLA) and of Freexian's Extended LTS (ELA) for a source package and,
+with "uploads", its uploads to unstable; "sury" and "ubuntu" lines, the uploads
+of a package to the PPA of Ondrej Sury or to Ubuntu, with their changelog (the
+fixes of the PHP branches out of upstream support); for a "cve" line the CVEs of
+NVD that name a library without an upstream (t1lib), published after its date.
 
 PHP branches. For the targets that follow the php-src release tags: the end of
 security support of the branch (php.net/releases/branches.php), from 60 days
@@ -71,6 +75,7 @@ Usage: python3 tools/upstream-check.py [--dry-run] [--repo OWNER/NAME]
 
 import argparse
 import datetime
+import email.utils
 import hashlib
 import json
 import os
@@ -78,6 +83,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -851,35 +857,266 @@ def github_json(path):
         return json.loads(r.read().decode("utf-8", "replace"))
 
 
-def check_gentoo():
-    """The rows "gentoo <dir> <date>" of upstream.conf: commits of gentoo/gentoo to <dir>
-    after <date> (the patches a port of azsupport/ports takes from there)."""
+TREES = {"gentoo": ("gentoo/gentoo", "Gentoo"), "openbsd": ("openbsd/ports", "OpenBSD")}
+
+
+def ours(what):
+    """What of ours a row of upstream.conf is for (its last column): a port of
+    azsupport/ports, a library of az ("az/az:<library>") or a branch of this fork
+    ("freebsd/<version>")."""
+    if what.startswith("freebsd/"):
+        return "`%s` of this fork" % what
+    if what.startswith("az/az:"):
+        return "the library %s of az (`az/az` of azsupport/ports)" % what.split(":", 1)[1]
+    return "`%s` of azsupport/ports" % what
+
+
+def check_trees():
+    """The rows "gentoo <dir> <date> <ours>" and "openbsd <dir> <date> <ours>" of
+    upstream.conf: the commits of gentoo/gentoo or openbsd/ports (the GitHub mirror of
+    the CVS tree of OpenBSD) to <dir> after <date>, the fixes those trees carry."""
     findings, checked = [], set()
     for r in conf("upstream.conf"):
-        if r[0] != "gentoo" or len(r) < 4:
+        if r[0] not in TREES or len(r) < 4:
             continue
-        d, date, port = r[1], r[2], r[3]
+        kind, (repo, name) = r[0], TREES[r[0]]
+        d, date, what = r[1], r[2], r[3]
         try:
-            commits = github_json("repos/gentoo/gentoo/commits?path=%s&since=%sT23:59:59Z&per_page=50" % (d, date))
+            commits = github_json("repos/%s/commits?path=%s&since=%sT23:59:59Z&per_page=50" % (repo, d, date))
         except Exception as e:  # noqa: BLE001 - the source is down: leave its issue alone
-            warn("gentoo/gentoo %s: %s" % (d, e))
+            warn("%s %s: %s" % (repo, d, e))
             continue
-        checked.add("gentoo:%s:" % d)
+        checked.add("%s:%s:" % (kind, d))
         if not commits:
             continue
-        lines = ["Commits of [gentoo/gentoo](https://github.com/gentoo/gentoo/tree/master/%s) to `%s` after "
-                 "%s (newest first): `%s` of azsupport/ports takes its patches from there." % (d, d, date, port), ""]
+        lines = ["Commits of [%s](https://github.com/%s/tree/master/%s) to `%s` after %s (newest first), for %s:"
+                 % (repo, repo, d, d, date, ours(what)), ""]
         for c in commits:
             msg = c["commit"]["message"].splitlines()[0].replace("|", "\\|")
-            lines.append("- [`%s`](https://github.com/gentoo/gentoo/commit/%s) %s %s" % (
-                c["sha"][:12], c["sha"], c["commit"]["committer"]["date"][:10], msg))
-        lines += ["", "After the review: take what `%s` needs into its `files/` (EXTRA_PATCHES of its Makefile) in "
-                      "azsupport/ports, then set the date of `gentoo %s` in `freebsd/upstream.conf` to the day of "
-                      "the review; the next check closes this issue." % (port, d)]
-        findings.append({"key": "gentoo:%s:%s" % (d, date), "kind": "ports",
-                         "title": "Gentoo: %s, %d commit%s after %s" % (d, len(commits),
-                                                                       "" if len(commits) == 1 else "s", date),
+            lines.append("- [`%s`](https://github.com/%s/commit/%s) %s %s" % (
+                c["sha"][:12], repo, c["sha"], c["commit"]["committer"]["date"][:10], msg))
+        lines += ["", "After the review: what %s needs (a fix it lacks) into its patches, then set the date of "
+                      "`%s %s` in `freebsd/upstream.conf` to the day of the review; the next check closes this issue."
+                      % (ours(what), kind, d)]
+        findings.append({"key": "%s:%s:%s" % (kind, d, date), "kind": "release" if what.startswith("freebsd/") else "ports",
+                         "title": "%s: %s, %d commit%s after %s" % (name, d, len(commits),
+                                                                   "" if len(commits) == 1 else "s", date),
                          "body": "\n".join(lines)})
+    return findings, checked
+
+
+# the advisories of Debian (security team: DSA; LTS: DLA) and of Freexian's Extended LTS
+# (ELA), as their security trackers keep them: one entry per advisory, with its
+# packages, CVEs and the fixed versions per release
+DEBIAN_LISTS = (
+    ("https://salsa.debian.org/security-tracker-team/security-tracker/-/raw/master/data/DSA/list",
+     "https://security-tracker.debian.org/tracker/%s"),
+    ("https://salsa.debian.org/security-tracker-team/security-tracker/-/raw/master/data/DLA/list",
+     "https://security-tracker.debian.org/tracker/%s"),
+    ("https://salsa.debian.org/freexian-team/extended-lts/security-tracker/-/raw/master/data/ELA/list",
+     "https://deb.freexian.com/extended-lts/tracker/%s"),
+)
+ADVISORY_HEAD = re.compile(r"^\[(\d{1,2}) (\w{3}) (\d{4})\] ((?:DSA|DLA|DTSA|ELA)-\d+(?:-\d+)?) (\S+)(?: - (.*))?$")
+ADVISORY_FIX = re.compile(r"^\[(\S+)\] - (\S+) (\S+)")
+CHANGELOG_HEAD = re.compile(r"^(\S+) \(([^)]+)\) ([^;]+);.*urgency=(\S+)")
+
+
+def debian_advisories():
+    """{package: [advisory]} of the lists of DEBIAN_LISTS, and whether all of them were read."""
+    by_pkg, complete = {}, True
+    for url, link in DEBIAN_LISTS:
+        try:
+            text = http(url)
+        except Exception as e:  # noqa: BLE001
+            warn("%s: %s" % (url, e))
+            complete = False
+            continue
+        cur, advs = None, []
+        for line in text.splitlines():
+            m = ADVISORY_HEAD.match(line)
+            if m:
+                try:
+                    day = datetime.datetime.strptime(" ".join(m.group(1, 2, 3)), "%d %b %Y").date().isoformat()
+                except ValueError:
+                    cur = None
+                    continue
+                cur = {"date": day, "id": m.group(4), "title": "%s %s" % (m.group(5), m.group(6) or ""),
+                       "url": link % m.group(4), "pkgs": {m.group(5)}, "cves": [], "fixed": []}
+                advs.append(cur)
+                continue
+            if cur is None:
+                continue
+            s = line.strip()
+            if s.startswith("{"):
+                cur["cves"] += s.strip("{}").split()
+            f = ADVISORY_FIX.match(s)
+            if f:
+                cur["pkgs"].add(f.group(2))
+                cur["fixed"].append("%s %s" % (f.group(1), f.group(3)))
+        for a in advs:
+            for pkg in a["pkgs"]:
+                by_pkg.setdefault(pkg, []).append(a)
+        if not advs:
+            warn("%s: no advisory read (has the format changed?)" % url)
+            complete = False
+    return by_pkg, complete
+
+
+def parse_changelog(text, after):
+    """The entries of a Debian changelog dated after <after> (YYYY-MM-DD), newest first:
+    (version, distribution, urgency, date, lines)."""
+    out, cur = [], None
+    for line in text.splitlines():
+        m = CHANGELOG_HEAD.match(line)
+        if m:
+            cur = [m.group(2), m.group(3).strip(), m.group(4), "", []]
+            continue
+        if cur is None:
+            continue
+        if line.startswith(" -- "):
+            dm = re.search(r">\s+(.+)$", line)
+            try:
+                cur[3] = email.utils.parsedate_to_datetime(dm.group(1)).date().isoformat()
+            except (AttributeError, TypeError, ValueError):
+                cur[3] = ""
+            if cur[3] and cur[3] <= after:
+                break
+            out.append(tuple(cur))
+            cur = None
+        elif line.strip():
+            cur[4].append(line.rstrip())
+    return out
+
+
+def changelog_lines(entries, limit=12):
+    lines = []
+    for version, dist, urgency, day, text in entries:
+        lines.append("- %s `%s` (%s, urgency=%s)" % (day or "?", version, dist, urgency))
+        lines += ["    %s" % t.strip() for t in text[:limit]]
+        if len(text) > limit:
+            lines.append("    ... (%d more lines)" % (len(text) - limit))
+    return lines
+
+
+def check_debian():
+    """The rows "debian <source package> <date> <ours> [uploads]" of upstream.conf: the
+    advisories of Debian (DSA, DLA) and of Freexian's Extended LTS (ELA) for the package
+    after <date>, with "uploads" also its uploads to unstable after <date> (its
+    changelog): the fixes a Debian
+    package carries, also for programs whose upstream is gone and for PHP branches out
+    of upstream support (php7.4, php7.3 and php7.0 in ELTS)."""
+    findings, checked = [], set()
+    rows = [r for r in conf("upstream.conf") if r[0] == "debian" and len(r) >= 4]
+    if not rows:
+        return findings, checked
+    by_pkg, complete = debian_advisories()
+    for r in rows:
+        pkg, date, what = r[1], r[2], r[3]
+        advs = sorted((a for a in by_pkg.get(pkg, []) if a["date"] > date), key=lambda a: (a["date"], a["id"]),
+                      reverse=True)
+        prefix = pkg[:4] if pkg.startswith("lib") else pkg[0]
+        cl_url = "https://metadata.ftp-master.debian.org/changelogs//main/%s/%s/unstable_changelog" % (prefix, pkg)
+        uploads, cl_ok = [], True
+        if len(r) > 4 and r[4] == "uploads":
+            try:
+                uploads = parse_changelog(http(cl_url), date)
+            except urllib.error.HTTPError as e:
+                if e.code != 404:  # 404: not in unstable (removed packages)
+                    warn("%s: %s" % (cl_url, e))
+                    cl_ok = False
+            except Exception as e:  # noqa: BLE001
+                warn("%s: %s" % (cl_url, e))
+                cl_ok = False
+        if complete and cl_ok:
+            checked.add("debian:%s:" % pkg)
+        if not advs and not uploads:
+            continue
+        lines = ["Debian, the source package `%s` ([security tracker](https://security-tracker.debian.org/tracker/"
+                 "source-package/%s), [ELTS tracker](https://deb.freexian.com/extended-lts/tracker/source-package/%s), "
+                 "[package](https://tracker.debian.org/pkg/%s)), after %s, for %s." % (pkg, pkg, pkg, pkg, date,
+                                                                                         ours(what))]
+        if advs:
+            lines += ["", "Advisories (newest first):", ""]
+            for a in advs[:40]:
+                lines.append("- [%s](%s) %s %s: %s; fixed: %s" % (
+                    a["id"], a["url"], a["date"], a["title"].strip(), " ".join(a["cves"]) or "no CVE",
+                    ", ".join(a["fixed"]) or "-"))
+        if uploads:
+            lines += ["", "Uploads to unstable ([changelog](%s), newest first):" % cl_url, ""]
+            lines += changelog_lines(uploads[:15])
+        lines += ["", "After the review: what %s lacks (a fix of a vulnerability that touches us, or a bug we have) "
+                      "into its patches, then set the date of `debian %s` in `freebsd/upstream.conf` to the day of "
+                      "the review; the next check closes this issue." % (ours(what), pkg)]
+        parts = []
+        if advs:
+            parts.append("%d advisor%s" % (len(advs), "y" if len(advs) == 1 else "ies"))
+        if uploads:
+            parts.append("%d upload%s" % (len(uploads), "" if len(uploads) == 1 else "s"))
+        findings.append({"key": "debian:%s:%s" % (pkg, date),
+                         "kind": "release" if what.startswith("freebsd/") else "ports",
+                         "title": "Debian: %s, %s after %s" % (pkg, " and ".join(parts), date),
+                         "body": "\n".join(lines)[:BODY_LIMIT]})
+    return findings, checked
+
+
+# Launchpad archives: Ondrej Sury's PPA of PHP (deb.sury.org: php5.6 ... php8.x for Debian
+# and Ubuntu, with the security fixes he backports to the branches out of upstream
+# support) and Ubuntu itself (php8.1 of 22.04, php8.3 of 24.04, fixed by Canonical)
+LAUNCHPAD = {
+    "sury": ("https://api.launchpad.net/1.0/~ondrej/+archive/ubuntu/php", "Sury",
+             "the PPA [ondrej/php](https://launchpad.net/~ondrej/+archive/ubuntu/php/+packages?field.name_filter=%s"
+             "&field.status_filter=published) (Ondrej Sury, deb.sury.org)"),
+    "ubuntu": ("https://api.launchpad.net/1.0/ubuntu/+archive/primary", "Ubuntu",
+               "[Ubuntu](https://launchpad.net/ubuntu/+source/%s) ([security notices](https://ubuntu.com/security/notices))"),
+}
+
+
+def check_launchpad():
+    """The rows "sury <source package> <date> <ours>" and "ubuntu <source package> <date>
+    <ours>" of upstream.conf: the uploads of the package to the PPA of Ondrej Sury or to
+    Ubuntu after <date>, with their changelog entries (the fixes they backport to the PHP
+    branches out of upstream support)."""
+    findings, checked = [], set()
+    for r in conf("upstream.conf"):
+        if r[0] not in LAUNCHPAD or len(r) < 4:
+            continue
+        kind, (api, name, where) = r[0], LAUNCHPAD[r[0]]
+        pkg, date, what = r[1], r[2], r[3]
+        url = ("%s?ws.op=getPublishedSources&source_name=%s&exact_match=true&order_by_date=true"
+               "&created_since_date=%sT23:59:59" % (api, pkg, date))
+        try:
+            data = json.loads(http(url))
+        except Exception as e:  # noqa: BLE001
+            warn("Launchpad %s %s: %s" % (kind, pkg, e))
+            continue
+        checked.add("%s:%s:" % (kind, pkg))
+        pubs = [e for e in data.get("entries", [])
+                if (e.get("date_published") or e.get("date_created") or "")[:10] > date]
+        if not pubs:
+            continue
+        versions = {}
+        for e in pubs:
+            base = re.sub(r"\+(ubuntu|deb)\d.*$", "", e.get("source_package_version", "?"))
+            versions.setdefault(base, ((e.get("date_published") or e.get("date_created") or "")[:10],
+                                       e.get("pocket", "")))
+        uploads = []
+        try:
+            cl = json.loads(http(pubs[0]["self_link"] + "?ws.op=changelogUrl"))
+            uploads = parse_changelog(http(cl), date)
+        except Exception as e:  # noqa: BLE001 - the versions are enough to know there is something
+            warn("Launchpad %s %s changelog: %s" % (kind, pkg, e))
+        lines = ["Uploads of `%s` to %s after %s, for %s:" % (pkg, where % pkg, date, ours(what)), ""]
+        for v, (day, pocket) in sorted(versions.items(), key=lambda x: x[1][0], reverse=True):
+            lines.append("- `%s` %s%s" % (v, day, (" (%s)" % pocket) if pocket and pocket != "Release" else ""))
+        if uploads:
+            lines += ["", "Changelog (newest first):", ""] + changelog_lines(uploads[:10], limit=25)
+        lines += ["", "After the review: the fixes %s lacks (each with its upstream commit) into its backports, then "
+                      "set the date of `%s %s` in `freebsd/upstream.conf` to the day of the review; the next check "
+                      "closes this issue." % (ours(what), kind, pkg)]
+        findings.append({"key": "%s:%s:%s" % (kind, pkg, date), "kind": "release",
+                         "title": "%s: %s, %d upload%s after %s" % (name, pkg, len(versions),
+                                                                   "" if len(versions) == 1 else "s", date),
+                         "body": "\n".join(lines)[:BODY_LIMIT]})
     return findings, checked
 
 
@@ -1170,9 +1407,10 @@ def main():
     more, checked_eol = check_php_eol()
     findings += more
     checked |= checked_eol
-    more, checked_gentoo = check_gentoo()
-    findings += more
-    checked |= checked_gentoo
+    for check in (check_trees, check_debian, check_launchpad):
+        more, checked_more = check()
+        findings += more
+        checked |= checked_more
     more, checked_cves = check_cves()
     findings += more
     checked |= checked_cves

@@ -1085,6 +1085,10 @@ a bundled extension is taken when it is out.
 | A port that has the version of a `take` line now | the libraries and programs of az: the line can go |
 | Release files in the distinfo of a port that the bundle has not | the ports of curl and its libraries (not while the bundle is ahead of the port) |
 | The end of security support, from 60 days before it on | the branches built from php-src tags (8.2: 31.12.2026), with whether Remi Collet's backports have a branch to switch to |
+| Commits of Gentoo and OpenBSD (their patches) | the ports of azsupport/ports, the libraries of az, PHP 8.x and the bundled extensions (`gentoo` and `openbsd` rows, after the day of their review) |
+| Advisories of Debian (DSA, DLA) and of Freexian's Extended LTS (ELA); uploads to Debian unstable of the packages whose upstream is gone (unzip, zip, libgd, libmcrypt, libxslt, t1lib, vsftpd, 3proxy) | the same, and php7.0, php7.3, php7.4 (ELTS), php8.2, php8.4 of Debian for the PHP branches (`debian` rows) |
+| Uploads of PHP to the PPA of Ondřej Surý and to Ubuntu, with their changelog: the fixes they backport to branches out of upstream support | 5.6, 7.4, 8.1 … 8.4 of Surý, php8.1 of Ubuntu 22.04, php8.3 of 24.04 (`sury` and `ubuntu` rows) |
+| CVEs of NVD that name a library without an upstream | t1lib (`cve` rows) |
 
 ### Build compatibility patches
 
