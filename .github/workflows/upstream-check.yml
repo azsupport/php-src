@@ -3,7 +3,9 @@ name: Upstream check
 # Once a day: newer releases of the bundled PECL extensions, curl, the libraries
 # of curl and PCRE2; FreeBSD ports commits that change the patches or the build
 # of these and of PHP, and release files in their distinfo that the bundle has
-# not; the end of security support of the PHP branches taken from php-src tags.
+# not; the end of security support of the PHP branches taken from php-src tags;
+# for t1lib (devel/t1lib of azsupport/ports, no upstream since 2007) the commits of
+# Gentoo to media-libs/t1lib and the new CVEs of NVD that name it.
 # Each finding opens or updates one issue (label "upstream"); nothing is applied.
 # Closing an issue means "not wanted", the check does not reopen it.
 # What is followed: freebsd/pecl.conf, freebsd/curl.conf, freebsd/curl-deps.conf,

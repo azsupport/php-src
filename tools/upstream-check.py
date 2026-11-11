@@ -40,6 +40,12 @@ the version built (taken before the port only for a security fix: "take" lines);
 the commits to their ports after the ports commit of the conf file; and a port
 that has caught up with a take line, which can go then.
 
+Libraries without an upstream (t1lib, devel/t1lib of azsupport/ports): for a
+"gentoo" line of freebsd/upstream.conf the commits of gentoo/gentoo to its
+directory after the date of the line (the fixes of their vulnerabilities come
+from there), for a "cve" line the CVEs of NVD that name the library, published
+after its date.
+
 PHP branches. For the targets that follow the php-src release tags: the end of
 security support of the branch (php.net/releases/branches.php), from 60 days
 before it on, with whether Remi Collet's php-src-security has a
@@ -764,7 +770,9 @@ def release_finding(up, v, hits, pin):
 
 def ports_followed():
     """(ports dir, reviewed revision, where the revision is kept)."""
-    ports = [(r[1], r[2], "freebsd/upstream.conf") for r in conf("upstream.conf") if r[0] == "port"]
+    # a 4th column names the port of azsupport/ports that builds it (devel/t1lib)
+    ports = [(r[1], r[2], "freebsd/upstream.conf" + (" (for `%s` of azsupport/ports)" % r[3] if len(r) > 3 else ""))
+             for r in conf("upstream.conf") if r[0] == "port"]
     listed = {p for p, _r, _k in ports}
     for cfile, _bundle, _prefix, _workflow, _steps in BUNDLES:
         commit = deps_ports_commit(cfile)
@@ -830,6 +838,90 @@ def check_ports(workdir, days):
     more, chk = check_distinfo(git)
     more2, chk2 = check_takes(git)
     return findings + more + more2, checked | chk | chk2
+
+
+def github_json(path):
+    """GET of the REST API of GitHub (with the token of the workflow when there is one)."""
+    headers = {"User-Agent": "upstream-check (azsupport/php-src)", "Accept": "application/vnd.github+json"}
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    req = urllib.request.Request("https://api.github.com/" + path, headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def check_gentoo():
+    """The rows "gentoo <dir> <date>" of upstream.conf: commits of gentoo/gentoo to <dir>
+    after <date> (the patches a port of azsupport/ports takes from there)."""
+    findings, checked = [], set()
+    for r in conf("upstream.conf"):
+        if r[0] != "gentoo" or len(r) < 4:
+            continue
+        d, date, port = r[1], r[2], r[3]
+        try:
+            commits = github_json("repos/gentoo/gentoo/commits?path=%s&since=%sT23:59:59Z&per_page=50" % (d, date))
+        except Exception as e:  # noqa: BLE001 - the source is down: leave its issue alone
+            warn("gentoo/gentoo %s: %s" % (d, e))
+            continue
+        checked.add("gentoo:%s:" % d)
+        if not commits:
+            continue
+        lines = ["Commits of [gentoo/gentoo](https://github.com/gentoo/gentoo/tree/master/%s) to `%s` after "
+                 "%s (newest first): `%s` of azsupport/ports takes its patches from there." % (d, d, date, port), ""]
+        for c in commits:
+            msg = c["commit"]["message"].splitlines()[0].replace("|", "\\|")
+            lines.append("- [`%s`](https://github.com/gentoo/gentoo/commit/%s) %s %s" % (
+                c["sha"][:12], c["sha"], c["commit"]["committer"]["date"][:10], msg))
+        lines += ["", "After the review: take what `%s` needs into its `files/` (EXTRA_PATCHES of its Makefile) in "
+                      "azsupport/ports, then set the date of `gentoo %s` in `freebsd/upstream.conf` to the day of "
+                      "the review; the next check closes this issue." % (port, d)]
+        findings.append({"key": "gentoo:%s:%s" % (d, date), "kind": "ports",
+                         "title": "Gentoo: %s, %d commit%s after %s" % (d, len(commits),
+                                                                       "" if len(commits) == 1 else "s", date),
+                         "body": "\n".join(lines)})
+    return findings, checked
+
+
+NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=%s"
+
+
+def check_cves():
+    """The rows "cve <word> <date> <port>" of upstream.conf: the CVEs of NVD that name
+    <word> and were published after <date> (a library with no upstream any more, whose
+    fixes we take from the distributions)."""
+    findings, checked = [], set()
+    for r in conf("upstream.conf"):
+        if r[0] != "cve" or len(r) < 4:
+            continue
+        word, date, port = r[1], r[2], r[3]
+        try:
+            data = json.loads(http(NVD_API % word))
+        except Exception as e:  # noqa: BLE001
+            warn("NVD %s: %s" % (word, e))
+            continue
+        checked.add("cve:%s:" % word)
+        new = []
+        for v in data.get("vulnerabilities", []):
+            c = v.get("cve", {})
+            if c.get("published", "")[:10] > date:
+                desc = next((x["value"] for x in c.get("descriptions", []) if x.get("lang") == "en"), "")
+                new.append((c.get("published", "")[:10], c.get("id", "?"), desc))
+        if not new:
+            continue
+        new.sort(reverse=True)
+        lines = ["CVEs of NVD that name `%s`, published after %s (newest first): `%s` of azsupport/ports "
+                 "has this library." % (word, date, port), ""]
+        for pub, cid, desc in new:
+            lines.append("- [%s](https://nvd.nist.gov/vuln/detail/%s) %s: %s" % (
+                cid, cid, pub, desc[:400].replace("\n", " ")))
+        lines += ["", "After the review: a fix from a distribution (Gentoo, Debian, Fedora) into `files/` of `%s`, or "
+                      "the packages that need it out; then set the date of `cve %s` in `freebsd/upstream.conf` to "
+                      "the day of the review; the next check closes this issue." % (port, word)]
+        findings.append({"key": "cve:%s:%s" % (word, date), "kind": "ports",
+                         "title": "CVE: %s, %d new after %s" % (word, len(new), date),
+                         "body": "\n".join(lines)})
+    return findings, checked
 
 
 def bundled_dists():
@@ -970,6 +1062,10 @@ def port_finding(git, port, rev, kept, commits, moved, base):
                   "and `graphics/ImageMagick7/files/` when they are not the port's own), then move the ports commit "
                   "of `az/az/files/deps.conf` to `%s` (the ports of all the libraries, FFmpeg and ImageMagick move "
                   "with it), then %s The next check closes this issue." % (newest, PORTS_STEPS % PORTS_BUILD)]
+    elif "of azsupport/ports" in kept:
+        lines += ["After the review: in azsupport/ports the port named there as it should be with this (its own "
+                  "patches: drop those the official port has now), then set the reviewed revision (%s) of `%s` to "
+                  "`%s`; the next check closes this issue." % (kept, port, newest)]
     else:
         lines += ["After the review: take what we need into `freebsd/pecl/` (or `freebsd/patches/<target>/` "
                   "for lang ports), then set the reviewed revision (%s) of `%s` to `%s`; the next check "
@@ -1074,6 +1170,12 @@ def main():
     more, checked_eol = check_php_eol()
     findings += more
     checked |= checked_eol
+    more, checked_gentoo = check_gentoo()
+    findings += more
+    checked |= checked_gentoo
+    more, checked_cves = check_cves()
+    findings += more
+    checked |= checked_cves
 
     summary = ["- %s" % f["title"] for f in findings] or ["- nothing new"]
     print("\n".join(summary))
