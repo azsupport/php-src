@@ -1878,8 +1878,10 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             case "$sel" in *" $n "*) case "$sel" in *" $n.build "*) both="$both $n" ;; esac ;; esac
         done
         # per version the core of pkg mode (with the packages of its extensions) or the
-        # static PHP, one of the two kinds of openssl, and a module or its variant with
-        # OpenSSL (phpXY-<module>-openssl): pkg would refuse both (the same files); the
+        # static PHP, one of the two kinds of openssl, a module or its variant with
+        # OpenSSL (phpXY-<module>-openssl), one of the four packages of redis
+        # (phpXY-redis without compression, -redis-lz4, -redis-zstd, -redis-lz4-zstd)
+        # and php56-gd or php56-gd-t1lib: pkg would refuse both (the same files); the
         # modules on mysqlnd all with the variant or all without it, as the variants
         # go with phpXY-mysqlnd-openssl and the others with phpXY-mysqlnd
         mixed=""
@@ -1898,6 +1900,12 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
                 case "$sel" in *" php$s_-$m_ "*) d_="$d_+php$s_-$m_" ;; esac
             done
             if [ -n "$o_" ] && [ -n "$d_" ]; then mixed="$mixed ${d_#+}$o_"; fi
+            r_=""
+            for m_ in redis redis-lz4 redis-zstd redis-lz4-zstd; do
+                case "$sel" in *" php$s_-$m_ "*) r_="$r_+php$s_-$m_" ;; esac
+            done
+            case "$r_" in +*+*) mixed="$mixed ${r_#+}" ;; esac
+            case "$sel" in *" php$s_-gd "*) case "$sel" in *" php$s_-gd-t1lib "*) mixed="$mixed php$s_-gd+php$s_-gd-t1lib" ;; esac ;; esac
             case "$sel" in *" php$s_-static "*|*" php$s_-static.build "*) ;; *) continue ;; esac
             for n in $names; do
                 case "$n" in php"$s_"-static) continue ;; php"$s_"|php"$s_"-*|mod_php"$s_") ;; *) continue ;; esac
@@ -1909,7 +1917,7 @@ $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"
             continue
         fi
         if [ -n "$mixed" ]; then
-            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with mod_phpXY and its packages phpXY-<module>) or phpXY-static, phpXY-openssl or phpXY-openssl-legacy, and phpXY-<module> or phpXY-<module>-openssl, not both; the modules on mysqlnd (mysqlnd, mysqli, pdo_mysql, mysql, swoole, openswoole) all with -openssl or all without it:$mixed" 0 0
+            dlg --title "One of the two" --msgbox "Per version phpXY of pkg mode (with mod_phpXY and its packages phpXY-<module>) or phpXY-static, phpXY-openssl or phpXY-openssl-legacy, phpXY-<module> or phpXY-<module>-openssl, one of phpXY-redis, phpXY-redis-lz4, phpXY-redis-zstd and phpXY-redis-lz4-zstd, and php56-gd or php56-gd-t1lib, not both; the modules on mysqlnd (mysqlnd, mysqli, pdo_mysql, mysql, swoole, openswoole) all with -openssl or all without it:$mixed" 0 0
             continue
         fi
         break
