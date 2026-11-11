@@ -257,6 +257,18 @@ if (extension_loaded('gd')) {
         imagewebp($im);
         check('GD WebP', strlen(ob_get_clean()) > 0);
     }
+    // the libgd of the system in every version (5.6: compat-gd-external.patch), with
+    // imageantialias(): an antialiased line leaves pixels between black and white
+    check('GD system libgd', defined('GD_BUNDLED') && GD_BUNDLED === 0, defined('GD_VERSION') ? GD_VERSION : 'GD_VERSION not defined');
+    if (function_exists('imageantialias')) {
+        $aa = imagecreatetruecolor(40, 40);
+        imageantialias($aa, true);
+        imageline($aa, 0, 0, 39, 20, imagecolorallocate($aa, 255, 255, 255));
+        $c = imagecolorsforindex($aa, imagecolorat($aa, 20, 10));
+        check('GD imageantialias', $c['red'] > 0 && $c['red'] < 255, 'pixel 20,10: ' . $c['red']);
+    } else {
+        check('GD imageantialias', false, 'no imageantialias()');
+    }
 }
 
 // XML.

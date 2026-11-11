@@ -443,6 +443,8 @@ deps_opts() {
         }
         { name = $0; val = ""; if (index($0, "=")) { name = substr($0, 1, index($0, "=") - 1); val = substr($0, index($0, "=") + 1) } }
         name == "--with-openssl" && fam == 5 { print to_deps(name, val); next }
+        # GD of 5.6 with a libgd directory (not the bundled one, --with-gd alone): the libgd of the tree
+        name == "--with-gd" && fam == 5 && val ~ /^(shared,)?\// { print to_deps(name, val); n++; next }
         # imagick: the static ImageMagick 7 of the tree (the package ImageMagick7), with its MagickWand-config
         name == "--with-imagick" && im != "" && val != "no" { print to_deps(name, val); next }
         name == "--with-curl" || name == "--with-iconv" || name == "--with-readline" || \
@@ -566,10 +568,10 @@ session|shmop|simplexml|soap|sockets|sysvmsg|sysvsem|sysvshm|tokenizer|xml|xmlre
             enchant) echo "--with-enchant=/usr/local" ;;
             ffi) echo "--with-ffi" ;;
             gd)
+                # the libgd of the package libgd in every version, not the bundled one
                 if [ "$fam" = 5 ]; then
-                    f="--with-gd"
-                    has jpeglib.h && f="$f --with-jpeg-dir=/usr/local"
-                    has png.h && f="$f --with-png-dir=/usr/local"
+                    has gd.h || note "--with-gd=/usr/local needs the libgd package ($lb/include/gd.h is missing)."
+                    f="--with-gd=/usr/local --with-png-dir=/usr/local"
                     has freetype2/ft2build.h && f="$f --with-freetype-dir=/usr/local"
                     echo "$f"
                 else

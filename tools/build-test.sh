@@ -57,7 +57,7 @@ deps() {
     fi
     for t in "$@"; do
         case "$t" in
-            5.6) pkgs="$pkgs libxml2 jpeg-turbo png freetype2 gettext-runtime libiconv libmcrypt pcre apache24 perl5" ;;
+            5.6) pkgs="$pkgs libxml2 libgd png freetype2 gettext-runtime libiconv libmcrypt pcre apache24 perl5" ;;
             7.4) pkgs="$pkgs libxml2 libargon2 readline libiconv libzip libgd webp pcre2 oniguruma" ;;
             8.*) pkgs="$pkgs libxml2 readline libiconv libzip libgd webp pcre2 oniguruma icu apache24 perl5" ;;
         esac
@@ -141,7 +141,7 @@ preset() {
                 --with-layout=GNU --with-zend-vm=CALL --enable-libxml --with-libxml-dir=/usr/local \
                 --enable-xml --enable-simplexml --with-regex=php --with-bz2 \
                 --enable-ctype --with-curl=bundled --with-openssl-legacy-provider --enable-dom --enable-fileinfo --enable-filter --enable-ftp \
-                --with-gd --with-jpeg-dir=/usr/local --with-png-dir=/usr/local \
+                --with-gd=/usr/local --with-png-dir=/usr/local \
                 --with-freetype-dir=/usr/local --with-gettext --enable-hash --with-iconv=/usr/local \
                 --enable-json --enable-mbstring --with-mcrypt=/usr/local --enable-pdo --with-pdo-mysql \
                 --enable-mysqlnd --with-mysql --with-mysql-sock=/tmp/mysql.sock --with-mysqli \
@@ -165,7 +165,7 @@ preset() {
                 --with-readline=/usr/local --enable-filter --with-iconv=/usr/local --enable-json \
                 --enable-ctype --enable-ftp --enable-mbstring --enable-opcache --enable-session \
                 --enable-simplexml --enable-sockets --enable-tokenizer --enable-phar --enable-posix \
-                --enable-xml --with-zip --with-zlib --enable-gd --with-external-gd --with-webp \
+                --enable-xml --with-zip --with-zlib --enable-gd --with-external-gd \
                 --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-openssl-legacy-provider \
                 --enable-redis --enable-memcached --with-libmemcached-dir=/usr/local --disable-memcached-sasl \
@@ -185,7 +185,7 @@ preset() {
                 --with-curl=bundled --enable-dom --with-readline=/usr/local --with-openssl=/usr --with-openssl-legacy-provider \
                 --enable-filter --with-iconv=/usr/local --enable-ctype --enable-ftp --enable-mbstring \
                 --enable-opcache --enable-opcache-jit --enable-phar --enable-session --enable-simplexml \
-                --enable-xml --with-zlib --enable-gd --with-external-gd --with-webp \
+                --enable-xml --with-zlib --enable-gd --with-external-gd \
                 --enable-mysqlnd --with-mysql-sock=/tmp/mysql.sock \
                 --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --enable-sockets \
                 --enable-intl --enable-fileinfo --with-zip --enable-xmlwriter --enable-exif \

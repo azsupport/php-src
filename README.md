@@ -451,7 +451,7 @@ everything is built into one PHP.
 |---|---|
 | Build options | the options of `lang/phpXY` and `mod_phpXY`: SAPI, ZTS, debug, IPv6, OPcache JIT, the system PCRE |
 | Extensions | the extensions of `phpXY-extensions` plus the bundled PECL extensions |
-| Options of single extensions | which libcurl, the OpenSSL legacy provider, which libgd and its formats, the drivers of PDO, the DBA handlers, sessions, serializers and compression of redis and memcached, Argon2 of libargon2 or of OpenSSL 3.2 in 8.4, ... |
+| Options of single extensions | which libcurl, the OpenSSL legacy provider, FreeType text and T1lib of GD in 5.6 (GD takes the libgd of the package libgd in every version, with its formats; with az its static one), the drivers of PDO, the DBA handlers, sessions, serializers and compression of redis and memcached, Argon2 of libargon2 or of OpenSSL 3.2 in 8.4, ... |
 
 An extension with a screen of its own (curl, GD, PDO, redis, ...) is marked `--->` in
 the list. Its screen follows the list when the extension is on, and the button
