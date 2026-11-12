@@ -8,7 +8,8 @@ name: Gentoo fetch
 # sandbox of Claude Code cannot reach. From a full clone of gentoo/gentoo, into the
 # branch runs of azsupport/azsupport (secret RUNS_TOKEN), distro/gentoo/<YYYY-MM-DD>/
 # <cat>/<pkg>/ (log.txt, recent.md, removed/, removed.tsv, patchsets/,
-# patchsets.txt) and <run id>.md (the report, also the summary of the run).
+# patchsets.txt) and <run id>.md (the report, also the summary of the run); with proj,
+# repositories of proj/ of anongit.gentoo.org (php-patches) into proj/<name>/.
 # Started by hand: Actions, "Gentoo fetch", "Run workflow", or
 #   gh api -X POST repos/azsupport/php-src/actions/workflows/gentoo-fetch.yml/dispatches \
 #     -f ref=master -f 'inputs[dirs]=dev-lang/php media-gfx/imagemagick'
@@ -18,10 +19,16 @@ on:
     inputs:
       dirs:
         description: 'Package directories of gentoo/gentoo, separated by spaces (dev-lang/php net-misc/curl ...; also removed ones)'
-        required: true
+        required: false
         type: string
+        default: ''
       since:
         description: 'recent.md: the commits after this day (YYYY-MM-DD; empty: 7 days ago)'
+        required: false
+        type: string
+        default: ''
+      proj:
+        description: 'Repositories of proj/ of anongit.gentoo.org, separated by spaces (php-patches: the patch sets of the PHP ebuilds)'
         required: false
         type: string
         default: ''
@@ -47,13 +54,16 @@ jobs:
           DIRS: ${{ inputs.dirs }}
           SINCE: ${{ inputs.since }}
           SKIP_DIST: ${{ inputs.skip_dist }}
+          PROJ: ${{ inputs.proj }}
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
         run: |
           set -f
           rc=0
+          proj=
+          for p in $PROJ; do proj="$proj --proj $p"; done
           # shellcheck disable=SC2086
           python3 -I tools/gentoo-fetch.py --out "$RUNNER_TEMP/gentoo" --report report.md \
-            --since "$SINCE" --skip-dist "$SKIP_DIST" --push -- $DIRS || rc=$?
+            --since "$SINCE" --skip-dist "$SKIP_DIST" $proj --push -- $DIRS || rc=$?
           [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
           exit $rc
 
@@ -61,7 +71,7 @@ jobs:
         if: always()
         env:
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
-          RUNS_INPUTS: dirs=${{ inputs.dirs }} since=${{ inputs.since }} skip_dist=${{ inputs.skip_dist }}
+          RUNS_INPUTS: dirs=${{ inputs.dirs }} since=${{ inputs.since }} skip_dist=${{ inputs.skip_dist }} proj=${{ inputs.proj }}
           RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
         run: |
           [ -s report.md ] || printf '### Gentoo fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md

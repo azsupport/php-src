@@ -38,6 +38,10 @@ Usage: python3 -I tools/gentoo-fetch.py --out DIR [--since YYYY-MM-DD] [--report
   --repo    a clone of gentoo/gentoo to read instead of cloning one (a test)
   --push    commit the tree into azsupport/azsupport (branch runs); RUNS_REMOTE
             (a path or URL) instead, for a test
+  --proj    NAME: also a repository of the projects of Gentoo,
+            https://anongit.gentoo.org/git/proj/NAME.git (php-patches: the patch sets
+            of the PHP ebuilds, 5.6 too), into proj/NAME/: refs.txt, log.txt (every
+            commit with its files) and the tree of each tag and branch (<ref>/)
 """
 
 import argparse
@@ -231,6 +235,39 @@ def fetch_dist(name, d, devs):
     return None, tried
 
 
+def fetch_proj(name, dest):
+    """A repository of proj/ of anongit.gentoo.org into dest: refs.txt, log.txt and
+    the tree of every tag and branch; a line for the report."""
+    tmp = tempfile.mkdtemp()
+    bare = os.path.join(tmp, name + ".git")
+    url = "https://anongit.gentoo.org/git/proj/%s.git" % name
+    r = subprocess.run(("git", "clone", "-q", "--bare", url, bare), capture_output=True, text=True)
+    if r.returncode:
+        shutil.rmtree(tmp, ignore_errors=True)
+        warn("proj/%s: %s" % (name, r.stderr.strip()[-300:]))
+        return "- proj/%s: clone failed (%s)" % (name, r.stderr.strip()[-200:])
+    refs = git(bare, "for-each-ref", "--format=%(objectname) %(refname) %(creatordate:short)").decode()
+    write(os.path.join(dest, "refs.txt"), refs.encode())
+    write(os.path.join(dest, "log.txt"),
+          git(bare, "log", "--all", "--format=%H %cs %an: %s", "--name-status").decode("utf-8", "replace").encode())
+    n = 0
+    for line in refs.splitlines():
+        sha, ref = line.split()[:2]
+        short = ref.split("/", 2)[2] if ref.count("/") >= 2 else ref
+        out = os.path.join(dest, safe_rel(short.replace("/", "_")))
+        arch = subprocess.run(("git", "-C", bare, "archive", "--format=tar", ref), capture_output=True)
+        if arch.returncode:
+            continue
+        with tarfile.open(fileobj=io.BytesIO(arch.stdout), mode="r:") as t:
+            for m in t.getmembers():
+                if m.isfile() and m.size <= FILE_LIMIT and safe_rel(m.name):
+                    write(os.path.join(out, safe_rel(m.name)), t.extractfile(m).read())
+        n += 1
+    shutil.rmtree(tmp, ignore_errors=True)
+    log("proj/%s: %d refs" % (name, n))
+    return "- proj/%s (%s): %d tags and branches, each in proj/%s/<ref>/" % (name, url, n, name)
+
+
 def write(path, data):
     if os.path.dirname(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -246,6 +283,7 @@ def main():
     ap.add_argument("--repo")
     ap.add_argument("--push", action="store_true")
     ap.add_argument("--skip-dist", default="", help="a regular expression: DIST files not to download")
+    ap.add_argument("--proj", action="append", default=[], help="a repository of proj/ of anongit.gentoo.org")
     ap.add_argument("dirs", nargs="*")
     a = ap.parse_args()
 
@@ -258,13 +296,24 @@ def main():
     dirs = sorted(set(dirs))
     if bad:
         warn("not a cat/pkg directory, left out: %s" % " ".join(bad))
-    if not dirs:
+    projs = [x.strip() for x in a.proj if re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", x.strip())]
+    if not dirs and not projs:
         log("no directories")
         return 2
     since = a.since or (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
     day = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
     run = os.environ.get("GITHUB_RUN_ID", "0")
     os.makedirs(a.out, exist_ok=True)
+
+    prows = []
+    for name in projs:
+        prows.append(fetch_proj(name, os.path.join(a.out, "proj", name)))
+    if not dirs:
+        text = "### Gentoo fetch\n\n" + "\n".join(prows) + "\n"
+        write(os.path.join(a.out, "report.md"), text.encode())
+        if a.report:
+            write(a.report, text.encode())
+        return 0 if not a.push or push(a.out, day, ["proj/" + x for x in projs], run) else 1
 
     work = None
     repo = a.repo
@@ -370,7 +419,7 @@ def main():
         log("%s: %d commits, %d after %s, %d removed files, %d patch sets (%d missing)"
             % (d, len(commits), len(recent), since, len(reqs), got, miss))
 
-    rep = ["### Gentoo fetch", "",
+    rep = ["### Gentoo fetch", ""] + (prows + [""] if prows else []) + [
            "gentoo/gentoo at `%s`; commits after %s in recent.md of each directory." % (head, since), "",
            "| directory | commits | after %s | removed files | patch sets | missing |" % since,
            "|---|---|---|---|---|---|"]
