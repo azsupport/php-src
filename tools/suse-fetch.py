@@ -126,25 +126,24 @@ REPOS = (
 
 
 def sle_projects():
-    out = [("sle-16.0-slfo-1.2-update", "SUSE:SLFO:1.2:Update"), ("sle-16.0-slfo-1.2", "SUSE:SLFO:1.2"),
-           ("sle-16.0-slfo-main", "SUSE:SLFO:Main")]
+    """(release, [projects]): the first project of the list that has the package gives the
+    version of the release (a service pack's :Update, else its :GA)."""
+    out = [("sle-16.0", ["SUSE:SLFO:1.2:Update", "SUSE:SLFO:1.2"]), ("sle-16-main", ["SUSE:SLFO:Main"])]
     for sp in ("SP7", "SP6", "SP5", "SP4", "SP3", "SP2", "SP1", ""):
         base = "SUSE:SLE-15%s" % ("-" + sp if sp else "")
-        label = "sle-15%s" % ("-" + sp.lower() if sp else "")
-        out += [(label + "-update", base + ":Update"), (label + "-ga", base + ":GA")]
+        out.append(("sle-15%s" % ("-" + sp.lower() if sp else ""), [base + ":Update", base + ":GA"]))
     for sp in ("SP5", "SP4", "SP3", "SP2", "SP1", ""):
         base = "SUSE:SLE-12%s" % ("-" + sp if sp else "")
-        label = "sle-12%s" % ("-" + sp.lower() if sp else "")
-        out += [(label + "-update", base + ":Update"), (label + "-ga", base + ":GA")]
+        out.append(("sle-12%s" % ("-" + sp.lower() if sp else ""), [base + ":Update", base + ":GA"]))
     for sp in ("SP7", "SP6", "SP5", "SP4", "SP3"):
-        out += [("backports-15-%s-update" % sp.lower(), "openSUSE:Backports:SLE-15-%s:Update" % sp),
-                ("backports-15-%s" % sp.lower(), "openSUSE:Backports:SLE-15-%s" % sp)]
+        out.append(("backports-15-%s" % sp.lower(), ["openSUSE:Backports:SLE-15-%s:Update" % sp,
+                                                     "openSUSE:Backports:SLE-15-%s" % sp]))
     return out
 
 
-# (release, project): the projects of OBS read for every package ("devel" is found per
+# (release, [projects]): the projects of OBS read for every package ("devel" is found per
 # package: the devel project of openSUSE:Factory).
-PROJECTS = [("factory", "openSUSE:Factory")] + sle_projects()
+PROJECTS = [("factory", ["openSUSE:Factory"])] + sle_projects()
 
 warnings = []
 lock = threading.Lock()
@@ -482,7 +481,21 @@ def obs_listing(project, package):
             "expanded": d.get("srcmd5")}
 
 
-def obs_file(project, package, name, rev):
+_files = {}
+
+
+def obs_file(project, package, name, rev, md5=None):
+    with lock:
+        if md5 and md5 in _files:
+            return _files[md5]
+    raw = _obs_file(project, package, name, rev)
+    if md5 and hashlib.md5(raw).hexdigest() == md5:
+        with lock:
+            _files[md5] = raw
+    return raw
+
+
+def _obs_file(project, package, name, rev):
     q = urllib.parse.quote
     path = "source/%s/%s/%s" % (q(project, safe=":"), q(package, safe=""), q(name, safe=""))
     for params in ({"rev": rev} if rev else None, {"expand": "1"}, None):
@@ -705,31 +718,37 @@ class Fetcher:
         lst = obs_listing(project, package)
         if lst is None:
             raise RuntimeError("%s/%s: no listing" % (project, package))
-        key = (project, package, lst["srcmd5"])
-        files, specs = [], {}
-        rev = lst["srcmd5"]
-        names = [n for n, _, _ in lst["entries"]]
-        for name, size, md5 in lst["entries"]:
-            if name.endswith(".spec"):
-                specs[name] = obs_file(project, package, name, rev)
-        patches = set()
-        version = None
-        for name, data in sorted(specs.items(), key=lambda x: (x[0] != pkg + ".spec", x[0])):
-            v, p = spec_info(data.decode("utf-8", "replace"))
-            patches.update(p)
-            if version is None:
-                version = v
-        for name, size, md5 in lst["entries"]:
-            k = kind(name, size, patches)
-            data = specs.get(name)
-            if k and data is None:
-                try:
-                    data = obs_file(project, package, name, rev)
-                except RuntimeError as e:
-                    warn(str(e))
-            files.append((name, size, "md5:" + (md5 or "-"), data))
-        version = version or "unknown"
-        missing = sorted(p for p in patches if p not in names)
+        key = lst["srcmd5"]
+        with self.rlock:
+            hit = self.obsdone.get(key)
+        if hit is None:
+            files, specs = [], {}
+            rev = lst["srcmd5"]
+            names = [n for n, _, _ in lst["entries"]]
+            for name, size, md5 in lst["entries"]:
+                if name.endswith(".spec"):
+                    specs[name] = obs_file(project, package, name, rev, md5)
+            patches = set()
+            version = None
+            for name, data in sorted(specs.items(), key=lambda x: (x[0] != pkg + ".spec", x[0])):
+                v, p = spec_info(data.decode("utf-8", "replace"))
+                patches.update(p)
+                if version is None:
+                    version = v
+            for name, size, md5 in lst["entries"]:
+                k = kind(name, size, patches)
+                data = specs.get(name)
+                if k and data is None:
+                    try:
+                        data = obs_file(project, package, name, rev, md5)
+                    except RuntimeError as e:
+                        warn(str(e))
+                files.append((name, size, "md5:" + (md5 or "-"), data))
+            missing = sorted(p for p in patches if p not in names)
+            hit = (version or "unknown", files, patches, missing)
+            with self.rlock:
+                self.obsdone[key] = hit
+        version, files, patches, missing = hit
         dest = os.path.join(self.out, pkg, dirname(release, version))
         lines = ["Package: %s" % pkg, "Version: %s" % version, "Release: %s" % release,
                  "From: %s/source/%s/%s (OBS, srcmd5 %s, rev %s)" % (OBS, project, package, lst["srcmd5"], lst["rev"]),
@@ -739,7 +758,6 @@ class Fetcher:
         if missing:
             lines.append("Patch lines of the spec without a file (macros not expanded): %s" % " ".join(missing))
         n = write_version(dest, files, lines, patches)
-        self.obsdone[key] = version
         return version, dest, n
 
 
@@ -855,7 +873,7 @@ def main():
     ap.add_argument("--explore", default="")
     ap.add_argument("--list-projects", default="")
     ap.add_argument("--obs", default="")
-    ap.add_argument("--jobs", type=int, default=6)
+    ap.add_argument("--jobs", type=int, default=10)
     ap.add_argument("packages", nargs="*")
     a = ap.parse_args()
 
@@ -877,10 +895,14 @@ def main():
 
     # the repositories
     repo_hits, read, matches = {}, [], {}
+    done_paths = set()
     for release, bases in REPOS:
         if not chosen(release):
             continue
         for base in bases:
+            path = base.replace(OLD, "").replace(DL, "")
+            if path in done_paths:          # the discontinued tree of a mirror: only what is gone
+                continue
             try:
                 res = read_repo(base, set(asked), search)
             except Exception as e:  # noqa: BLE001
@@ -890,6 +912,7 @@ def main():
                 read.append((release, base, "not there"))
                 continue
             found, names, nsrc = res
+            done_paths.add(path)
             read.append((release, base, "%d source packages" % nsrc))
             for n, entries in found.items():
                 repo_hits.setdefault((n, release), []).extend(entries)
@@ -903,16 +926,22 @@ def main():
         if not project:
             label, project = "obs-" + re.sub(r"[^A-Za-z0-9.-]+", "-", item).lower(), item
         if re.match(r"^[A-Za-z0-9][A-Za-z0-9:._-]*$", project) and re.match(r"^[a-z0-9][a-z0-9.-]*$", label):
-            PROJECTS.append((label, project))
+            PROJECTS.append((label, [project]))
         else:
             warn("not an OBS project: %r, left out" % item)
-    projects = [(r, p) for r, p in PROJECTS if chosen(r)]
+    projects = [(r, ps) for r, ps in PROJECTS if chosen(r)]
     obs_read = []
-    for release, project in projects:
-        names = obs_packages(project)
-        obs_read.append((release, project, "not readable" if names is None else "%d packages" % len(names)))
-        if search and names and release == "factory":
-            matches.setdefault("factory", set()).update(n for n in names if search.search(n) and "." not in n)
+    seen_prj = set()
+    for release, plist in projects:
+        for project in plist:
+            if project in seen_prj:
+                continue
+            seen_prj.add(project)
+            names = obs_packages(project)
+            obs_read.append((release, project, "not readable" if names is None else "%d packages" % len(names)))
+            log("%s %s: %s" % (release, project, obs_read[-1][2]))
+            if search and names and release == "factory":
+                matches.setdefault("factory", set()).update(n for n in names if search.search(n) and "." not in n)
 
     os.makedirs(a.out, exist_ok=True)
     fetcher = Fetcher(a.out)
@@ -921,13 +950,13 @@ def main():
         for release, _ in REPOS:
             if (pkg, release) in repo_hits:
                 tasks.append(("repo", pkg, release, repo_hits[(pkg, release)]))
-        for release, project in projects:
-            names = _projects.get(project)
-            if not names:
-                continue
-            p = obs_pick(names, pkg)
-            if p:
-                tasks.append(("obs", pkg, release, (project, p)))
+        for release, plist in projects:
+            for project in plist:
+                names = _projects.get(project)
+                p = obs_pick(names, pkg) if names else None
+                if p:
+                    tasks.append(("obs", pkg, release, (project, p)))
+                    break
         if chosen("devel"):
             dv = obs_devel(pkg)
             if dv:
@@ -982,6 +1011,7 @@ def main():
         rep += ["", "Search `%s`:" % a.search, ""]
         for release in sorted(matches):
             rep.append("- %s: %s" % (release, " ".join(sorted(matches[release]))))
+            log("search %s: %s" % (release, " ".join(sorted(matches[release]))))
     if a.list_projects:
         rep += ["", "Projects of OBS matching `%s`:" % a.list_projects, ""]
         try:
