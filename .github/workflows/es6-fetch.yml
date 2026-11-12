@@ -32,6 +32,11 @@ on:
         required: false
         type: string
         default: ''
+      probes:
+        description: 'probe: only the probes whose name matches this regular expression ("two nodes" for the cluster); empty: all'
+        required: false
+        type: string
+        default: ''
       githist:
         description: 'Histories of GitHub repositories, separated by spaces: <owner>/<repo>@<YYYY-MM-DD>:<path>,<path>'
         required: false
@@ -54,6 +59,7 @@ jobs:
           PARTS: ${{ inputs.parts }}
           URLS: ${{ inputs.urls }}
           GITHIST: ${{ inputs.githist }}
+          PROBE_FILTER: ${{ inputs.probes }}
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
         run: |
           set -f
