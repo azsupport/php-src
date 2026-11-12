@@ -979,6 +979,12 @@ DISTGITS = {
 }
 
 
+# A rebuild (a mass rebuild of Fedora, one for a new Perl, Python or ICU, a bump of
+# the release) that changes the spec file alone, or nothing (%autorelease), carries
+# no fix: check_distgit leaves it out.
+REBUILD_RE = re.compile(r"(?i)\brebuil(d|t)\b|\bmass.rebuild|\bbump(ed)? (the )?release")
+
+
 def check_distgit(workdir):
     """The rows "fedora <package> <date> <ours> [<branches>]" (and "centos-stream",
     "almalinux") of upstream.conf: the commits of the dist-git repository of the
@@ -986,7 +992,8 @@ def check_distgit(workdir):
     regular expression) matches whole: the patches and backports of the RPM
     distributions (review of 12.11.2026: docs/distro-patches-fedora-rhel-2026-11-12.md
     of azsupport/azsupport). The repository is cloned without its file contents
-    (commits and trees only), once per run."""
+    (commits and trees only), once per run; merges and rebuilds (REBUILD_RE) are
+    left out."""
     findings, checked = [], set()
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/bin/false")
     for r in conf("upstream.conf"):
@@ -1009,17 +1016,25 @@ def check_distgit(workdir):
                 warn("%s %s: %s" % (name, pkg, p.stderr.strip()[-300:]))
                 shutil.rmtree(repo, ignore_errors=True)
                 continue
-        p = subprocess.run(["git", "log", "--all", "--source", "--since=%sT23:59:59Z" % date,
-                            "--format=%H%x09%S%x09%cs%x09%s"], cwd=repo, capture_output=True, text=True, env=env)
+        # the names of the files each commit changes (trees only: no renames, which
+        # would fetch the contents); merges left out, their commits are listed
+        p = subprocess.run(["git", "log", "--all", "--source", "--no-merges", "--no-renames", "--name-only",
+                            "--since=%sT23:59:59Z" % date, "--format=%x01%H%x09%S%x09%cs%x09%s"],
+                           cwd=repo, capture_output=True, text=True, env=env)
         if p.returncode:
             warn("%s %s: %s" % (name, pkg, p.stderr.strip()[-300:]))
             continue
         checked.add("%s:%s:" % (kind, pkg))
-        commits = []
-        for line in p.stdout.splitlines():
-            sha, source, day, subject = (line.split("\t", 3) + ["", "", ""])[:4]
+        commits, rebuilds = [], 0
+        for record in p.stdout.split("\x01")[1:]:
+            head, _, names = record.partition("\n")
+            sha, source, day, subject = (head.split("\t", 3) + ["", "", ""])[:4]
             branch = source[len("refs/heads/"):] if source.startswith("refs/heads/") else source
             if branch_re and not branch_re.fullmatch(branch):
+                continue
+            files = [f for f in names.splitlines() if f.strip()]
+            if REBUILD_RE.search(subject) and all(f.endswith(".spec") for f in files):
+                rebuilds += 1
                 continue
             commits.append((sha, branch, day, subject))
         if not commits:
@@ -1032,6 +1047,9 @@ def check_distgit(workdir):
                                                      subject.replace("|", "\\|")))
         if len(commits) > 60:
             lines.append("- ... and %d older ones" % (len(commits) - 60))
+        if rebuilds:
+            lines += ["", "Left out: %d rebuild%s that change%s the spec file alone." % (
+                rebuilds, "" if rebuilds == 1 else "s", "s" if rebuilds == 1 else "")]
         lines += ["", "After the review: what %s needs (a fix it lacks) into its patches, then set the date of "
                       "`%s %s` in `freebsd/upstream.conf` to the day of the review; the next check closes this "
                       "issue." % (ours(what), kind, pkg)]
