@@ -1,0 +1,65 @@
+name: Elasticsearch 6.8 and Kibana 6.8 fetch
+
+# What a review of textproc/elasticsearch6 and textproc/kibana6 of azsupport/ports
+# needs from hosts that only a runner reaches (tools/es6-fetch.py): the release
+# tarballs they install, listed (every jar of Elasticsearch with its Maven
+# coordinates, every package.json of Kibana), the security announcements of Elastic,
+# the CVEs of NVD for Elasticsearch and Kibana, Red Hat's security data and Maven
+# builds of the Elasticsearch 6 and Kibana 6 of OpenShift Logging, the Maven metadata
+# of the bundled libraries, and any https URLs given. Those hosts are closed to the
+# sandbox of Claude Code, GitHub is not: the files go into the branch runs of the
+# private azsupport/azsupport (secret RUNS_TOKEN), distro/es6-kibana6/<YYYY-MM-DD>/,
+# and the report of the run into es6-fetch/<YYYY-MM-DD>/<run id>-fetch.md there
+# (tools/runs-report.sh).
+# Started by hand (Actions, "Elasticsearch 6.8 and Kibana 6.8 fetch", "Run workflow")
+# or by the API:
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/es6-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[parts]=esa nvd' -f 'inputs[urls]=https://example.org/a.json'
+
+on:
+  workflow_dispatch:
+    inputs:
+      parts:
+        description: 'Parts, separated by spaces: tarballs esa nvd redhat maven (empty: none, only the URLs)'
+        required: false
+        type: string
+        default: 'tarballs esa nvd redhat maven'
+      urls:
+        description: 'https URLs to save as they are, separated by spaces'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch and push to azsupport/azsupport (branch runs)
+        id: fetch
+        env:
+          PARTS: ${{ inputs.parts }}
+          URLS: ${{ inputs.urls }}
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: |
+          set -f
+          rc=0
+          python3 -I tools/es6-fetch.py --out "$RUNNER_TEMP/es6" --report report.md \
+            --parts "$PARTS" --urls "$URLS" --push || rc=$?
+          [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Report
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: parts=${{ inputs.parts }} urls=${{ inputs.urls }}
+          RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
+        run: |
+          [ -s report.md ] || printf '### Elasticsearch 6.8 and Kibana 6.8 fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
+          sh tools/runs-report.sh report.md fetch
