@@ -14,6 +14,15 @@ name: Debian fetch
 # Started by hand (Actions, "Debian fetch", "Run workflow") or by the API:
 #   gh api -X POST repos/azsupport/php-src/actions/workflows/debian-fetch.yml/dispatches \
 #     -f ref=master -f 'inputs[packages]=vsftpd unzip'
+# With the input distro "ubuntu" (-f 'inputs[distro]=ubuntu'), the same of Ubuntu:
+# the releases of archive.ubuntu.com (supported, development, those in ESM) with
+# -security (security.ubuntu.com), -updates, -proposed and -backports, those of
+# old-releases.ubuntu.com from 14.04 on with -security and -updates, Launchpad for a
+# "name=version" and a package that no suite has any more; into distro/ubuntu/
+# <YYYY-MM-DD>/<package>/<suite>_<version>/, the report into debian-fetch/<YYYY-MM-DD>/
+# <run id>-ubuntu.md.
+
+run-name: ${{ inputs.distro == 'ubuntu' && 'Ubuntu fetch' || 'Debian fetch' }}
 
 on:
   workflow_dispatch:
@@ -27,6 +36,14 @@ on:
         required: false
         type: string
         default: ''
+      distro:
+        description: 'debian, or ubuntu (its suites: noble, noble-security, focal-updates...; name=version from Launchpad; empty suites: the default ones)'
+        required: false
+        type: choice
+        options:
+          - debian
+          - ubuntu
+        default: debian
 
 permissions:
   contents: read
@@ -43,12 +60,13 @@ jobs:
         env:
           PACKAGES: ${{ inputs.packages }}
           SUITES: ${{ inputs.suites }}
+          DISTRO: ${{ inputs.distro == 'ubuntu' && 'ubuntu' || 'debian' }}
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
         run: |
           set -f
           rc=0
-          python3 -I tools/debian-fetch.py --out "$RUNNER_TEMP/debian" --report report.md \
-            --suites "$SUITES" --push -- $PACKAGES || rc=$?
+          python3 -I tools/debian-fetch.py --out "$RUNNER_TEMP/$DISTRO" --report report.md \
+            --suites "$SUITES" --distro "$DISTRO" --push -- $PACKAGES || rc=$?
           [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
           exit $rc
 
@@ -56,8 +74,10 @@ jobs:
         if: always()
         env:
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
-          RUNS_INPUTS: packages=${{ inputs.packages }} suites=${{ inputs.suites }}
+          RUNS_INPUTS: packages=${{ inputs.packages }} suites=${{ inputs.suites }}${{ inputs.distro == 'ubuntu' && ' distro=ubuntu' || '' }}
           RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
+          TITLE: ${{ inputs.distro == 'ubuntu' && 'Ubuntu' || 'Debian' }}
+          PART: ${{ inputs.distro == 'ubuntu' && 'ubuntu' || 'fetch' }}
         run: |
-          [ -s report.md ] || printf '### Debian fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
-          sh tools/runs-report.sh report.md fetch
+          [ -s report.md ] || printf '### %s fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' "$TITLE" > report.md
+          sh tools/runs-report.sh report.md "$PART"
