@@ -194,9 +194,15 @@ lib_libpsl() {
     IFS=. read -r a b c <<EOF
 $v
 EOF
+    # the year of the copyright line of libpsl.h: that of the release, which its
+    # configure holds (put there by autoconf when the release was made), not the
+    # year of the build: libpsl.h, and the hashes of the ports that use it, stay
+    # the same at the new year (aZ, 12.11.2026)
+    y="$(sed -n "s/^COPYRIGHT_YEAR=['\"]\{0,1\}\([0-9]\{4\}\)['\"]\{0,1\}\$/\1/p" "$s/configure")"
+    [ -n "$y" ] || { echo "build-libcurl: libpsl: no COPYRIGHT_YEAR in $s/configure" >&2; return 1; }
     sed -e "s/@LIBPSL_VERSION@/$v/" -e "s/@LIBPSL_VERSION_MAJOR@/$a/" -e "s/@LIBPSL_VERSION_MINOR@/$b/" \
         -e "s/@LIBPSL_VERSION_PATCH@/$c/" -e "s/@LIBPSL_VERSION_NUMBER@/$(printf '0x%02x%02x%02x' "$a" "$b" "$c")/" \
-        -e "s/@COPYRIGHT_YEAR@/$(date +%Y)/" "$s/include/libpsl.h.in" > "$o/include/libpsl.h"
+        -e "s/@COPYRIGHT_YEAR@/$y/" "$s/include/libpsl.h.in" > "$o/include/libpsl.h"
     printf '%s\n' '#define ENABLE_BUILTIN 1' '#define HAVE_NL_LANGINFO 1' "#define PACKAGE_VERSION \"$v\"" > "$o/config.h"
     cc_all "$o" $dcflags -fvisibility=hidden -DHAVE_CONFIG_H -DBUILDING_PSL "-I$o" "-I$o/include" -- \
         "$s/src/psl.c" "$s/src/lookup_string_in_fixed_set.c"
