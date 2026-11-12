@@ -4,12 +4,20 @@ name: Upstream check
 # of curl and PCRE2; FreeBSD ports commits that change the patches or the build
 # of these and of PHP, and release files in their distinfo that the bundle has
 # not; the end of security support of the PHP branches taken from php-src tags;
-# for t1lib (devel/t1lib of azsupport/ports, no upstream since 2007) the commits of
-# Gentoo to media-libs/t1lib and the new CVEs of NVD that name it; a switch of the
-# default version of Python or Perl of the ports tree (PYTHON_DEFAULT, PERL5_DEFAULT
-# of Mk/bsd.default-versions.mk: our python312 and perl5 of azsupport/ports); the
-# commits of the dist-git repositories of Fedora, CentOS Stream and AlmaLinux after
-# the date of their "fedora", "centos-stream" and "almalinux" rows (their backports).
+# for t1lib (devel/t1lib of azsupport/ports, no upstream since 2007) the new CVEs of
+# NVD that name it; a switch of the default version of Python or Perl of the ports
+# tree (PYTHON_DEFAULT, PERL5_DEFAULT of Mk/bsd.default-versions.mk: our python312
+# and perl5 of azsupport/ports). What other distributions changed after the date of
+# their rows in freebsd/upstream.conf (their fixes, often to old versions): the
+# commits that landed in the trees of Gentoo, OpenBSD, NixOS, MacPorts, Homebrew,
+# Alpine, Void, pkgsrc and in the branches of the "tree" rows (OpenEmbedded,
+# Buildroot, Wolfi, Photon OS, OpenWrt), read with git (commits only, then the trees
+# of the commits compared: no file contents, no API calls); the dist-git
+# repositories of Fedora, CentOS Stream and AlmaLinux; the packaging repositories of
+# Arch Linux (gitlab.archlinux.org) and the AUR (its GitHub mirror, "github" rows);
+# the ChangeLog.txt of Slackware (signature checked); Remi Collet's git server; the
+# .changes of openSUSE and SUSE (Open Build Service); the advisories and uploads of
+# Debian, Ubuntu and the PPA of Ondrej Sury.
 # Each finding opens or updates one issue (label "upstream"); nothing is applied.
 # Closing an issue means "not wanted", the check does not reopen it.
 # What is followed: freebsd/pecl.conf, freebsd/curl.conf, freebsd/curl-deps.conf,
@@ -21,6 +29,8 @@ name: Upstream check
 # upstream.conf: dry run with the input rows, e.g. by the API:
 #   gh api -X POST repos/azsupport/php-src/actions/workflows/upstream-check.yml/dispatches \
 #     -f ref=master -F 'inputs[dry_run]=true' -f 'inputs[rows]=fedora unzip 2026-11-12 archivers/unzip'
+# and only some of the checks: -f 'inputs[only]=trees,slackware' (the names: --help of
+# tools/upstream-check.py).
 
 on:
   schedule:
@@ -33,6 +43,10 @@ on:
         default: false
       rows:
         description: 'Rows to check besides freebsd/upstream.conf, separated by ";" (a test of new rows, with dry run)'
+        type: string
+        default: ''
+      only:
+        description: 'Only these checks, separated by commas (trees, slackware, remi, arch, suse, debian ...; empty: all)'
         type: string
         default: ''
 
@@ -62,4 +76,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
           UPSTREAM_EXTRA_ROWS: ${{ inputs.rows }}
-        run: python3 tools/upstream-check.py --repo "$GITHUB_REPOSITORY" --ports ports $DRY_RUN
+          ONLY: ${{ inputs.only }}
+        run: python3 tools/upstream-check.py --repo "$GITHUB_REPOSITORY" --ports ports --only "$ONLY" $DRY_RUN
