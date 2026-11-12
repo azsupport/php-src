@@ -84,6 +84,9 @@ if [ "$cmd" = push ]; then
         echo "::error title=slackware fetch::clone of azsupport/azsupport (runs) failed: $(hide < "$w/err" | tail -n 2 | tr '\n' ' ')"
         exit 1
     fi
+    # the identity of the commit and of a rebase on a refused push
+    git -C "$r" config user.name 'github-actions[bot]'
+    git -C "$r" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
     mkdir -p "$r/$base"
     # the files of each tree added to those of an earlier run of the day (no glob:
     # set -f is on)
@@ -102,8 +105,7 @@ if [ "$cmd" = push ]; then
         if [ -s "$src/report.md" ]; then cat "$src/report.md"; else echo "(no report: the fetch wrote none)"; fi
     } > "$r/$base/$run.md"
     git -C "$r" add -A "$base"
-    git -C "$r" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-        commit -q -m "slackware-fetch: run $run" || { echo "::error title=slackware fetch::commit failed"; exit 1; }
+    git -C "$r" commit -q -m "slackware-fetch: run $run" || { echo "::error title=slackware fetch::commit failed"; exit 1; }
     # other runs push into runs too: on a refused push, rebase and again
     i=0
     while [ $i -lt 6 ]; do

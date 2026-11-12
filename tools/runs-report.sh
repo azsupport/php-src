@@ -68,8 +68,10 @@ mkdir -p "$r/$wf/$day"
     if [ -s "$rep" ]; then cat "$rep"; else echo "(no report: $rep is empty or missing)"; fi
 } > "$r/$file"
 git -C "$r" add -A
-git -C "$r" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-    commit -q -m "$wf $part: run $run" || warn "commit failed"
+# the identity of the commit and of a rebase on a refused push
+git -C "$r" config user.name 'github-actions[bot]'
+git -C "$r" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+git -C "$r" commit -q -m "$wf $part: run $run" || warn "commit failed"
 
 # the parts of a run push at the same time: on a refused push, rebase and again
 i=0
