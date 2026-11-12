@@ -6,7 +6,8 @@ name: Elasticsearch 6.8 and Kibana 6.8 fetch
 # coordinates, every package.json of Kibana), the security announcements of Elastic,
 # the CVEs of NVD for Elasticsearch and Kibana, Red Hat's security data and Maven
 # builds of the Elasticsearch 6 and Kibana 6 of OpenShift Logging, the Maven metadata
-# of the bundled libraries, and any https URLs given. Those hosts are closed to the
+# of the bundled libraries, any https URLs given, and the history of paths of large
+# GitHub repositories (nixpkgs, homebrew-core, the FreeBSD ports: other packagers). Those hosts are closed to the
 # sandbox of Claude Code, GitHub is not: the files go into the branch runs of the
 # private azsupport/azsupport (secret RUNS_TOKEN), distro/es6-kibana6/<YYYY-MM-DD>/,
 # and the report of the run into es6-fetch/<YYYY-MM-DD>/<run id>-fetch.md there
@@ -29,6 +30,11 @@ on:
         required: false
         type: string
         default: ''
+      githist:
+        description: 'Histories of GitHub repositories, separated by spaces: <owner>/<repo>@<YYYY-MM-DD>:<path>,<path>'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -45,12 +51,13 @@ jobs:
         env:
           PARTS: ${{ inputs.parts }}
           URLS: ${{ inputs.urls }}
+          GITHIST: ${{ inputs.githist }}
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
         run: |
           set -f
           rc=0
           python3 -I tools/es6-fetch.py --out "$RUNNER_TEMP/es6" --report report.md \
-            --parts "$PARTS" --urls "$URLS" --push || rc=$?
+            --parts "$PARTS" --urls "$URLS" --githist "$GITHIST" --push || rc=$?
           [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
           exit $rc
 
@@ -58,7 +65,7 @@ jobs:
         if: always()
         env:
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
-          RUNS_INPUTS: parts=${{ inputs.parts }} urls=${{ inputs.urls }}
+          RUNS_INPUTS: parts=${{ inputs.parts }} urls=${{ inputs.urls }} githist=${{ inputs.githist }}
           RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
         run: |
           [ -s report.md ] || printf '### Elasticsearch 6.8 and Kibana 6.8 fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
