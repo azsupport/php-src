@@ -21,6 +21,13 @@ after 6.8.23 and against what other distributions patched needs:
   maven      maven-metadata.xml of Maven Central for the libraries the tarball of
              Elasticsearch bundles (the newest release of each line)
   urls       any https URLs given (--urls), saved as they are
+  probe      Elasticsearch 6.8.23 of the tarball started here (JDK 17 of the
+             runner, one node), and search requests whose query text is what a
+             visitor of a site could type into a search box that goes into a
+             query_string or simple_query_string query: deep nesting of
+             parentheses, field patterns of many wildcards, nested regular
+             expressions; for each, the answer and whether the node survived
+             (a StackOverflowError ends the JVM of Elasticsearch)
   githist    the history of paths of GitHub repositories (--githist): the trees
              of other packagers (nixpkgs, homebrew-core, the FreeBSD ports, ...)
              are too large for the sandbox; a partial clone here, from a day on,
@@ -110,6 +117,7 @@ SHIBBOLETH = "https://build.shibboleth.net/maven/releases/"
 SHIBBOLETH_ARTIFACTS = ["org/opensaml/opensaml-core", "net/shibboleth/utilities/java-support"]
 
 REPORT = []
+ES_TARBALL = {}
 
 
 def log(msg):
@@ -169,6 +177,8 @@ def part_tarballs(out):
         if got != sha:
             warn("%s: SHA-256 %s, the port has %s: not listed" % (url, got, sha))
             continue
+        if name == "elasticsearch":
+            ES_TARBALL["raw"] = raw
         REPORT.append("- %s: %d bytes, SHA-256 as in the port" % (url.rsplit("/", 1)[1], len(raw)))
         rows = []
         with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tf:
@@ -389,6 +399,136 @@ def part_githist(out, items):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def es_http(method, path, body=None, timeout=90):
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request("http://127.0.0.1:9200" + path, data=data, method=method,
+                                 headers={"Content-Type": "application/json"})
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace"), time.time() - t0
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace"), time.time() - t0
+    except Exception as e:  # noqa: BLE001
+        return 0, "%s: %s" % (type(e).__name__, e), time.time() - t0
+
+
+def es_start(home, logf, java_home, extra):
+    env = dict(os.environ, JAVA_HOME=java_home, ES_JAVA_OPTS="-Xms512m -Xmx512m " + extra,
+               ES_TMPDIR=os.path.join(home, "tmp"))
+    os.makedirs(env["ES_TMPDIR"], exist_ok=True)
+    proc = subprocess.Popen([os.path.join(home, "bin", "elasticsearch")], env=env, stdout=logf,
+                            stderr=subprocess.STDOUT, cwd=home)
+    for _ in range(180):
+        if proc.poll() is not None:
+            return proc, False
+        st, body, _t = es_http("GET", "/_cluster/health?wait_for_status=yellow&timeout=1s", timeout=5)
+        if st == 200:
+            return proc, True
+        time.sleep(1)
+    return proc, False
+
+
+def part_probe(out):
+    raw = ES_TARBALL.get("raw")
+    if raw is None:
+        url, sha = TARBALLS[0][1], TARBALLS[0][2]
+        raw = get(url, timeout=600)
+        if hashlib.sha256(raw).hexdigest() != sha:
+            warn("probe: the tarball is not that of the port")
+            return
+    base = tempfile.mkdtemp()
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tf:
+        tf.extractall(base)
+    home = os.path.join(base, "elasticsearch-6.8.23")
+    with open(os.path.join(home, "config", "elasticsearch.yml"), "a") as f:
+        f.write("\ndiscovery.type: single-node\nxpack.ml.enabled: false\nhttp.port: 9200\n")
+    rows, logs = [], []
+    for jdk, var, extra in (("17", "JAVA_HOME_17_X64", ""), ("21", "JAVA_HOME_21_X64", "-Djava.security.manager=allow")):
+        java_home = os.environ.get(var)
+        if not java_home:
+            warn("probe: no %s on this runner" % var)
+            continue
+        logpath = os.path.join(base, "es-jdk%s.log" % jdk)
+        logf = open(logpath, "ab")
+        proc, up = es_start(home, logf, java_home, extra)
+        if not up:
+            warn("probe: Elasticsearch 6.8.23 on JDK %s did not start" % jdk)
+            logf.close()
+            logs.append((jdk, logpath))
+            if proc.poll() is None:
+                proc.kill()
+            continue
+        es_http("PUT", "/probe", {"settings": {"number_of_shards": 1, "number_of_replicas": 0},
+                                  "mappings": {"_doc": {"properties": {"title": {"type": "text"},
+                                                                       "description": {"type": "text"},
+                                                                       "tags": {"type": "keyword"}}}}})
+        es_http("PUT", "/probe/_doc/1?refresh=true", {"title": "a video about cats", "description": "cats and dogs",
+                                                     "tags": ["cats"]})
+        probes = [
+            ("query_string, (((a))) nesting 1000", "query_string", "(" * 1000 + "a" + ")" * 1000),
+            ("query_string, (((a))) nesting 5000", "query_string", "(" * 5000 + "a" + ")" * 5000),
+            ("query_string, (((a))) nesting 15000", "query_string", "(" * 15000 + "a" + ")" * 15000),
+            ("query_string, field pattern of 5000 *", "query_string", "*" * 5000 + ":a"),
+            ("query_string, field pattern of 50000 *", "query_string", "*" * 50000 + ":a"),
+            ("query_string, regexp /(((a)))/ nesting 2000", "query_string", "/" + "(" * 2000 + "a" + ")" * 2000 + "/"),
+            ("query_string, regexp /(((a)))/ nesting 20000", "query_string", "/" + "(" * 20000 + "a" + ")" * 20000 + "/"),
+            ("simple_query_string, (((a))) nesting 15000", "simple_query_string", "(" * 15000 + "a" + ")" * 15000),
+            ("match, the same text of 15000 (((a)))", "match", "(" * 15000 + "a" + ")" * 15000),
+            ("multi_match, the same text of 15000 (((a)))", "multi_match", "(" * 15000 + "a" + ")" * 15000),
+        ]
+        for name, kind, text in probes:
+            if kind == "match":
+                q = {"match": {"title": text}}
+            elif kind == "multi_match":
+                q = {"multi_match": {"query": text, "fields": ["title", "description"]}}
+            else:
+                q = {kind: {"query": text}}
+            st, body, took = es_http("POST", "/probe/_search", {"query": q})
+            time.sleep(2)
+            died = proc.poll() is not None
+            alive = (not died) and es_http("GET", "/", timeout=10)[0] == 200
+            if not alive and not died:
+                time.sleep(5)
+                died = proc.poll() is not None
+            m = re.search(r'"reason":"([^"]{0,200})', body) or re.search(r'"type":"([^"]{0,120})', body)
+            rows.append("| %s | %s | %d chars | %s | %.2f s | %s | %s |" % (
+                jdk, name, len(text), st, took, (m.group(1) if m else body[:120]).replace("|", "/"),
+                "died (exit %s)" % proc.returncode if died else ("alive" if alive else "no answer")))
+            if died or not alive:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+                proc, up = es_start(home, logf, java_home, extra)
+                if not up:
+                    warn("probe: Elasticsearch did not start again after %s (JDK %s)" % (name, jdk))
+                    break
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        logf.close()
+        logs.append((jdk, logpath))
+    md = ["# Elasticsearch 6.8.23: search requests with query text a visitor could type", "",
+          "The tarball of Elastic (that of textproc/elasticsearch6), one node, the JDK of the runner, -Xss of its"
+          " jvm.options (1m), heap 512m; index probe with one document. A node that died was started again.", "",
+          "| JDK | query | size | HTTP | took | reason | node |", "|---|---|---|---|---|---|---|"] + rows
+    save(out, "probe/results.md", "\n".join(md) + "\n")
+    for jdk, lp in logs:
+        try:
+            data = open(lp, "rb").read()
+        except OSError:
+            continue
+        keep = [l for l in data.decode("utf-8", "replace").splitlines()
+                if re.search(r"fatal|StackOverflow|OutOfMemory|exiting|ERROR|started|Exception", l)]
+        save(out, "probe/es-jdk%s.log" % jdk, "\n".join(keep[-400:]) + "\n")
+    REPORT.append("- probe: %d requests (probe/results.md)" % len(rows))
+    REPORT += ["", "| JDK | query | size | HTTP | took | reason | node |", "|---|---|---|---|---|---|---|"] + rows + [""]
+    shutil.rmtree(base, ignore_errors=True)
+
+
 def push(out, day, run):
     remote = os.environ.get("RUNS_REMOTE") or (RUNS_URL % os.environ["RUNS_TOKEN"]
                                                if os.environ.get("RUNS_TOKEN") else None)
@@ -452,7 +592,7 @@ def main():
         parts + (["urls"] if a.urls.split() else []) + (["githist"] if a.githist.split() else [])))
     REPORT.append("")
     for name, fn in (("tarballs", part_tarballs), ("esa", part_esa), ("nvd", part_nvd), ("redhat", part_redhat),
-                     ("maven", part_maven)):
+                     ("maven", part_maven), ("probe", part_probe)):
         if name in parts:
             log("== %s" % name)
             try:

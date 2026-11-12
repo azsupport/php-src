@@ -7,7 +7,9 @@ name: Elasticsearch 6.8 and Kibana 6.8 fetch
 # the CVEs of NVD for Elasticsearch and Kibana, Red Hat's security data and Maven
 # builds of the Elasticsearch 6 and Kibana 6 of OpenShift Logging, the Maven metadata
 # of the bundled libraries, any https URLs given, and the history of paths of large
-# GitHub repositories (nixpkgs, homebrew-core, the FreeBSD ports: other packagers). Those hosts are closed to the
+# GitHub repositories (nixpkgs, homebrew-core, the FreeBSD ports: other packagers);
+# "probe" starts Elasticsearch 6.8.23 of the tarball on the JDK 17 and 21 of the runner
+# and sends search requests with query texts a visitor of a site could type. Those hosts are closed to the
 # sandbox of Claude Code, GitHub is not: the files go into the branch runs of the
 # private azsupport/azsupport (secret RUNS_TOKEN), distro/es6-kibana6/<YYYY-MM-DD>/,
 # and the report of the run into es6-fetch/<YYYY-MM-DD>/<run id>-fetch.md there
@@ -21,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       parts:
-        description: 'Parts, separated by spaces: tarballs esa nvd redhat maven (empty: none, only the URLs)'
+        description: 'Parts, separated by spaces: tarballs esa nvd redhat maven probe (empty: none, only the URLs)'
         required: false
         type: string
         default: 'tarballs esa nvd redhat maven'
