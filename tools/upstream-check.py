@@ -49,6 +49,16 @@ with "uploads", its uploads to unstable; "sury" and "ubuntu" lines, the uploads
 of a package to the PPA of Ondrej Sury or to Ubuntu, with their changelog (the
 fixes of the PHP branches out of upstream support); for a "cve" line the CVEs of
 NVD that name a library without an upstream (t1lib), published after its date.
+The RPM distributions (aZ, 12.11.2026): "fedora", "centos-stream" and
+"almalinux" lines, the commits of the dist-git repository of a package (Fedora
+with EPEL; CentOS Stream: the sources of RHEL 9 and 10; AlmaLinux: those of RHEL
+8 to 10 with the module streams and Alma's own backports) after the date of the
+line, on every branch or on those its fifth column (a regular expression) names:
+the backports these distributions carry, often to old versions. The line
+"fedora <package> <date> <ours> [<branches>]"; a clone of the repository without
+its file contents, the commits after the date with their branches.
+UPSTREAM_EXTRA_ROWS (lines of upstream.conf, separated by newlines or ";") is
+read after freebsd/upstream.conf: a test of rows, with --dry-run.
 
 Default versions. The "default" rows of freebsd/upstream.conf: PYTHON_DEFAULT and
 PERL5_DEFAULT of Mk/bsd.default-versions.mk of freebsd-ports main against the
@@ -87,6 +97,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -147,10 +158,14 @@ def conf_ref(name):
 
 
 def conf(name):
-    """Rows of a conf file (conf_file), without comments and blank lines."""
+    """Rows of a conf file (conf_file), without comments and blank lines; for
+    upstream.conf also those of UPSTREAM_EXTRA_ROWS (a test of new rows)."""
     with open(conf_file(name)) as f:
-        rows = (line.split("#", 1)[0].split() for line in f)
-        return [r for r in rows if r]
+        lines = list(f)
+    if name == "upstream.conf" and os.environ.get("UPSTREAM_EXTRA_ROWS"):
+        lines += re.split(r"[\n;]", os.environ["UPSTREAM_EXTRA_ROWS"])
+    rows = (line.split("#", 1)[0].split() for line in lines)
+    return [r for r in rows if r]
 
 
 def security_ids(text):
@@ -953,6 +968,81 @@ def check_github():
     return findings, checked
 
 
+DISTGITS = {
+    # kind of row: (clone URL, commit URL, name), %s the package (and the commit)
+    "fedora": ("https://src.fedoraproject.org/rpms/%s.git", "https://src.fedoraproject.org/rpms/%s/c/%s",
+               "Fedora"),
+    "centos-stream": ("https://gitlab.com/redhat/centos-stream/rpms/%s.git",
+                      "https://gitlab.com/redhat/centos-stream/rpms/%s/-/commit/%s", "CentOS Stream"),
+    "almalinux": ("https://git.almalinux.org/rpms/%s.git", "https://git.almalinux.org/rpms/%s/commit/%s",
+                  "AlmaLinux"),
+}
+
+
+def check_distgit(workdir):
+    """The rows "fedora <package> <date> <ours> [<branches>]" (and "centos-stream",
+    "almalinux") of upstream.conf: the commits of the dist-git repository of the
+    package after <date>, on every branch or on those whose name <branches> (a
+    regular expression) matches whole: the patches and backports of the RPM
+    distributions (review of 12.11.2026: docs/distro-patches-fedora-rhel-2026-11-12.md
+    of azsupport/azsupport). The repository is cloned without its file contents
+    (commits and trees only), once per run."""
+    findings, checked = [], set()
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/bin/false")
+    for r in conf("upstream.conf"):
+        if r[0] not in DISTGITS or len(r) < 4:
+            continue
+        kind, pkg, date, what = r[0], r[1], r[2], r[3]
+        url, commit_url, name = DISTGITS[kind]
+        try:
+            branch_re = re.compile(r[4]) if len(r) > 4 else None
+        except re.error as e:
+            warn("%s %s: branches %r: %s" % (name, pkg, r[4], e))
+            continue
+        repo = os.path.join(workdir, "distgit", kind, pkg + ".git")
+        if not os.path.isdir(repo):
+            os.makedirs(os.path.dirname(repo), exist_ok=True)
+            p = subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", "--no-tags", url % pkg, repo],
+                               capture_output=True, text=True, env=env)
+            if p.returncode:
+                # the source is down or the package is gone: leave its issue alone
+                warn("%s %s: %s" % (name, pkg, p.stderr.strip()[-300:]))
+                shutil.rmtree(repo, ignore_errors=True)
+                continue
+        p = subprocess.run(["git", "log", "--all", "--source", "--since=%sT23:59:59Z" % date,
+                            "--format=%H%x09%S%x09%cs%x09%s"], cwd=repo, capture_output=True, text=True, env=env)
+        if p.returncode:
+            warn("%s %s: %s" % (name, pkg, p.stderr.strip()[-300:]))
+            continue
+        checked.add("%s:%s:" % (kind, pkg))
+        commits = []
+        for line in p.stdout.splitlines():
+            sha, source, day, subject = (line.split("\t", 3) + ["", "", ""])[:4]
+            branch = source[len("refs/heads/"):] if source.startswith("refs/heads/") else source
+            if branch_re and not branch_re.fullmatch(branch):
+                continue
+            commits.append((sha, branch, day, subject))
+        if not commits:
+            continue
+        lines = ["Commits of [%s rpms/%s](%s) after %s%s (newest first), for %s:" % (
+            name, pkg, url[:-len(".git")] % pkg if url.endswith(".git") else url % pkg, date,
+            " on the branches `%s`" % r[4] if len(r) > 4 else "", ours(what)), ""]
+        for sha, branch, day, subject in commits[:60]:
+            lines.append("- [`%s`](%s) %s `%s` %s" % (sha[:12], commit_url % (pkg, sha), day, branch,
+                                                     subject.replace("|", "\\|")))
+        if len(commits) > 60:
+            lines.append("- ... and %d older ones" % (len(commits) - 60))
+        lines += ["", "After the review: what %s needs (a fix it lacks) into its patches, then set the date of "
+                      "`%s %s` in `freebsd/upstream.conf` to the day of the review; the next check closes this "
+                      "issue." % (ours(what), kind, pkg)]
+        findings.append({"key": "%s:%s:%s" % (kind, pkg, date),
+                         "kind": "release" if what.startswith("freebsd/") else "ports",
+                         "title": "%s: %s, %d commit%s after %s" % (name, pkg, len(commits),
+                                                                   "" if len(commits) == 1 else "s", date),
+                         "body": "\n".join(lines)})
+    return findings, checked
+
+
 DEFAULT_VERSIONS = "Mk/bsd.default-versions.mk"
 
 
@@ -1517,6 +1607,9 @@ def main():
     more, checked_cves = check_cves()
     findings += more
     checked |= checked_cves
+    more, checked_distgit = check_distgit(workdir)
+    findings += more
+    checked |= checked_distgit
 
     summary = ["- %s" % f["title"] for f in findings] or ["- nothing new"]
     print("\n".join(summary))
