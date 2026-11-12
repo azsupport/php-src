@@ -582,6 +582,7 @@ def cluster_probe(out, home, base):
     for i in (0, 1):
         h = os.path.join(base, "node%d" % i)
         shutil.copytree(home, h, symlinks=True, ignore=shutil.ignore_patterns("data", "logs", "tmp"))
+        os.makedirs(os.path.join(h, "logs"), exist_ok=True)
         with open(os.path.join(h, "config", "elasticsearch.yml"), "w") as f:
             f.write("cluster.name: probe2\nnode.name: n%d\nxpack.ml.enabled: false\nhttp.port: %d\n"
                     "transport.tcp.port: %d\ndiscovery.zen.ping.unicast.hosts: [\"127.0.0.1:9310\", \"127.0.0.1:9311\"]\n"
