@@ -118,6 +118,7 @@ SHIBBOLETH_ARTIFACTS = ["org/opensaml/opensaml-core", "net/shibboleth/utilities/
 
 REPORT = []
 ES_TARBALL = {}
+GITHIST_PATCHES = 60
 
 
 def log(msg):
@@ -384,18 +385,27 @@ def part_githist(out, items):
             shutil.rmtree(work, ignore_errors=True)
             continue
         label = repo.replace("/", "_")
+        # path queries over a long history: the Bloom filters of changed paths make them fast
+        subprocess.run(["git", "-C", d, "commit-graph", "write", "--reachable", "--changed-paths"],
+                       capture_output=True, text=True)
         idx = subprocess.run(["git", "-C", d, "log", "--format=%H %ad %an: %s", "--date=short", "--"] + paths,
                              capture_output=True, text=True).stdout
         save(out, "githist/%s/index.txt" % label, "# %s since %s: %s\n%s" % (repo, since, " ".join(paths), idx))
-        lg = subprocess.run(["git", "-C", d, "log", "--format=commit %H%nDate: %ad%nAuthor: %an <%ae>%n%n%B",
-                             "--date=iso", "--stat", "-p", "--"] + paths, capture_output=True).stdout
-        if len(lg) > 40 * 1024 * 1024:
-            lg = lg[:40 * 1024 * 1024] + b"\n[cut at 40 MB]\n"
+        # the patches of the newest GITHIST_PATCHES commits only: each one fetches its blobs, and a long history
+        # of automated version bumps (Bitnami) took more than half an hour
+        shas = [l.split()[0] for l in idx.splitlines() if l.strip()][:GITHIST_PATCHES]
+        lg = b""
+        for sha in shas:
+            lg += subprocess.run(["git", "-C", d, "show", "--format=commit %H%nDate: %ad%nAuthor: %an <%ae>%n%n%B",
+                                  "--date=iso", "--stat", "-p", sha, "--"] + paths, capture_output=True).stdout
+            if len(lg) > 40 * 1024 * 1024:
+                lg = lg[:40 * 1024 * 1024] + b"\n[cut at 40 MB]\n"
+                break
         save(out, "githist/%s/log.txt" % label, lg)
         head = subprocess.run(["git", "-C", d, "log", "-1", "--format=%H %cd", "--date=iso"],
                               capture_output=True, text=True).stdout.strip()
-        REPORT.append("- githist %s since %s (%s): %d commits; head %s" % (repo, since, " ".join(paths),
-                                                                        len(idx.splitlines()), head))
+        REPORT.append("- githist %s since %s (%s): %d commits, the patches of the newest %d; head %s" % (
+            repo, since, " ".join(paths), len(idx.splitlines()), len(shas), head))
         shutil.rmtree(work, ignore_errors=True)
 
 
