@@ -87,6 +87,7 @@ CHANGELOG_MAX_LINES = 6000
 FILE_LIMIT = 20 * 1024 * 1024        # a bigger patch is left out (named in files.txt)
 OTHER_LIMIT = 5 * 1024 * 1024        # a tarball of patches up to this size is kept
 RPM_LIMIT = 800 * 1024 * 1024        # a bigger source RPM is not downloaded
+FILE_JOBS = 6                        # files of one OBS package read at a time
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._-]*$")
 PATCHY = re.compile(r"\.(patch|diff|dif)(\.(gz|bz2|xz|zst))?$", re.I)
 RUNS_URL = "https://x-access-token:%s@github.com/azsupport/azsupport.git"
@@ -735,15 +736,20 @@ class Fetcher:
                 patches.update(p)
                 if version is None:
                     version = v
-            for name, size, md5 in lst["entries"]:
-                k = kind(name, size, patches)
+            def one(entry):
+                name, size, md5 = entry
                 data = specs.get(name)
-                if k and data is None:
+                if kind(name, size, patches) and data is None:
                     try:
                         data = obs_file(project, package, name, rev, md5)
                     except RuntimeError as e:
                         warn(str(e))
-                files.append((name, size, "md5:" + (md5 or "-"), data))
+                return (name, size, "md5:" + (md5 or "-"), data)
+
+            # the files of a package one after the other took minutes for the hundreds of
+            # patches of an old PHP: a few at a time
+            with concurrent.futures.ThreadPoolExecutor(max_workers=FILE_JOBS) as ex:
+                files = list(ex.map(one, lst["entries"]))
             missing = sorted(p for p in patches if p not in names)
             hit = (version or "unknown", files, patches, missing)
             with self.rlock:
@@ -873,7 +879,7 @@ def main():
     ap.add_argument("--explore", default="")
     ap.add_argument("--list-projects", default="")
     ap.add_argument("--obs", default="")
-    ap.add_argument("--jobs", type=int, default=10)
+    ap.add_argument("--jobs", type=int, default=8)
     ap.add_argument("packages", nargs="*")
     a = ap.parse_args()
 
