@@ -1,5 +1,5 @@
-Description: the patches of the FreeBSD port security/libssh2 (its PATCHFILES, three upstream commits): CMake fixes (unused by this build, configure) and the bounds check of the user name length in userauth.c (#1858); CVE-2026-55200 (transport.c), CVE-2026-55199 (packet.c) and CVE-2025-15661 (sftp.c), which the port lacks
-Origin: freebsd-ports security/libssh2 @ f16b6dd0f7c1 (PATCHFILES 5d03b4f94ac6, d4e43c7b69d1, 256d04b60d80 of https://github.com/libssh2/libssh2), -p0; Gentoo net-libs/libssh2 1.11.1-r2 (bug 977961): upstream 97acf3dfda80 (CVE-2026-55200), the result checks of _libssh2_get_string() in packet.c (CVE-2026-55199), upstream 2dae3024897e (CVE-2025-15661)
+Description: the patches of the FreeBSD port security/libssh2 (its PATCHFILES, three upstream commits): CMake fixes (unused by this build, configure) and the bounds check of the user name length in userauth.c (#1858); CVE-2026-55200 (transport.c), CVE-2026-55199 (packet.c) and CVE-2025-15661 (sftp.c), which the port lacks; and CVE-2026-66032 (a double free in sftp_open(), sftp.c), CVE-2026-66033 (an integer underflow with AES-GCM in the cipher of openssl.c, before the authentication), CVE-2026-66034, CVE-2026-58050 and CVE-2026-58051 (an out-of-bounds read, a multiplication overflow on 32-bit and an arbitrary free in libssh2_publickey_list_fetch(), publickey.c) and CVE-2026-66035 (a heap overflow on the ETM decryption of a short packet, transport.c, before the authentication): from a malicious SSH server to the client (curl SFTP and SCP, PHP ssh2, mc)
+Origin: freebsd-ports security/libssh2 @ f16b6dd0f7c1 (PATCHFILES 5d03b4f94ac6, d4e43c7b69d1, 256d04b60d80 of https://github.com/libssh2/libssh2), -p0; Gentoo net-libs/libssh2 1.11.1-r2 (bug 977961): upstream 97acf3dfda80 (CVE-2026-55200), the result checks of _libssh2_get_string() in packet.c (CVE-2026-55199), upstream 2dae3024897e (CVE-2025-15661); CVE-2026-66032, -66033, -66034, -66035 (upstream 5e47761, a2ed82d, a13bb6c, 42e33d8) and CVE-2026-58050, -58051 (upstream 3449752, 32092f0) as Debian carries them on 1.11.1 (libssh2 1.11.1-5 and -6, https://sources.debian.org/src/libssh2/1.11.1-6/debian/patches/; Ubuntu 26.04 1.11.1-1ubuntu0.26.04.4, Alpine 1.11.1-r4 and openSUSE the same set), in this order after the ones above
 
 --- CMakeLists.txt
 +++ CMakeLists.txt
@@ -252,3 +252,98 @@ Origin: freebsd-ports security/libssh2 @ f16b6dd0f7c1 (PATCHFILES 5d03b4f94ac6, 
      LIBSSH2_FREE(session, data);
  
      return retcode;
+--- src/sftp.c
++++ src/sftp.c
+@@ -1279,6 +1279,7 @@
+                                "got HANDLE FXOK"));
+ 
+                 LIBSSH2_FREE(session, data);
++                data = NULL;
+ 
+                 /* silly situation, but check for a HANDLE */
+                 rc = sftp_packet_require(sftp, SSH_FXP_HANDLE,
+--- src/openssl.c
++++ src/openssl.c
+@@ -1042,13 +1042,15 @@
+     const int aadlen = (is_aesgcm && IS_FIRST(firstlast)) ? 4 : 0;
+     /* size of AT, if present */
+     const int authenticationtag = IS_LAST(firstlast) ? authlen : 0;
+-    /* length to encrypt */
+-    const int cryptlen = (unsigned int)blocksize - aadlen - authenticationtag;
++    unsigned int cryptlen; /* length to encrypt */
+ 
+     (void)algo;
+ 
+-    assert(blocksize <= sizeof(buf));
+-    assert(cryptlen >= 0);
++    if(blocksize > sizeof(buf) ||
++       blocksize < (size_t)(aadlen + authenticationtag))
++        return 1;
++
++    cryptlen = (unsigned int)blocksize - aadlen - authenticationtag;
+ 
+ #if LIBSSH2_AES_GCM
+     /* First block */
+--- src/publickey.c
++++ src/publickey.c
+@@ -988,6 +988,13 @@
+                 }
+ 
+                 if(comment_len) {
++                    if(pkey->listFetch_s + comment_len >
++                       pkey->listFetch_data + pkey->listFetch_data_len) {
++                        _libssh2_error(session, LIBSSH2_ERROR_BUFFER_TOO_SMALL,
++                                 "ListFetch data too short");
++                        goto err_exit;
++                    }
++
+                     list[keys].num_attrs = 1;
+                     list[keys].attrs =
+                         LIBSSH2_ALLOC(session,
+--- src/transport.c
++++ src/transport.c
+@@ -242,6 +242,12 @@
+                 unsigned char *decrypt_buffer;
+                 int blocksize = session->remote.crypt->blocksize;
+ 
++                if(p->total_num < mac_len + 4 + (size_t)blocksize) {
++                    LIBSSH2_FREE(session, p->payload);
++                    return LIBSSH2_ERROR_DECRYPT;
++                }
++                decrypt_size = (ssize_t)(p->total_num - mac_len - 4);
++
+                 rc = decrypt(session, p->payload + 4,
+                              first_block, blocksize, FIRST_BLOCK);
+                 if(rc) {
+@@ -249,7 +255,6 @@
+                 }
+ 
+                 /* we need buffer for decrypt */
+-                decrypt_size = p->total_num - mac_len - 4;
+                 decrypt_buffer = LIBSSH2_ALLOC(session, decrypt_size);
+                 if(!decrypt_buffer) {
+                     return LIBSSH2_ERROR_ALLOC;
+--- src/publickey.c
++++ src/publickey.c
+@@ -1121,6 +1121,11 @@
+                 }
+ 
+                 if(list[keys].num_attrs) {
++                    if(list[keys].num_attrs > 1024) {
++                        _libssh2_error(session, LIBSSH2_ERROR_OUT_OF_BOUNDARY,
++                                 "Too many publickey attributes");
++                        goto err_exit;
++                    }
+                     list[keys].attrs =
+                         LIBSSH2_ALLOC(session,
+                                       list[keys].num_attrs *
+--- src/publickey.c
++++ src/publickey.c
+@@ -972,6 +972,7 @@
+                     goto err_exit;
+                 }
+                 list = newlist;
++                memset(&list[keys], 0, sizeof(list[keys]));
+             }
+             if(pkey->version == 1) {
+                 unsigned long comment_len;
