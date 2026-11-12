@@ -481,6 +481,310 @@ XSS_PROBES = {"query_string, (((a))) nesting 5000", "query_string, (((a))) nesti
               "simple_query_string, (((a))) nesting 15000", "query_string, field pattern of 5000 *"}
 
 
+
+# --- KVS / Laravel 255-character worst case -------------------------------------
+# The Laravel sites (ko44, OpenSearch 2.17.1 -> 2.19.7) clean the search text with a
+# chain (pregReplaceBlacklistedParts, removeBadChars, removeEmoji, replaceEqualChars,
+# transliterateChars, removeRepeatedChars, removeRepeatedWords, removeMultiSpaces,
+# trimSpaces) and cut it at 255 characters; which characters removeBadChars and
+# pregReplaceBlacklistedParts strip is unknown. Worst case here: none of the
+# query_string syntax stripped, only the 255-character cut, and runs of the same
+# character and repeated words collapsed (so these strings avoid consecutive equal
+# characters and repeated words). Whether KVS (Elasticsearch 6.8) passes visitor
+# text into query_string is unknown; the probe is run against ES 6.8.23 and both
+# OpenSearch versions all the same.
+import string as _string
+
+_B36 = _string.digits + _string.ascii_lowercase
+
+
+# three disjoint letter sets: a width-3 token takes one letter from each, so no two
+# adjacent characters are equal and distinct i give distinct tokens (6**3 = 216 of them)
+_SETS = ("abcdef", "ghijkl", "mnopqr")
+_DIG = "1357902468"  # digits in an order with no two adjacent equal, for non-repeating numbers
+
+
+def _tok(i):
+    return _SETS[0][i % 6] + _SETS[1][(i // 6) % 6] + _SETS[2][(i // 36) % 6]
+
+
+def kvs_probes():
+    """The battery of query texts, each at most 255 characters, no run of the same
+    character, no repeated word. (name, kind, text)."""
+    import string as _s
+    P = []
+    letters = _s.ascii_lowercase
+    # 1. deepest nesting, parentheses only, distinct letters between them
+    d = 0
+    while 4 * (d + 1) + 1 <= 255:
+        d += 1
+    opens = "".join("(" + letters[i % 26] for i in range(d))
+    closes = "".join(")" + letters[(d - 1 - i) % 26] for i in range(d))
+    P.append(("deepest parenthesis nesting in 255 chars (depth %d)" % d, opens + "z" + closes))
+    # 2. nesting mixed with field:value and boolean operators
+    txt, depth, i = "", 0, 0
+    while True:
+        add = "(f%s:%s %s " % (_tok(i), _tok(i + 1), "OR" if i % 2 else "AND")
+        if len(txt) + len(add) + depth + 3 > 255:
+            break
+        txt += add
+        depth += 1
+        i += 2
+    txt = txt + _tok(i) + (")" * depth)
+    P.append(("field:value + boolean nesting in 255 chars (depth %d)" % depth, txt))
+    # 3. many wildcard segments, distinct tokens, no leading *
+    segs, i = [_tok(0)], 1
+    while len("*".join(segs)) + 4 <= 255:
+        segs.append(_tok(i)); i += 1
+    P.append(("a*b*c... %d distinct wildcard segments" % len(segs), "*".join(segs)))
+    # 4. leading wildcard + many segments (one term, scans the term dictionary)
+    segs, i = [], 0
+    while len("*" + "*".join(segs)) + 4 <= 255:
+        segs.append(_tok(i)); i += 1
+    P.append(("*a*b*c... leading wildcard, %d segments" % len(segs), "*" + "*".join(segs)))
+    # 5. many separate leading-wildcard terms (each a full dictionary scan, OR-ed)
+    toks, i = [], 0
+    while sum(len(x) + 1 for x in toks) + 5 <= 255:
+        toks.append("*" + _tok(i)); i += 1
+    P.append(("%d separate *term leading-wildcard clauses" % len(toks), " ".join(toks)))
+    # 6. ? wildcards (one term), and * and ? mixed (one term)
+    s6, i = "", 0
+    while len(s6) + 2 <= 255:
+        s6 += letters[i % 26] + "?"; i += 1
+    P.append(("a?b?c... %d single-char wildcards (one term)" % i, s6))
+    s7, i = "", 0
+    while len(s7) + 3 <= 255:
+        s7 += "*" + letters[i % 26] + "?"; i += 1
+    P.append(("*a?*b?... %d mixed * and ? (one term)" % i, s7))
+    # 7. escaped wildcard in field names (Regex.simpleMatch pattern resolution)
+    toks, i = [], 0
+    while sum(len(x) + 1 for x in toks) + 10 <= 255:
+        toks.append("f%s\\*:%s" % (_tok(i), _tok(i + 1))); i += 2
+    P.append(("%d field names with an escaped \\* " % len(toks), " ".join(toks)))
+    # 8. a regular expression up to 255 chars with alternations (max_regex_length is 1000)
+    body, i = "", 0
+    while len(body) + 10 <= 253:
+        body += "(%s|%s)" % (_tok(i), _tok(i + 1)); i += 2
+    P.append(("regexp /(..|..)(..|..).../ of %d chars" % (len(body) + 2), "/" + body + "/"))
+    P.append(("regexp /(ab|cd)*ef{1,99}/", "/(ab|cd)*ef{1,99}/"))
+    # 9. fuzzy chains: many distinct terms each fuzzy
+    toks, i = [], 0
+    while sum(len(x) + 2 for x in toks) + 5 <= 255:
+        toks.append(_tok(i) + "~"); i += 1
+    P.append(("%d distinct fuzzy terms (abc~ def~ ...)" % len(toks), " ".join(toks)))
+    toks, i = [], 0
+    while sum(len(x) + 1 for x in toks) + 6 <= 255:
+        toks.append(_tok(i) + "~2"); i += 1
+    P.append(("%d distinct 3-letter fuzzy~2 terms" % len(toks), " ".join(toks)))
+    # 10. long-coercion numbers on a numeric field, exponents with no repeated digit
+    for exp in ("135790", "13579024", "135790246", "1357902468", "1879345610"):
+        P.append(("n:1e-%s (long field, %d-digit exponent)" % (exp, len(exp)), "n:1e-" + exp))
+    P.append(("range n:[0 TO 1e-1357902468] on the long field", "n:[0 TO 1e-1357902468]"))
+    P.append(("bare 1e-1357902468 (no field, text analysis)", "1e-1357902468"))
+    big = "".join(_DIG[(j * 3 + 1) % 10] for j in range(240))
+    P.append(("n:1e-<240-digit exponent> (scale beyond int range)", "n:1e-" + big))
+    out = []
+    for name, text in P:
+        if len(text) > 255:
+            raise RuntimeError("probe over 255 chars (%d): %s" % (len(text), name))
+        out.append(("query_string: " + name, "query_string", text))
+    return out
+
+
+# (label, tarball URL, SHA-256 of the port's distinfo, the directory inside, how to start)
+KVS_ENGINES = {
+    "es6": ("Elasticsearch 6.8.23", TARBALLS[0][1], TARBALLS[0][2], "elasticsearch-6.8.23", "es"),
+    "os217": ("OpenSearch 2.17.1", "https://artifacts.opensearch.org/releases/bundle/opensearch/2.17.1/opensearch-2.17.1-linux-x64.tar.gz",
+              "f66ed5b7ec7848f38102a54bf3c82e7d29aa86f02209c9ce8bb6cbe375f30a25", "opensearch-2.17.1", "os"),
+    "os219": ("OpenSearch 2.19.7", "https://artifacts.opensearch.org/releases/bundle/opensearch/2.19.7/opensearch-2.19.7-linux-x64.tar.gz",
+              "324f0f5c611d3e127dc75163319686b04081816e2f21dd36185f1eab0818cbdd", "opensearch-2.19.7", "os"),
+}
+
+
+def runner_heap_mb():
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemTotal:"):
+                kb = int(line.split()[1])
+                return max(512, min(kb // 1024 // 2, 26 * 1024))
+    except OSError:
+        pass
+    return 2048
+
+
+def engine_start(flavour, home, logf, heap_mb):
+    """Start the engine single-node on http://127.0.0.1:9200 with the port's -Xss (jvm.options
+    of the tarball, 1m) and a heap of heap_mb. Returns (proc, up)."""
+    env = dict(os.environ)
+    heap = "%dm" % heap_mb
+    if flavour == "es":
+        env["JAVA_HOME"] = os.environ.get("JAVA_HOME_21_X64", os.environ.get("JAVA_HOME", ""))
+        env["ES_JAVA_OPTS"] = "-Xms%s -Xmx%s -Djava.security.manager=allow" % (heap, heap)
+        env["ES_TMPDIR"] = os.path.join(home, "tmp")
+        os.makedirs(env["ES_TMPDIR"], exist_ok=True)
+        with open(os.path.join(home, "config", "elasticsearch.yml"), "a") as f:
+            f.write("\ndiscovery.type: single-node\nxpack.ml.enabled: false\nhttp.port: 9200\nnetwork.host: 127.0.0.1\n")
+        cmd = [os.path.join(home, "bin", "elasticsearch")]
+    else:
+        env["OPENSEARCH_JAVA_OPTS"] = "-Xms%s -Xmx%s" % (heap, heap)
+        env["OPENSEARCH_TMPDIR"] = os.path.join(home, "tmp")
+        env["DISABLE_INSTALL_DEMO_CONFIG"] = "true"
+        env["DISABLE_SECURITY_PLUGIN"] = "true"
+        os.makedirs(env["OPENSEARCH_TMPDIR"], exist_ok=True)
+        with open(os.path.join(home, "config", "opensearch.yml"), "a") as f:
+            f.write("\ndiscovery.type: single-node\nplugins.security.disabled: true\n"
+                    "plugins.security.ssl.http.enabled: false\nhttp.port: 9200\nnetwork.host: 127.0.0.1\n")
+        cmd = [os.path.join(home, "bin", "opensearch")]
+    proc = subprocess.Popen(cmd, env=env, stdout=logf, stderr=subprocess.STDOUT, cwd=home)
+    for _ in range(240):
+        if proc.poll() is not None:
+            return proc, False
+        st, _b, _t = es_http("GET", "/_cluster/health?wait_for_status=yellow&timeout=1s", timeout=5)
+        if st == 200:
+            return proc, True
+        time.sleep(1)
+    return proc, False
+
+
+def build_big_index(flavour, docs, per_doc):
+    """A 'probe' index with one text field 'title' and one long field 'n'; docs documents,
+    each per_doc distinct tokens, so about docs*per_doc distinct terms. Returns the term count
+    reported by the index, or -1."""
+    typed = flavour == "es"
+    if typed:
+        mapping = {"settings": {"number_of_shards": 1, "number_of_replicas": 0},
+                   "mappings": {"_doc": {"properties": {"title": {"type": "text"}, "n": {"type": "long"}}}}}
+    else:
+        mapping = {"settings": {"number_of_shards": 1, "number_of_replicas": 0},
+                   "mappings": {"properties": {"title": {"type": "text"}, "n": {"type": "long"}}}}
+    es_http("DELETE", "/probe", timeout=30)
+    es_http("PUT", "/probe", mapping, timeout=60)
+    meta = '{"index":{}}' if not typed else '{"index":{"_type":"_doc"}}'
+    counter = 0
+
+    def tokn():
+        nonlocal counter
+        v, t = counter, ""
+        counter += 1
+        for _k in range(5):
+            t = _B36[v % 36] + t
+            v //= 36
+        return "t" + t
+
+    lines = []
+    for d in range(docs):
+        toks = [tokn() for _ in range(per_doc)]
+        title = " ".join(toks) + (" videoabcde picturexyz catdogfox" if d % 50 == 0 else "")
+        lines.append(meta)
+        lines.append(json.dumps({"title": title, "n": d}))
+        if len(lines) >= 400 or d == docs - 1:  # 200 docs per bulk request
+            body = ("\n".join(lines) + "\n").encode("utf-8")
+            req = urllib.request.Request("http://127.0.0.1:9200/probe/_bulk", data=body, method="POST",
+                                         headers={"Content-Type": "application/x-ndjson"})
+            try:
+                urllib.request.urlopen(req, timeout=120).read()
+            except Exception as e:  # noqa: BLE001
+                warn("build_big_index: bulk at doc %d: %s" % (d, e))
+                break
+            lines = []
+    es_http("POST", "/probe/_refresh", timeout=120)
+    st, b, _t = es_http("GET", "/probe/_stats/segments", timeout=30)
+    terms = -1
+    try:
+        terms = json.loads(b)["indices"]["probe"]["total"]["segments"].get("term_vectors_memory_in_bytes", -1)
+    except Exception:  # noqa: BLE001
+        pass
+    # a direct count of distinct terms in 'title'
+    st, b, _t = es_http("POST", "/probe/_search",
+                        {"size": 0, "aggs": {"c": {"cardinality": {"field": "title"}}}}, timeout=120)
+    try:
+        terms = int(json.loads(b)["aggregations"]["c"]["value"])
+    except Exception:  # noqa: BLE001
+        pass
+    return counter, terms
+
+
+def part_kvs255(out):
+    engine = os.environ.get("KVS_ENGINE", "es6")
+    if engine not in KVS_ENGINES:
+        warn("kvs255: KVS_ENGINE %r is not one of %s" % (engine, ", ".join(KVS_ENGINES)))
+        return
+    label, url, sha, subdir, flavour = KVS_ENGINES[engine]
+    if engine == "es6" and ES_TARBALL.get("raw") is not None:
+        raw = ES_TARBALL["raw"]
+    else:
+        try:
+            raw = get(url, timeout=1200)
+        except Exception as e:  # noqa: BLE001
+            warn("kvs255: %s: %s" % (url, e))
+            return
+    if hashlib.sha256(raw).hexdigest() != sha:
+        warn("kvs255: %s: the tarball is not the one of the port (SHA-256)" % label)
+        return
+    base = tempfile.mkdtemp()
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tf:
+        tf.extractall(base)
+    home = os.path.join(base, subdir)
+    heap_mb = runner_heap_mb()
+    logpath = os.path.join(base, "engine.log")
+    logf = open(logpath, "ab")
+    proc, up = engine_start(flavour, home, logf, heap_mb)
+    if not up:
+        warn("kvs255: %s did not start" % label)
+        if proc.poll() is None:
+            proc.kill()
+        logf.close()
+        tail = open(logpath, "rb").read().decode("utf-8", "replace").splitlines()[-40:]
+        save(out, "kvs255/%s-start-failed.log" % engine, "\n".join(tail) + "\n")
+        return
+    docs, per_doc = 4000, 100
+    ndocs, nterms = build_big_index(flavour, docs, per_doc)
+    rows = []
+    for name, kind, text in kvs_probes():
+        q = {"query_string": {"query": text}}
+        st, body, took = es_http("POST", "/probe/_search", {"query": q}, timeout=150)
+        time.sleep(1.5)
+        died = proc.poll() is not None
+        alive = (not died) and es_http("GET", "/", timeout=10)[0] == 200
+        if not alive and not died:
+            time.sleep(5)
+            died = proc.poll() is not None
+        m = re.search(r'"reason":"([^"]{0,160})', body) or re.search(r'"type":"([^"]{0,120})', body)
+        verdict = "died (exit %s)" % proc.returncode if died else ("alive" if alive else "no answer")
+        rows.append("| %s | %d | %s | %.2f s | %s | %s |" % (
+            name, len(text), str(st), took, (m.group(1) if m else body[:90]).replace("|", "/"), verdict))
+        if died or not alive:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            proc, up = engine_start(flavour, home, logf, heap_mb)
+            if not up:
+                warn("kvs255: %s did not start again after %s" % (label, name))
+                break
+            build_big_index(flavour, docs, per_doc)
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    logf.close()
+    md = ["# %s: query texts of at most 255 characters (the Laravel sanitize cut)" % label, "",
+          "One node, the -Xss of the port's jvm.options (1m), heap %d MB (the runner's; the port sets 31g on a server, "
+          "which only raises the wildcard-OOM and long-coercion thresholds, not the nesting one). Index 'probe': %s documents, "
+          "about %s distinct terms in 'title'; 'n' is a long field. Each query is a query_string; a node that died was "
+          "started again and the index rebuilt." % (heap_mb, "{:,}".format(ndocs), "{:,}".format(nterms)), "",
+          "| query (<= 255 chars) | len | HTTP | took | reason | node |", "|---|---|---|---|---|---|"] + rows
+    save(out, "kvs255/%s-results.md" % engine, "\n".join(md) + "\n")
+    keep = [l for l in open(logpath, "rb").read().decode("utf-8", "replace").splitlines()
+            if re.search(r"fatal|StackOverflow|OutOfMemory|exiting|ERROR", l)]
+    save(out, "kvs255/%s.log" % engine, "\n".join(keep[-200:]) + "\n")
+    REPORT.append("- kvs255 %s: %d queries, index %s docs / ~%s terms, heap %d MB (kvs255/%s-results.md)" % (
+        label, len(rows), "{:,}".format(ndocs), "{:,}".format(nterms), heap_mb, engine))
+    REPORT.extend(["", "| query (<= 255 chars) | len | HTTP | took | reason | node |", "|---|---|---|---|---|---|"] + rows + [""])
+    shutil.rmtree(base, ignore_errors=True)
+
+
 def part_probe(out):
     raw = ES_TARBALL.get("raw")
     if raw is None:
@@ -742,7 +1046,7 @@ def main():
         parts + (["urls"] if a.urls.split() else []) + (["githist"] if a.githist.split() else [])))
     REPORT.append("")
     for name, fn in (("tarballs", part_tarballs), ("esa", part_esa), ("nvd", part_nvd), ("redhat", part_redhat),
-                     ("maven", part_maven), ("probe", part_probe)):
+                     ("maven", part_maven), ("probe", part_probe), ("kvs255", part_kvs255)):
         if name in parts:
             log("== %s" % name)
             try:
