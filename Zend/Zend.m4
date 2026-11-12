@@ -111,6 +111,7 @@ AC_MSG_CHECKING(whether double cast to long preserves least significant bits)
 
 AC_TRY_RUN([
 #include <limits.h>
+#include <stdlib.h>
 
 int main()
 {
@@ -248,6 +249,7 @@ AC_MSG_CHECKING(for MM alignment and log values)
 
 AC_TRY_RUN([
 #include <stdio.h>
+#include <stdlib.h>
 
 typedef union _mm_align_test {
   void *ptr;
@@ -300,6 +302,7 @@ AC_TRY_RUN([
 #include <sys/mman.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #ifndef MAP_ANON
 # ifdef MAP_ANONYMOUS
 #  define MAP_ANON MAP_ANONYMOUS
@@ -345,6 +348,7 @@ AC_TRY_RUN([
 #include <sys/mman.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #ifndef MAP_ANON
 # ifdef MAP_ANONYMOUS
 #  define MAP_ANON MAP_ANONYMOUS
