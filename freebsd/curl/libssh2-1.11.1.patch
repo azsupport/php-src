@@ -1,5 +1,5 @@
-Description: the patches of the FreeBSD port security/libssh2 (its PATCHFILES, three upstream commits): CMake fixes (unused by this build, configure) and the bounds check of the user name length in userauth.c (#1858); CVE-2026-55200 (transport.c), CVE-2026-55199 (packet.c) and CVE-2025-15661 (sftp.c), which the port lacks; and CVE-2026-66032 (a double free in sftp_open(), sftp.c), CVE-2026-66033 (an integer underflow with AES-GCM in the cipher of openssl.c, before the authentication), CVE-2026-66034, CVE-2026-58050 and CVE-2026-58051 (an out-of-bounds read, a multiplication overflow on 32-bit and an arbitrary free in libssh2_publickey_list_fetch(), publickey.c) and CVE-2026-66035 (a heap overflow on the ETM decryption of a short packet, transport.c, before the authentication): from a malicious SSH server to the client (curl SFTP and SCP, PHP ssh2, mc)
-Origin: freebsd-ports security/libssh2 @ f16b6dd0f7c1 (PATCHFILES 5d03b4f94ac6, d4e43c7b69d1, 256d04b60d80 of https://github.com/libssh2/libssh2), -p0; Gentoo net-libs/libssh2 1.11.1-r2 (bug 977961): upstream 97acf3dfda80 (CVE-2026-55200), the result checks of _libssh2_get_string() in packet.c (CVE-2026-55199), upstream 2dae3024897e (CVE-2025-15661); CVE-2026-66032, -66033, -66034, -66035 (upstream 5e47761, a2ed82d, a13bb6c, 42e33d8) and CVE-2026-58050, -58051 (upstream 3449752, 32092f0) as Debian carries them on 1.11.1 (libssh2 1.11.1-5 and -6, https://sources.debian.org/src/libssh2/1.11.1-6/debian/patches/; Ubuntu 26.04 1.11.1-1ubuntu0.26.04.4, Alpine 1.11.1-r4 and openSUSE the same set), in this order after the ones above
+Description: the patches of the FreeBSD port security/libssh2 (its PATCHFILES, three upstream commits): CMake fixes (unused by this build, configure) and the bounds check of the user name length in userauth.c (#1858); CVE-2026-55200 (transport.c), CVE-2026-55199 (packet.c) and CVE-2025-15661 (sftp.c), which the port lacks; and CVE-2026-66032 (a double free in sftp_open(), sftp.c), CVE-2026-66033 (an integer underflow with AES-GCM in the cipher of openssl.c, before the authentication), CVE-2026-66034, CVE-2026-58050 and CVE-2026-58051 (an out-of-bounds read, a multiplication overflow on 32-bit and an arbitrary free in libssh2_publickey_list_fetch(), publickey.c) and CVE-2026-66035 (a heap overflow on the ETM decryption of a short packet, transport.c, before the authentication): from a malicious SSH server to the client (curl SFTP and SCP, PHP ssh2, mc); and the fixes of libssh2 master after them (no release yet): a server whose list of key exchange methods matches only the pseudo methods ext-info-c or kex-strict-c-v00@openssh.com made the client take one of them and call its exchange_keys, which is NULL (a crash before the login; such a method is never taken now, and its exchange is an error: GHSA-92x4-f995-pjxq); libssh2_sftp_symlink() reported a failure for a link it had made, as the fix of CVE-2025-15661 read the request id as the status code (ssh2_sftp_symlink() of PHP, symlink of curl, mc), and a NAME reply to a SYMLINK request was copied into the name of the link the caller gave; libssh2_session_method_pref() accepted a list of key exchange methods it does not know (ssh2_connect() of PHP with a wrong kex: no error, a failing handshake later); a double free of the mkdir packet after a failed write; the packet length unchecked with the ETM MACs (GHSA-949f-w9qj-9q6h); an SFTP read in a loop on an end of the channel in the middle of a packet (GHSA-2q3j-q544-xxp7); a packet with no payload left after its padding read on. Ours: the MD5 MACs hmac-md5 and hmac-md5-96 behind LIBSSH2_NO_HMAC_MD5 (mac.c), so that the build can leave them out (curl/build-libcurl.sh, with LIBSSH2_NO_3DES, LIBSSH2_NO_RC4, LIBSSH2_NO_BLOWFISH and LIBSSH2_NO_CAST of 1.11.1: aZ, 12.11.2026) while keeping the MD5 of the host key fingerprint (libssh2_hostkey_hash(): ssh2_fingerprint() of PHP by default, --hostpubmd5 of curl) and of old PEM keys, which LIBSSH2_NO_MD5 takes away too
+Origin: freebsd-ports security/libssh2 @ f16b6dd0f7c1 (PATCHFILES 5d03b4f94ac6, d4e43c7b69d1, 256d04b60d80 of https://github.com/libssh2/libssh2), -p0; Gentoo net-libs/libssh2 1.11.1-r2 (bug 977961): upstream 97acf3dfda80 (CVE-2026-55200), the result checks of _libssh2_get_string() in packet.c (CVE-2026-55199), upstream 2dae3024897e (CVE-2025-15661); CVE-2026-66032, -66033, -66034, -66035 (upstream 5e47761, a2ed82d, a13bb6c, 42e33d8) and CVE-2026-58050, -58051 (upstream 3449752, 32092f0) as Debian carries them on 1.11.1 (libssh2 1.11.1-5 and -6, https://sources.debian.org/src/libssh2/1.11.1-6/debian/patches/; Ubuntu 26.04 1.11.1-1ubuntu0.26.04.4, Alpine 1.11.1-r4 and openSUSE the same set), in this order after the ones above; upstream https://github.com/libssh2/libssh2/commit/631e2f82a32ef016299ebb1af66efeae0161f68e (#1763, 19.12.2025, as Homebrew carries it) with https://github.com/libssh2/libssh2/commit/22bba2ef5b0e189ad16db4c4e7da4a7c55683465 (GHSA-92x4-f995-pjxq, 06.11.2026), https://github.com/libssh2/libssh2/commit/4ed26f5740bdd409269ed9fb48a28bf8f565b681 (#1731, as OpenEmbedded carries it, CVE-2025-15661-3.patch, and Buildroot, 0006-sftp-symlink-fix-SSH_FXP_STATUS-response.patch) with https://github.com/libssh2/libssh2/commit/6125bfe552b3a8c7340c2fb3b82cdf65b0e16f9d (07.11.2026), https://github.com/libssh2/libssh2/commit/4beed7245889ba149cc372f845d5969ce5103a5d (#1554, as OpenEmbedded carries it, 0001-Return-error-if-user-KEX-methods-are-invalid.patch), https://github.com/libssh2/libssh2/commit/b9254798b6437af5dd43180c6d3b3db555f03f6e (02.11.2026), https://github.com/libssh2/libssh2/commit/70864b47b33ba330a6ba0fa5e7da9a9a6da8efb7 (GHSA-949f-w9qj-9q6h, 02.11.2026), https://github.com/libssh2/libssh2/commit/9438f90ae03f52d54297f15ef23b05ebb7c5f598 (GHSA-2q3j-q544-xxp7, 03.09.2026), https://github.com/libssh2/libssh2/commit/441ca6df7c8f1816c7ea477348c45645f1cc4102 (10.11.2026), those of master on the code of 1.11.1 (the names of its functions); the switch of the MD5 MACs ours, the switches of 1.11.1 as Homebrew turns them off by default (https://github.com/libssh2/libssh2/commit/b89858b83d68d7e29e0c5b0bb803f8a68271710c); -p0
 
 --- CMakeLists.txt
 +++ CMakeLists.txt
@@ -347,3 +347,221 @@ Origin: freebsd-ports security/libssh2 @ f16b6dd0f7c1 (PATCHFILES 5d03b4f94ac6, 
              }
              if(pkey->version == 1) {
                  unsigned long comment_len;
+--- src/kex.c
++++ src/kex.c
+@@ -3706,7 +3706,8 @@ static int kex_agree_kex_hostkey(LIBSSH2_SESSION * session, unsigned char *kex,
+                 /* We've agreed on a key exchange method,
+                  * Can we agree on a hostkey that works with this kex?
+                  */
+-                if(kex_agree_hostkey(session, method->flags, hostkey,
++                if(method->exchange_keys &&
++                   kex_agree_hostkey(session, method->flags, hostkey,
+                                      hostkey_len) == 0) {
+                     session->kex = method;
+                     if(session->burn_optimistic_kexinit && (kex == q)) {
+@@ -4150,8 +4151,11 @@ _libssh2_kex_exchange(LIBSSH2_SESSION * session, int reexchange,
+ 
+     if(rc == 0 && session->kex) {
+         if(key_state->state == libssh2_NB_state_sent2) {
+-            retcode = session->kex->exchange_keys(session,
+-                                                  &key_state->key_state_low);
++            if(session->kex->exchange_keys)
++                retcode = session->kex->exchange_keys(session,
++                                                    &key_state->key_state_low);
++            else
++                retcode = LIBSSH2_ERROR_PROTO;  /* No exchange keys present */
+             if(retcode == LIBSSH2_ERROR_EAGAIN) {
+                 session->state &= ~LIBSSH2_STATE_KEX_ACTIVE;
+                 return retcode;
+@@ -4196,23 +4200,11 @@ libssh2_session_method_pref(LIBSSH2_SESSION * session, int method_type,
+     char *tmpprefs = NULL;
+     size_t prefs_len = strlen(prefs);
+     const LIBSSH2_COMMON_METHOD **mlist;
+-    const char *kex_extensions = "ext-info-c,kex-strict-c-v00@openssh.com,";
+-    size_t kex_extensions_len = strlen(kex_extensions);
+ 
+     switch(method_type) {
+     case LIBSSH2_METHOD_KEX:
+         prefvar = &session->kex_prefs;
+         mlist = (const LIBSSH2_COMMON_METHOD **)libssh2_kex_methods;
+-        tmpprefs = LIBSSH2_ALLOC(session, kex_extensions_len + prefs_len + 1);
+-        if(!tmpprefs) {
+-            return _libssh2_error(session, LIBSSH2_ERROR_ALLOC,
+-                                  "Error allocated space for kex method"
+-                                  " preferences");
+-        }
+-        memcpy(tmpprefs, kex_extensions, kex_extensions_len);
+-        memcpy(tmpprefs + kex_extensions_len, prefs, prefs_len + 1);
+-        prefs = tmpprefs;
+-        prefs_len = strlen(prefs);
+         break;
+ 
+     case LIBSSH2_METHOD_HOSTKEY:
+@@ -4314,6 +4306,27 @@ libssh2_session_method_pref(LIBSSH2_SESSION * session, int method_type,
+                               "supported");
+     }
+ 
++    /* add method kex extension to the start of the user list */
++    if(method_type == LIBSSH2_METHOD_KEX) {
++        const char *kex_extensions =
++                    "ext-info-c,kex-strict-c-v00@openssh.com,";
++        size_t kex_extensions_len = strlen(kex_extensions);
++        size_t tmp_len = kex_extensions_len + strlen(newprefs);
++        tmpprefs = LIBSSH2_ALLOC(session, tmp_len + 1);
++        if(!tmpprefs) {
++            return _libssh2_error(session, LIBSSH2_ERROR_ALLOC,
++                                  "Error allocated space for kex method"
++                                  " preferences");
++        }
++
++        memcpy(tmpprefs, kex_extensions, kex_extensions_len);
++        memcpy(tmpprefs + kex_extensions_len, newprefs, strlen(newprefs));
++        tmpprefs[tmp_len] = '\0';
++
++        LIBSSH2_FREE(session, newprefs);
++        newprefs = tmpprefs;
++    }
++
+     if(*prefvar) {
+         LIBSSH2_FREE(session, *prefvar);
+     }
+--- src/mac.c
++++ src/mac.c
+@@ -316,7 +316,7 @@ static const LIBSSH2_MAC_METHOD mac_method_hmac_sha1_96 = {
+     0
+ };
+ 
+-#if LIBSSH2_MD5
++#if LIBSSH2_MD5 && !defined(LIBSSH2_NO_HMAC_MD5)
+ /* mac_method_hmac_md5_hash
+  * Calculate hash using full md5 value
+  */
+@@ -393,7 +393,7 @@ static const LIBSSH2_MAC_METHOD mac_method_hmac_md5_96 = {
+     mac_method_common_dtor,
+     0
+ };
+-#endif /* LIBSSH2_MD5 */
++#endif /* LIBSSH2_MD5 && !LIBSSH2_NO_HMAC_MD5 */
+ 
+ #if LIBSSH2_HMAC_RIPEMD
+ /* mac_method_hmac_ripemd160_hash
+@@ -464,7 +464,7 @@ static const LIBSSH2_MAC_METHOD *mac_methods[] = {
+     &mac_method_hmac_sha1,
+     &mac_method_hmac_sha1_etm,
+     &mac_method_hmac_sha1_96,
+-#if LIBSSH2_MD5
++#if LIBSSH2_MD5 && !defined(LIBSSH2_NO_HMAC_MD5)
+     &mac_method_hmac_md5,
+     &mac_method_hmac_md5_96,
+ #endif
+--- src/sftp.c
++++ src/sftp.c
+@@ -307,6 +307,12 @@ sftp_packet_read(LIBSSH2_SFTP *sftp)
+                 return (int)rc;
+             else if(rc < 0)
+                 return _libssh2_error(session, (int)rc, "channel read");
++            else if(rc == 0) {
++                sftp->packet_header_len = 0;
++                return _libssh2_error(session, LIBSSH2_ERROR_SOCKET_RECV,
++                                      "Unexpected channel EOF while reading "
++                                      "SFTP packet header");
++            }
+ 
+             sftp->packet_header_len += rc;
+ 
+@@ -387,11 +393,15 @@ window_adjust:
+                 sftp->packet_state = libssh2_NB_state_sent1;
+                 return (int)rc;
+             }
+-            else if(rc < 0) {
++            else if(rc <= 0) {
+                 LIBSSH2_FREE(session, packet);
+                 sftp->partial_packet = NULL;
+-                return _libssh2_error(session, (int)rc,
+-                                      "Error waiting for SFTP packet");
++                if(rc < 0)
++                    return _libssh2_error(session, (int)rc,
++                                          "Error waiting for SFTP packet");
++                return _libssh2_error(session, LIBSSH2_ERROR_SOCKET_RECV,
++                                      "Unexpected channel EOF while reading "
++                                      "SFTP packet body");
+             }
+             sftp->partial_received += rc;
+         }
+@@ -3481,15 +3491,15 @@ static int sftp_mkdir(LIBSSH2_SFTP *sftp, const char *path,
+             sftp->mkdir_packet = packet;
+             return (int)nwritten;
+         }
++        LIBSSH2_FREE(session, packet);
++        sftp->mkdir_packet = NULL;
++
+         if(packet_len != nwritten) {
+-            LIBSSH2_FREE(session, packet);
+             sftp->mkdir_state = libssh2_NB_state_idle;
+             return _libssh2_error(session, LIBSSH2_ERROR_SOCKET_SEND,
+                                   "_libssh2_channel_write() failed");
+         }
+-        LIBSSH2_FREE(session, packet);
+         sftp->mkdir_state = libssh2_NB_state_sent;
+-        sftp->mkdir_packet = NULL;
+     }
+ 
+     rc = sftp_packet_require(sftp, SSH_FXP_STATUS, sftp->mkdir_request_id,
+@@ -3906,6 +3916,13 @@ static int sftp_symlink(LIBSSH2_SFTP *sftp, const char *path,
+                               "SFTP Protocol Error (type)");
+     }
+ 
++    /* advance past id */
++    if(_libssh2_get_u32(&buf, &tmp_u32)) {
++        LIBSSH2_FREE(session, data);
++        return _libssh2_error(session, LIBSSH2_ERROR_SFTP_PROTOCOL,
++                              "SFTP Protocol Error (id)");
++    }
++
+     if(packet_type == SSH_FXP_STATUS) {
+         if(_libssh2_get_u32(&buf, &tmp_u32)) {
+             LIBSSH2_FREE(session, data);
+@@ -3925,11 +3942,11 @@ static int sftp_symlink(LIBSSH2_SFTP *sftp, const char *path,
+         }
+     }
+ 
+-    /* advance past id */
+-    if(_libssh2_get_u32(&buf, &tmp_u32)) {
++    /* SYMLINK is answered with a STATUS only, and 'target' is input then */
++    if(link_type == LIBSSH2_SFTP_SYMLINK) {
+         LIBSSH2_FREE(session, data);
+         return _libssh2_error(session, LIBSSH2_ERROR_SFTP_PROTOCOL,
+-                              "SFTP Protocol Error (id)");
++                              "SFTP Protocol Error (unexpected SYMLINK reply)");
+     }
+ 
+     /* look for at least one link */
+--- src/transport.c
++++ src/transport.c
+@@ -322,6 +322,13 @@ fullpacket(LIBSSH2_SESSION * session, int encrypted /* 1 or 0 */ )
+             session->fullpacket_payload_len = data_len;
+         }
+ 
++        /* the payload must at least hold the message type */
++        if(session->fullpacket_payload_len < 1) {
++            LIBSSH2_FREE(session, p->payload);
++            p->payload = NULL;
++            return LIBSSH2_ERROR_PROTO;
++        }
++
+         session->fullpacket_packet_type = p->payload[0];
+ 
+         debugdump(session, "libssh2_transport_read() plain",
+@@ -614,6 +621,12 @@ int _libssh2_transport_read(LIBSSH2_SESSION * session)
+                     /* we collect entire undecrypted packet including the
+                      packet length field that we run MAC over */
+                     p->packet_length = _libssh2_ntohu32(block);
++
++                    if(p->packet_length < 1)
++                        return LIBSSH2_ERROR_DECRYPT;
++                    else if(p->packet_length > LIBSSH2_PACKET_MAXPAYLOAD)
++                        return LIBSSH2_ERROR_OUT_OF_BOUNDARY;
++
+                     total_num = 4 + p->packet_length +
+                     remote_mac->mac_len;
+                 }

@@ -813,7 +813,7 @@ PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведё�
 | libidn2 | 2.3.8 | `dns/libidn2` | международные доменные имена (IDN) |
 | libpsl | 0.23.3 | `dns/libpsl` | список публичных суффиксов: никаких cookies на целый публичный суффикс вроде `co.uk` |
 | список публичных суффиксов | 21.09.2026 | `dns/public_suffix_list` | встроен в libpsl |
-| libssh2 | 1.11.1 | `security/libssh2` | SCP и SFTP (`scp://`, `sftp://`), с OpenSSL самого curl и патчами своего порта |
+| libssh2 | 1.11.1 | `security/libssh2` | SCP и SFTP (`scp://`, `sftp://`), с OpenSSL самого curl, патчами своего порта и исправлениями безопасности 2025 и 2026 годов после 1.11.1 ([`freebsd/curl/libssh2-1.11.1.patch`](freebsd/curl/libssh2-1.11.1.patch)); без старых алгоритмов SSH: MAC на MD5, 3DES, RC4, Blowfish, CAST (сервер, у которого есть только они, недоступен; MD5 отпечатка ключа хоста остаётся) |
 
 Как он собирается и работает:
 
