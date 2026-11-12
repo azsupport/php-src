@@ -30,7 +30,8 @@
 #                                    patches/, files/, pkg/
 #   <branch>/<port dir>/rlog.txt     its revisions on the branch: the commits
 #                                    merged into it, with date, author and message
-#                                    (cvs rlog -N -S -r<branch>)
+#                                    (cvs rlog -N -r<branch>, the files with
+#                                    revisions on the branch only)
 #   <branch>/<port dir>/branch.diff  the branch against the release it started
 #                                    from (cvs rdiff -u -r <branch>_BASE -r <branch>)
 #   report.md                        the mirror and its host key, the branches of
@@ -166,8 +167,9 @@ cvsq() {
         [ $rc -eq 0 ] && return 0
         # rdiff may end in 1 when it found differences
         [ "$1" = rdiff ] && [ -s "$f" ] && return 0
-        # a missing tag, revision or directory is an answer, not a failure of the connection
-        if grep -q -E 'no revision|no such tag|cannot find module|could not find|there is no' "$w/cvserr"; then
+        # a missing tag, revision or directory, or a refused option, is an answer,
+        # not a failure of the connection
+        if grep -q -E 'no revision|no such tag|cannot find module|could not find|there is no|[Uu]sage:|--help' "$w/cvserr"; then
             return $rc
         fi
         note "cvs $1: exit $rc: $(tail -n 1 "$w/cvserr")"
@@ -356,8 +358,17 @@ for d in "$@"; do
             fi
             continue
         fi
+        # the cvs of the OpenBSD servers knows no rlog -S: the files without
+        # revisions on the branch are left out here
         rc=0
-        cvsq "$dest/rlog.txt" rlog -N -S -r"$b" "ports/$d" || rc=$?
+        cvsq "$w/rlog" rlog -N -r"$b" "ports/$d" || rc=$?
+        awk '
+            { blk = blk $0 "\n" }
+            /^total revisions: .*selected revisions: [0-9]+/ { n = $NF + 0 }
+            /^=============================================================================$/ {
+                if (n > 0) printf "%s", blk
+                blk = ""; n = 0
+            }' "$w/rlog" > "$dest/rlog.txt"
         if [ $rc -ne 0 ] && [ ! -s "$dest/rlog.txt" ] && ! grep -q 'no revision' "$w/cvserr"; then
             notes="$notes $b: rlog failed ($(tail -n 1 "$w/cvserr" | tr '|' '/'));"
             printf '(rlog failed: %s)\n' "$(tail -n 1 "$w/cvserr")" > "$dest/rlog.txt"
