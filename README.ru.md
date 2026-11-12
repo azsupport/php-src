@@ -779,7 +779,7 @@ PHP 8.x; сборка 7.4 или 5.6 с отдельным OpenSSL 1.1 ведё�
 |---|---|---|---|
 | curl | 8.23.0 | `ftp/curl` | с патчем configure этого порта |
 | c-ares | 1.34.9 | `dns/c-ares` | резолвит имена (ниже) |
-| nghttp2 | 1.70.0 | `www/libnghttp2` | HTTP/2 |
+| nghttp2 | 1.71.0 | `www/libnghttp2` | HTTP/2 |
 | brotli | 1.2.1 | `archivers/brotli` | ответы в `br` (`CURLOPT_ENCODING`); 1.2.1 исправляет CVE-2026-111497 — запись за границей в декодере |
 | zstd | 1.5.7 | `archivers/zstd` | ответы в `zstd` (`CURLOPT_ENCODING`) |
 | libidn2 | 2.3.8 | `dns/libidn2` | международные доменные имена (IDN) |
