@@ -68,6 +68,7 @@ Usage: python3 tools/debian-fetch.py --out DIR [--report FILE] [--suites LIST]
 
 import argparse
 import bz2
+import concurrent.futures
 import datetime
 import email.utils
 import functools
@@ -83,6 +84,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -159,6 +161,7 @@ UBUNTU_OLDEST = (14, 4)                                 # older releases only wh
 # the end of the standard support of the releases in ESM (Ubuntu Pro): their later fixes are not public
 UBUNTU_ESM = {"trusty": "2019-04", "xenial": "2021-04", "bionic": "2023-05", "focal": "2025-05"}
 UBUNTU_RUNS_DIR = "distro/ubuntu"
+UBUNTU_THREADS = 8                                      # indexes and versions read at once
 LAUNCHPAD = "https://api.launchpad.net/1.0/ubuntu/+archive/primary"
 LAUNCHPAD_FILE = "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/%s/%s/%s"
 
@@ -634,8 +637,16 @@ class Fetcher:
         self.out = out
         self.stage = tempfile.mkdtemp(prefix="debian-fetch-")
         self.cache = {}           # (source, version) -> (staged directory, [source.txt lines])
+        self.lock = threading.Lock()
+        self.key_locks = {}       # Ubuntu fetches in threads: one fetch of a version at a time
 
     def write(self, src, suite, version, fmt, where, files, getter, fields):
+        with self.lock:
+            key_lock = self.key_locks.setdefault((src, version), threading.Lock())
+        with key_lock:
+            return self._write(src, suite, version, fmt, where, files, getter, fields)
+
+    def _write(self, src, suite, version, fmt, where, files, getter, fields):
         dest = os.path.join(self.out, src, dirname(suite, version))
         key = (src, version)
         if key not in self.cache:
@@ -958,6 +969,23 @@ def main():
 
     # the indexes: the entries of the packages asked for (by source or binary name)
     found, read = {}, []
+    prefetched = {}
+    if ubuntu:
+        # Ubuntu has several times as many suites (old-releases.ubuntu.com is slow): read
+        # them in threads, used in their order below as before
+        def read_suite(item):
+            suite, candidates = item
+            for base, dist in candidates:
+                try:
+                    got = read_index_filtered(base, dist, names)
+                except Exception as e:  # noqa: BLE001
+                    warn("%s %s: %s" % (suite, dist, e))
+                    got = None
+                if got is not None:
+                    return suite, (got[0], got[1], base, dist)
+            return suite, None
+        with concurrent.futures.ThreadPoolExecutor(max_workers=UBUNTU_THREADS) as ex:
+            prefetched = dict(ex.map(read_suite, [x for x in suites if x[0] != "sury"]))
     for suite, candidates in suites:
         if suite == "sury":
             continue
@@ -965,8 +993,10 @@ def main():
         for base, dist in candidates:
             try:
                 if ubuntu:
-                    got = read_index_filtered(base, dist, names)
-                    stanzas, total = got if got is not None else (None, 0)
+                    got = prefetched.get(suite)
+                    if got is not None and got[2:] != (base, dist):
+                        continue
+                    stanzas, total = (got[0], got[1]) if got is not None else (None, 0)
                 else:
                     stanzas = read_index(base, dist)
                     total = len(stanzas) if stanzas is not None else 0
@@ -989,6 +1019,24 @@ def main():
 
     os.makedirs(a.out, exist_ok=True)
     fetcher = Fetcher(a.out)
+    pre = {}
+    if ubuntu:
+        # the versions of the suites, fetched in threads; the loop below takes them in its order
+        jobs = {}
+        for name, version in asked:
+            hits = found.get(name, [])
+            for suite, s in ([(su, s) for su, s in hits if s.get("Package") == name] or hits):
+                jobs.setdefault((s.get("Package"), suite, s.get("Version")), (suite, s))
+
+        def fetch_job(item):
+            key, (suite, s) = item
+            try:
+                return key, from_suite(fetcher, key[0], suite, s), None
+            except Exception as e:  # noqa: BLE001
+                return key, None, e
+        with concurrent.futures.ThreadPoolExecutor(max_workers=UBUNTU_THREADS) as ex:
+            for key, res, err in ex.map(fetch_job, list(jobs.items())):
+                pre[key] = (res, err)
     sury_read = [0]
     results, missing, errors = [], [], []
     order = {s[0]: i for i, s in enumerate(SUITES)}
@@ -1008,7 +1056,13 @@ def main():
                 continue
             seen.add(key)
             try:
-                v, fmt, dest = from_suite(fetcher, src, suite, s)
+                if key in pre:
+                    res, err = pre[key]
+                    if err is not None:
+                        raise err
+                    v, fmt, dest = res
+                else:
+                    v, fmt, dest = from_suite(fetcher, src, suite, s)
                 results.append((name, src, suite, v, fmt, os.path.relpath(dest, a.out)))
             except Exception as e:  # noqa: BLE001
                 errors.append("%s %s %s: %s" % (src, suite, s.get("Version"), e))
