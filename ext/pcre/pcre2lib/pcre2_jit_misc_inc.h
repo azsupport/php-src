@@ -141,8 +141,8 @@ if (startsize == 0 || maxsize == 0 || maxsize > SIZE_MAX - STACK_GROWTH_RATE)
   return NULL;
 if (startsize > maxsize)
   startsize = maxsize;
-startsize = (startsize + STACK_GROWTH_RATE - 1) & ~(STACK_GROWTH_RATE - 1);
-maxsize = (maxsize + STACK_GROWTH_RATE - 1) & ~(STACK_GROWTH_RATE - 1);
+startsize = (startsize + STACK_GROWTH_RATE - 1) & (size_t)(~(STACK_GROWTH_RATE - 1));
+maxsize = (maxsize + STACK_GROWTH_RATE - 1) & (size_t)(~(STACK_GROWTH_RATE - 1));
 
 jit_stack = PRIV(memctl_malloc)(sizeof(pcre2_real_jit_stack), (pcre2_memctl *)gcontext);
 if (jit_stack == NULL) return NULL;
@@ -200,17 +200,28 @@ if (jit_stack != NULL)
 
 
 /*************************************************
-*               Get target CPU type              *
+*          Checks function compilation           *
 *************************************************/
 
-const char*
-PRIV(jit_get_target)(void)
+BOOL
+PRIV(jit_check_exec)(void *executable_jit, uint32_t options)
 {
 #ifndef SUPPORT_JIT
-return "JIT is not supported";
+(void)executable_jit;
+(void)options;
+return FALSE;
 #else  /* SUPPORT_JIT */
-return sljit_get_platform_name();
-#endif  /* SUPPORT_JIT */
+/* The same check is performed at the beginning of pcre2_jit_match(). */
+executable_functions *functions = (executable_functions *)executable_jit;
+int index = 0;
+
+if ((options & PCRE2_PARTIAL_HARD) != 0)
+  index = 2;
+else if ((options & PCRE2_PARTIAL_SOFT) != 0)
+  index = 1;
+
+return functions->executable_funcs[index] != NULL;
+#endif
 }
 
 
@@ -231,4 +242,19 @@ return executable_sizes[0] + executable_sizes[1] + executable_sizes[2];
 #endif
 }
 
-/* End of pcre2_jit_misc.c */
+/*************************************************
+*               Get target CPU type              *
+*************************************************/
+
+const char*
+PRIV(jit_get_target)(void)
+{
+#ifndef SUPPORT_JIT
+return "JIT is not supported";
+#else  /* SUPPORT_JIT */
+return sljit_get_platform_name();
+#endif  /* SUPPORT_JIT */
+}
+
+
+/* End of pcre2_jit_misc_inc.h */
