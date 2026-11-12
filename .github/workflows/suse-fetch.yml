@@ -1,0 +1,92 @@
+name: openSUSE fetch
+
+# The patches openSUSE and SUSE carry for source packages, in every release
+# (tools/suse-fetch.py): the source RPMs of Tumbleweed and of the Leap releases
+# (16.0, 15.6 and older, each with its update repositories: oss, sle - the packages
+# of SUSE Linux Enterprise - and backports) on download.opensuse.org, and the
+# packages of the projects of the Open Build Service (api.opensuse.org/public):
+# openSUSE:Factory with the devel project of each package, SUSE:SLE-15-SPx and
+# SUSE:SLE-12-SPx (:Update, :GA: SUSE's backports to old versions, LTSS as far as it
+# is public), SUSE:SLFO (SLE 16) and openSUSE:Backports (Package Hub). Of every
+# version: the spec, the patches, the head of the .changes (its CVEs), the list of
+# its files. The sites of openSUSE are closed to the sandbox of Claude Code, GitHub
+# is not: the files go into the branch runs of the private azsupport/azsupport
+# (secret RUNS_TOKEN), distro/opensuse/<YYYY-MM-DD>/<package>/<release>_<version>/,
+# with index.md per package, and the report of the run into
+# suse-fetch/<YYYY-MM-DD>/<run id>-fetch.md there (tools/runs-report.sh).
+# Started by hand (Actions, "openSUSE fetch", "Run workflow") or by the API:
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/suse-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[packages]=vsftpd unzip'
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'openSUSE source packages, separated by spaces (php7 libssh2_org ImageMagick)'
+        required: false
+        type: string
+        default: ''
+      releases:
+        description: 'Only these releases, shell patterns separated by spaces (tumbleweed leap-15.6 sle-15-* factory devel); empty: all'
+        required: false
+        type: string
+        default: ''
+      obs:
+        description: 'More OBS projects to read, label=project separated by spaces (devel-php=devel:languages:php)'
+        required: false
+        type: string
+        default: ''
+      search:
+        description: 'List the source packages whose name matches this regular expression (repositories read, openSUSE:Factory)'
+        required: false
+        type: string
+        default: ''
+      explore:
+        description: 'List these directories of download.opensuse.org or of the OBS API (URLs separated by spaces)'
+        required: false
+        type: string
+        default: ''
+      list_projects:
+        description: 'List the OBS projects whose name matches this regular expression'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch and push to azsupport/azsupport (branch runs)
+        id: fetch
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          RELEASES: ${{ inputs.releases }}
+          OBS: ${{ inputs.obs }}
+          SEARCH: ${{ inputs.search }}
+          EXPLORE: ${{ inputs.explore }}
+          LIST_PROJECTS: ${{ inputs.list_projects }}
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: |
+          set -f
+          rc=0
+          python3 -I tools/suse-fetch.py --out "$RUNNER_TEMP/opensuse" --report report.md \
+            --releases "$RELEASES" --obs "$OBS" --search "$SEARCH" --explore "$EXPLORE" \
+            --list-projects "$LIST_PROJECTS" --push -- $PACKAGES || rc=$?
+          [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Report
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: packages=${{ inputs.packages }} releases=${{ inputs.releases }} obs=${{ inputs.obs }} search=${{ inputs.search }} list_projects=${{ inputs.list_projects }}
+          RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
+        run: |
+          [ -s report.md ] || printf '### openSUSE fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
+          sh tools/runs-report.sh report.md fetch
