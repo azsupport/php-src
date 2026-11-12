@@ -85,10 +85,9 @@ if [ "$cmd" = push ]; then
         exit 1
     fi
     mkdir -p "$r/$base"
-    # each tree in the place of that of an earlier run of the day, its files added
-    for t in "$src"/*/; do
-        [ -d "$t" ] || continue
-        t="$(basename "$t")"
+    # the files of each tree added to those of an earlier run of the day (no glob:
+    # set -f is on)
+    for t in $(cd "$src" && find . -mindepth 1 -maxdepth 1 -type d | sed 's#^\./##'); do
         mkdir -p "$r/$base/$t"
         cp -R "$src/$t/." "$r/$base/$t/"
     done
