@@ -25,9 +25,23 @@ PHP_ARG_WITH([capstone],
   [no],
   [no])
 
+PHP_ARG_ENABLE([opcache-static],
+  [whether to build OPcache into PHP],
+  [AS_HELP_STRING([--enable-opcache-static],
+    [Build OPcache into PHP instead of opcache.so (azsupport/php-src): no
+    zend_extension line is needed, zend_extension=opcache.so is skipped])],
+  [no],
+  [no])
+
 if test "$PHP_OPCACHE" != "no"; then
   dnl Always build as shared extension.
-  ext_shared=yes
+  dnl Built into PHP with --enable-opcache-static (azsupport/php-src), as PHP 8.5
+  dnl always does.
+  AS_VAR_IF([PHP_OPCACHE_STATIC], [yes], [
+    ext_shared=no
+    AC_DEFINE([HAVE_OPCACHE_STATIC], [1],
+      [Define to 1 if OPcache is built into PHP (--enable-opcache-static).])
+  ], [ext_shared=yes])
 
   AS_VAR_IF([PHP_HUGE_CODE_PAGES], [yes],
     [AC_DEFINE([HAVE_HUGE_CODE_PAGES], [1],
@@ -322,6 +336,13 @@ int main(void) {
     AS_CASE([$ac_cv_search_shm_open], ["none required"|no], [],
       [PHP_EVAL_LIBLINE([$ac_cv_search_shm_open], [OPCACHE_SHARED_LIBADD])])
   ])
+
+  AS_IF([test "$PHP_OPCACHE_STATIC" = "yes" && test "$PHP_THREAD_SAFETY" = "yes" && test "$PHP_OPCACHE_JIT" = "yes"],
+    [AC_MSG_ERROR(m4_text_wrap([
+      --enable-opcache-static does not go with ZTS and the JIT before PHP 8.5
+      (the JIT reaches thread-local data in a way that works only from
+      opcache.so): add --disable-opcache-jit, or build opcache.so.
+    ]))])
 
   PHP_NEW_EXTENSION([opcache], m4_normalize([
       shared_alloc_mmap.c
