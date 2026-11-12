@@ -25,6 +25,11 @@ on:
         required: false
         type: string
         default: ''
+      skip_dist:
+        description: 'A regular expression: DIST files not to download (patch sets mirrored on GitHub, as ^gcc-)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -41,13 +46,14 @@ jobs:
         env:
           DIRS: ${{ inputs.dirs }}
           SINCE: ${{ inputs.since }}
+          SKIP_DIST: ${{ inputs.skip_dist }}
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
         run: |
           set -f
           rc=0
           # shellcheck disable=SC2086
           python3 -I tools/gentoo-fetch.py --out "$RUNNER_TEMP/gentoo" --report report.md \
-            --since "$SINCE" --push -- $DIRS || rc=$?
+            --since "$SINCE" --skip-dist "$SKIP_DIST" --push -- $DIRS || rc=$?
           [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
           exit $rc
 
@@ -55,7 +61,7 @@ jobs:
         if: always()
         env:
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
-          RUNS_INPUTS: dirs=${{ inputs.dirs }} since=${{ inputs.since }}
+          RUNS_INPUTS: dirs=${{ inputs.dirs }} since=${{ inputs.since }} skip_dist=${{ inputs.skip_dist }}
           RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
         run: |
           [ -s report.md ] || printf '### Gentoo fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
