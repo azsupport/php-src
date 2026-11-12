@@ -691,10 +691,20 @@ def push(out, day, run):
                 "--single-branch", remote, repo)
             git("sparse-checkout", "set", target, cwd=repo)
             dst = os.path.join(repo, target)
+            # each entry of a part is replaced on its own: runs of the same day with other entries of a part
+            # (githist of other repositories) keep theirs
             for part in sorted(os.listdir(out)):
-                if os.path.exists(os.path.join(dst, part)):
-                    shutil.rmtree(os.path.join(dst, part))
-                shutil.copytree(os.path.join(out, part), os.path.join(dst, part))
+                for entry in sorted(os.listdir(os.path.join(out, part))):
+                    src_e, dst_e = os.path.join(out, part, entry), os.path.join(dst, part, entry)
+                    if os.path.isdir(dst_e) and not os.path.islink(dst_e):
+                        shutil.rmtree(dst_e)
+                    elif os.path.lexists(dst_e):
+                        os.remove(dst_e)
+                    os.makedirs(os.path.dirname(dst_e), exist_ok=True)
+                    if os.path.isdir(src_e):
+                        shutil.copytree(src_e, dst_e)
+                    else:
+                        shutil.copy2(src_e, dst_e)
             git("add", "-A", target, cwd=repo)
             if not git("status", "--porcelain", cwd=repo).stdout.strip():
                 log("runs: nothing new to commit")
