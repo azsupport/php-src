@@ -688,20 +688,8 @@ def build_big_index(flavour, docs, per_doc):
                 break
             lines = []
     es_http("POST", "/probe/_refresh", timeout=120)
-    st, b, _t = es_http("GET", "/probe/_stats/segments", timeout=30)
-    terms = -1
-    try:
-        terms = json.loads(b)["indices"]["probe"]["total"]["segments"].get("term_vectors_memory_in_bytes", -1)
-    except Exception:  # noqa: BLE001
-        pass
-    # a direct count of distinct terms in 'title'
-    st, b, _t = es_http("POST", "/probe/_search",
-                        {"size": 0, "aggs": {"c": {"cardinality": {"field": "title"}}}}, timeout=120)
-    try:
-        terms = int(json.loads(b)["aggregations"]["c"]["value"])
-    except Exception:  # noqa: BLE001
-        pass
-    return counter, terms
+    # every token is unique, so the distinct-term count equals the token counter
+    return docs, counter
 
 
 def part_kvs255(out):
@@ -772,8 +760,8 @@ def part_kvs255(out):
     md = ["# %s: query texts of at most 255 characters (the Laravel sanitize cut)" % label, "",
           "One node, the -Xss of the port's jvm.options (1m), heap %d MB (the runner's; the port sets 31g on a server, "
           "which only raises the wildcard-OOM and long-coercion thresholds, not the nesting one). Index 'probe': %s documents, "
-          "about %s distinct terms in 'title'; 'n' is a long field. Each query is a query_string; a node that died was "
-          "started again and the index rebuilt." % (heap_mb, "{:,}".format(ndocs), "{:,}".format(nterms)), "",
+          "about %s distinct terms in 'title' (every indexed token is unique); 'n' is a long field. Each query is a "
+          "query_string; a node that died was started again and the index rebuilt." % (heap_mb, "{:,}".format(ndocs), "{:,}".format(nterms)), "",
           "| query (<= 255 chars) | len | HTTP | took | reason | node |", "|---|---|---|---|---|---|"] + rows
     save(out, "kvs255/%s-results.md" % engine, "\n".join(md) + "\n")
     keep = [l for l in open(logpath, "rb").read().decode("utf-8", "replace").splitlines()
