@@ -790,7 +790,7 @@ what FreeBSD needs ([`freebsd/curl.conf`](freebsd/curl.conf),
 |---|---|---|---|
 | curl | 8.23.0 | `ftp/curl` | with the configure patch of that port |
 | c-ares | 1.34.9 | `dns/c-ares` | resolving names (below) |
-| nghttp2 | 1.70.0 | `www/libnghttp2` | HTTP/2 |
+| nghttp2 | 1.71.0 | `www/libnghttp2` | HTTP/2 |
 | brotli | 1.2.1 | `archivers/brotli` | `br` responses (`CURLOPT_ENCODING`); 1.2.1 fixes CVE-2026-111497, an out-of-bounds write in the decoder |
 | zstd | 1.5.7 | `archivers/zstd` | `zstd` responses (`CURLOPT_ENCODING`) |
 | libidn2 | 2.3.8 | `dns/libidn2` | international domain names (IDN) |
