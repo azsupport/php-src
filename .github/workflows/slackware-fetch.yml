@@ -1,0 +1,58 @@
+name: Slackware fetch
+
+# What Slackware builds some of its packages with (tools/slackware-fetch.sh): the
+# files of their source directories (SlackBuild, patches, configs; not the source
+# tarballs) in slackware64-current, slackware64-15.0 and slackware64-14.2, with the
+# security updates of the releases (patches/source/) and extra/, testing/,
+# pasture/, and the ChangeLog.txt of each tree; every file checked against the
+# CHECKSUMS.md5 of its tree, signed by the key of Slackware. Slackware's mirrors are
+# closed to the sandbox of Claude Code, GitHub is not: the files go into the branch
+# runs of the private azsupport/azsupport (secret RUNS_TOKEN),
+# distro/slackware/<YYYY-MM-DD>/<tree>/<path in the tree>, and the report of the run
+# into distro/slackware/<YYYY-MM-DD>/<run id>.md there.
+# Started by hand (Actions, "Slackware fetch", "Run workflow") or by the API:
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/slackware-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[packages]=php httpd infozip'
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Names of source directories of Slackware, separated by spaces (php httpd infozip; "*" matches any characters)'
+        required: true
+        type: string
+      trees:
+        description: 'Trees, separated by spaces (empty: slackware64-current slackware64-15.0 slackware64-14.2)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the source directories
+        id: fetch
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          TREES: ${{ inputs.trees }}
+        run: |
+          rc=0
+          set -f
+          [ -n "$TREES" ] || unset TREES
+          # shellcheck disable=SC2086
+          sh tools/slackware-fetch.sh fetch out $PACKAGES || rc=$?
+          [ -f out/report.md ] && cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      - name: Into azsupport/azsupport (branch runs)
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: '[ -d out ] && sh tools/slackware-fetch.sh push out'
