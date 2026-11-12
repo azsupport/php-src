@@ -1,0 +1,60 @@
+name: OpenBSD fetch
+
+# The -stable branches OPENBSD_x_y of the OpenBSD ports tree for some port
+# directories: the security fixes OpenBSD merges into the ports of its releases,
+# often to older versions than those of its HEAD, which the GitHub mirror
+# openbsd/ports does not carry (the HEAD only). tools/openbsd-fetch.sh reads them
+# over anoncvs on Ubuntu (a mirror whose host key matches a fingerprint published
+# on https://www.openbsd.org/anoncvs.html) and commits them into the branch runs of
+# azsupport/azsupport (secret RUNS_TOKEN), distro/openbsd/<YYYY-MM-DD>/:
+# <branch>/<port dir>/ (the files of the directory on the branch, rlog.txt with
+# its revisions on the branch, branch.diff against the release) and <run id>.md
+# (the report, also the summary of the run).
+# Started by hand: Actions, "OpenBSD fetch", "Run workflow", or
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/openbsd-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[dirs]=security/sudo lang/php'
+
+on:
+  workflow_dispatch:
+    inputs:
+      dirs:
+        description: 'Port directories of the OpenBSD ports tree, separated by spaces (security/sudo lang/php lang/php/7.4 ...)'
+        required: true
+      branches:
+        description: 'OPENBSD_x_y branches, separated by spaces (empty: every branch with revisions in a directory, and the two newest)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install cvs
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cvs
+
+      - name: Fetch the branches
+        id: fetch
+        env:
+          DIRS: ${{ inputs.dirs }}
+          BRANCHES: ${{ inputs.branches }}
+        run: |
+          rc=0
+          set -f
+          # shellcheck disable=SC2086
+          sh tools/openbsd-fetch.sh fetch out $DIRS || rc=$?
+          [ -f out/report.md ] && cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      - name: Into azsupport/azsupport (branch runs)
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: '[ -d out ] && sh tools/openbsd-fetch.sh push out'
