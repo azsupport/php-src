@@ -167,7 +167,7 @@ def expand(text, macros, depth=0):
 def read_spec(text):
     """Name, Version, Release (expanded as far as a plain reading can), the Patch
     lines [(number, file)] and the %changelog text of a spec."""
-    macros = {"dist": "", "autorelease": "%autorelease", "_sourcedir": ".", "_bindir": "/usr/bin"}
+    macros = {"dist": "", "nil": "", "autorelease": "%autorelease", "_sourcedir": ".", "_bindir": "/usr/bin"}
     tags = {}
     patches = []
     for line in text.splitlines():
