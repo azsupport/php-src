@@ -736,7 +736,8 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     day = time.strftime("%Y-%m-%d", time.gmtime())
-    parts = a.parts.split()
+    # "none": no part (an empty input of workflow_dispatch gives the default instead)
+    parts = [] if a.parts.strip() == "none" else a.parts.split()
     REPORT.append("### Elasticsearch 6.8 and Kibana 6.8 fetch (%s)" % " ".join(
         parts + (["urls"] if a.urls.split() else []) + (["githist"] if a.githist.split() else [])))
     REPORT.append("")
