@@ -1,0 +1,51 @@
+name: Remi fetch
+
+# The specs and patches of Remi Collet's RPM repository (rpms.remirepo.net), from its
+# git server https://git.remirepo.net/cgit/ (the GitHub repository remicollet/remirepo
+# carries only its issues): what his PHP packages and PECL extensions carry beyond
+# his php-src-security branches (freebsd/targets.conf) and the PHP releases.
+# tools/remi-fetch.sh reads the cgit index and clones the repositories whose path
+# matches one of the regular expressions; that server is closed to the sandbox of
+# Claude Code, GitHub is not: the files go into the branch runs of the private
+# azsupport/azsupport (secret RUNS_TOKEN), distro/remi/<YYYY-MM-DD>/: index.txt,
+# <repository>/<branch>/ (the specs, the patches, log.txt) and <run id>.md (the
+# report, also the summary of the run).
+# Started by hand: Actions, "Remi fetch", "Run workflow", or
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/remi-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[patterns]=php/php8[0-9] pecl-redis'
+
+on:
+  workflow_dispatch:
+    inputs:
+      patterns:
+        description: 'Extended regular expressions over the repository paths of the index, separated by spaces (empty: the index only)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the repositories
+        id: fetch
+        env:
+          PATTERNS: ${{ inputs.patterns }}
+        run: |
+          rc=0
+          set -f
+          # shellcheck disable=SC2086
+          sh tools/remi-fetch.sh fetch out $PATTERNS || rc=$?
+          [ -f out/report.md ] && cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      - name: Into azsupport/azsupport (branch runs)
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: '[ -d out ] && sh tools/remi-fetch.sh push out'
