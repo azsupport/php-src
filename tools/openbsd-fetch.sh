@@ -74,6 +74,9 @@ if [ "$cmd" = push ]; then
         echo "::error title=openbsd fetch::clone of azsupport/azsupport (runs) failed: $(hide < "$w/err" | tail -n 2 | tr '\n' ' ')"
         exit 1
     fi
+    # the identity of the commit and of a rebase onto the pushes of other runs
+    git -C "$r" config user.name 'github-actions[bot]'
+    git -C "$r" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
     base="distro/openbsd/$day"
     mkdir -p "$r/$base"
     # each directory of each branch in the place of that of an earlier run of the day
@@ -98,13 +101,13 @@ if [ "$cmd" = push ]; then
         if [ -s "$src/report.md" ]; then cat "$src/report.md"; else echo "(no report: the fetch wrote none)"; fi
     } > "$r/$base/$run.md"
     git -C "$r" add -A "$base"
-    git -C "$r" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-        commit -q -m "openbsd-fetch: run $run" || { echo "::error title=openbsd fetch::commit failed"; exit 1; }
+    git -C "$r" commit -q -m "openbsd-fetch: run $run" || { echo "::error title=openbsd fetch::commit failed"; exit 1; }
     # other runs push into runs too: on a refused push, rebase and again
     i=0
+    : > "$w/err"
     while [ $i -lt 6 ]; do
         i=$((i + 1))
-        if git -C "$r" push -q origin HEAD:runs 2>"$w/err"; then
+        if git -C "$r" push -q origin HEAD:runs 2>>"$w/err"; then
             echo "openbsd fetch: $base/$run.md"
             exit 0
         fi
@@ -126,6 +129,8 @@ rep="$out/report.md"
 : > "$rep"
 : > "$out/taken.txt"
 say() { printf '%s\n' "$*" >> "$rep"; }
+# progress into the log of the job
+note() { printf '%s openbsd-fetch: %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 failed=0
 
 command -v cvs > /dev/null || { echo "openbsd-fetch: cvs is not installed" >&2; exit 1; }
@@ -135,7 +140,7 @@ command -v cvs > /dev/null || { echo "openbsd-fetch: cvs is not installed" >&2; 
 # shellcheck disable=SC1003,SC2016
 {
     echo '#!/bin/sh'
-    echo 'exec ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=30 \'
+    echo 'exec ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \'
     echo "    -o UserKnownHostsFile=\"$w/known_hosts\" -o GlobalKnownHostsFile=/dev/null \\"
     echo '    -o StrictHostKeyChecking="${OBF_STRICT:-yes}" \'
     echo "    -o ControlMaster=\"\${OBF_MASTER:-no}\" -o ControlPath=\"$w/cm\" \"\$@\""
@@ -147,7 +152,8 @@ export CVS_RSH
 root=''
 
 # cvsq <file> <cvs command> <arguments>: the output into <file>, its errors into
-# $w/cvserr; up to three tries when the connection fails
+# $w/cvserr; up to $CVSQ_TRIES tries (3) of at most $CVSQ_TIME seconds (900) each
+# when the connection fails
 cvsq() {
     f="$1"
     shift
@@ -155,7 +161,8 @@ cvsq() {
     while :; do
         n=$((n + 1))
         rc=0
-        timeout 1800 cvs -q -z3 -d ":ext:$root" "$@" > "$f" 2>"$w/cvserr" || rc=$?
+        note "cvs $* (try $n)"
+        timeout "${CVSQ_TIME:-900}" cvs -q -z3 -d ":ext:$root" "$@" > "$f" 2>"$w/cvserr" || rc=$?
         [ $rc -eq 0 ] && return 0
         # rdiff may end in 1 when it found differences
         [ "$1" = rdiff ] && [ -s "$f" ] && return 0
@@ -163,7 +170,8 @@ cvsq() {
         if grep -q -E 'no revision|no such tag|cannot find module|could not find|there is no' "$w/cvserr"; then
             return $rc
         fi
-        [ $n -lt 3 ] || return $rc
+        note "cvs $1: exit $rc: $(tail -n 1 "$w/cvserr")"
+        [ $n -lt "${CVSQ_TRIES:-3}" ] || return $rc
         sleep $((n * 15))
     done
 }
@@ -186,18 +194,26 @@ if [ -z "$roots" ]; then
 fi
 [ -s "$w/fps" ] || verify=no
 
-# try_mirrors yes|no: the first mirror that answers; with yes only one whose host
-# key has a fingerprint of anoncvs.html
+# try_mirrors yes|no: the first mirror that answers (of the first 12); with yes
+# only one whose host key has a fingerprint of anoncvs.html
 keynote=''
 try_mirrors() {
+    tried=0
     for cand in $roots; do
+        tried=$((tried + 1))
+        [ $tried -le 12 ] || break
         host="${cand#*@}"
         host="${host%%:*}"
         : > "$w/known_hosts"
         keynote=''
+        note "mirror $cand (verify: $1)"
+        timeout 30 ssh-keyscan -T 15 -t ed25519,ecdsa,rsa "$host" 2>/dev/null | grep -v '^#' > "$w/keys"
+        if [ ! -s "$w/keys" ]; then
+            say "- \`$cand\`: no answer on port 22, skipped"
+            continue
+        fi
         if [ "$1" = yes ]; then
             OBF_STRICT=yes
-            ssh-keyscan -T 20 -t ed25519,ecdsa,rsa "$host" 2>/dev/null | grep -v '^#' > "$w/keys"
             while IFS= read -r line; do
                 printf '%s\n' "$line" > "$w/one"
                 fp="$(ssh-keygen -l -f "$w/one" 2>/dev/null | awk '{ print $2 }')"
@@ -216,8 +232,15 @@ try_mirrors() {
         export OBF_STRICT
         root="$cand"
         # one ssh connection for all the cvs commands of the run
-        OBF_MASTER=yes "$w/ssh" -f -N "${root%%:*}" < /dev/null > /dev/null 2>&1 || true
-        if cvsq "$w/top" rlog -h ports/Makefile && [ -s "$w/top" ]; then
+        OBF_MASTER=yes timeout 60 "$w/ssh" -f -N "${root%%:*}" < /dev/null > /dev/null 2>&1 || true
+        # one try, three minutes at most: the next mirror rather than a slow one
+        CVSQ_TRIES=1
+        CVSQ_TIME=180
+        ok=no
+        cvsq "$w/top" rlog -h ports/Makefile && [ -s "$w/top" ] && ok=yes
+        unset CVSQ_TRIES CVSQ_TIME
+        if [ $ok = yes ]; then
+            note "mirror $cand answers"
             return 0
         fi
         say "- \`$cand\`: no answer ($(tail -n 1 "$w/cvserr" 2>/dev/null | tr '|' '/')), skipped"
@@ -291,6 +314,7 @@ EOF
 for d in "$@"; do
     d="${d#ports/}"
     d="${d%/}"
+    note "directory $d"
     case "$d" in
         '' | /* | *..* | *[!A-Za-z0-9._/+-]*)
             say "| \`$d\` | | | not a directory of the ports tree |"
