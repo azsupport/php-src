@@ -12,6 +12,11 @@ it (SUITES below):
                        their -backports and security (buster/updates ...)
   Freexian's ELTS      deb.freexian.com/extended-lts: bullseye, buster, stretch,
                        jessie, shown as <codename>-elts
+  Ondrej Sury          deb.sury.org (packages.sury.org/php for Debian, the PPA
+                       ondrej/php for Ubuntu, built from the same debian/ of his):
+                       the sources of the PPA, by name through the API of
+                       Launchpad (as tools/upstream-check.py reads them), the newest
+                       Ubuntu series of each version, shown as sury
 
 and, for a package that none of them has any more, its last version on
 snapshot.debian.org; "name=version" takes that version from snapshot.debian.org
@@ -51,6 +56,7 @@ import argparse
 import bz2
 import datetime
 import email.utils
+import functools
 import gzip
 import hashlib
 import io
@@ -74,6 +80,8 @@ SEC = "https://deb.debian.org/debian-security"
 ARCHIVE = "https://archive.debian.org/debian"
 ARCHIVE_SEC = "https://archive.debian.org/debian-security"
 ELTS = "https://deb.freexian.com/extended-lts"
+LAUNCHPAD = "https://api.launchpad.net/1.0"
+SURY_PPA = "~ondrej/+archive/ubuntu/php"
 SNAPSHOT = "https://snapshot.debian.org"
 
 # The suites, in the order of the report: (the name shown, [(archive, dists/<dist>)]):
@@ -112,6 +120,8 @@ SUITES = (
     ("jessie-security", [(ARCHIVE_SEC, "jessie/updates")]),
     ("jessie-backports", [(ARCHIVE, "jessie-backports")]),
     ("jessie-elts", [(ELTS, "jessie-lts"), (ELTS, "jessie")]),
+    # no index: the sources are asked for by name (sury_sources)
+    ("sury", [(LAUNCHPAD, SURY_PPA)]),
 )
 COMPONENTS = ("main", "contrib", "non-free")
 CHANGELOG_YEARS = 6
@@ -555,6 +565,67 @@ def snapshot_latest(src):
     return best
 
 
+def sury_sources(name):
+    """The publications of the source <name> in the PPA of Ondrej Sury: one per version
+    (without its +ubuntuNN.NN... suffix), that of the newest Ubuntu series."""
+    url = "%s/%s?ws.op=getPublishedSources&source_name=%s&exact_match=true&status=Published" % (
+        LAUNCHPAD, SURY_PPA, urllib.parse.quote(name))
+    entries = []
+    while url:
+        raw = get(url)
+        if raw is None:
+            break
+        data = json.loads(raw)
+        entries += data.get("entries", [])
+        url = data.get("next_collection_link")
+    best = {}
+    for e in entries:
+        v = e.get("source_package_version", "")
+        if e.get("source_package_name") != name or not v:
+            continue
+        base = re.sub(r"\+(ubuntu|deb)\d.*$", "", v)
+        if base not in best or vercmp(v, best[base]["source_package_version"]) > 0:
+            best[base] = e
+    return sorted(best.values(), key=functools.cmp_to_key(
+        lambda x, y: vercmp(x["source_package_version"], y["source_package_version"])))
+
+
+def from_sury(fetcher, src, pub):
+    """A publication of the PPA of Ondrej Sury: its .dsc, then the files it names,
+    checked against its SHA-256."""
+    version = pub["source_package_version"]
+    raw = get(pub["self_link"] + "?ws.op=sourceFileUrls")
+    urls = {urllib.parse.unquote(u.rsplit("/", 1)[-1]): u for u in (json.loads(raw) if raw else [])}
+    dsc = sorted(n for n in urls if n.endswith(".dsc"))
+    if not dsc:
+        raise RuntimeError("no .dsc among the files of the PPA: %s" % " ".join(sorted(urls)))
+    body = get(urls[dsc[0]])
+    if body is None:
+        raise RuntimeError("%s: not found" % urls[dsc[0]])
+    st = deb822(unsign(body.decode("utf-8", "replace")))
+    st = st[0] if st else {}
+    files = checksums(st)
+    sizes = {f[0]: (f[1], f[2]) for f in files}
+
+    def getter(name):
+        if name not in urls:
+            raise RuntimeError("%s: not among the files of the PPA" % name)
+        data = get(urls[name])
+        if data is None:
+            raise RuntimeError("%s: not found" % urls[name])
+        size, sha = sizes[name]
+        if len(data) != size or hashlib.sha256(data).hexdigest() != sha:
+            raise RuntimeError("%s: size or SHA-256 differs from the .dsc" % name)
+        return data
+
+    series = (pub.get("distro_series_link") or "").rstrip("/").rsplit("/", 1)[-1]
+    where = "Launchpad, PPA ondrej/php (https://launchpad.net/%s), Ubuntu %s, published %s" % (
+        SURY_PPA, series or "?", (pub.get("date_published") or pub.get("date_created") or "?")[:10])
+    dest = fetcher.write(src, "sury", version, st.get("Format", ""), where, files, getter,
+                         stanza_fields(st))
+    return version, st.get("Format", ""), dest
+
+
 def index_md(pkgdir, src, day):
     rows = []
     for d in sorted(os.listdir(pkgdir)):
@@ -654,6 +725,8 @@ def main():
     # the indexes: the entries of the packages asked for (by source or binary name)
     found, read = {}, []
     for suite, candidates in suites:
+        if suite == "sury":
+            continue
         stanzas = None
         for base, dist in candidates:
             try:
@@ -677,6 +750,7 @@ def main():
 
     os.makedirs(a.out, exist_ok=True)
     fetcher = Fetcher(a.out)
+    sury_read = [0]
     results, missing, errors = [], [], []
     order = {s[0]: i for i, s in enumerate(SUITES)}
     for name, version in asked:
@@ -699,6 +773,21 @@ def main():
                 results.append((name, src, suite, v, fmt, os.path.relpath(dest, a.out)))
             except Exception as e:  # noqa: BLE001
                 errors.append("%s %s %s: %s" % (src, suite, s.get("Version"), e))
+        in_sury = False
+        if not version and any(su[0] == "sury" for su in suites):
+            try:
+                pubs = sury_sources(name)
+            except Exception as e:  # noqa: BLE001
+                pubs = []
+                errors.append("%s (sury): %s" % (name, e))
+            for pub in pubs:
+                try:
+                    v, fmt, dest = from_sury(fetcher, name, pub)
+                    results.append((name, name, "sury", v, fmt, os.path.relpath(dest, a.out)))
+                    in_sury = True
+                except Exception as e:  # noqa: BLE001
+                    errors.append("%s %s (sury): %s" % (name, pub.get("source_package_version"), e))
+            sury_read[0] += len(pubs)
         want = [version] if version else []
         if not use and not version:
             try:
@@ -708,7 +797,7 @@ def main():
                 errors.append("%s: snapshot.debian.org: %s" % (name, e))
             if latest:
                 want.append(latest)
-            else:
+            elif not in_sury:
                 missing.append(name)
         for v in want:
             try:
@@ -717,6 +806,8 @@ def main():
             except Exception as e:  # noqa: BLE001
                 errors.append("%s %s (snapshot): %s" % (name, v, e))
     fetcher.close()
+    if any(su[0] == "sury" for su in suites):
+        read.append(("sury", "%s/%s (by name)" % (LAUNCHPAD, SURY_PPA), sury_read[0]))
     for e in errors:
         warn(e)
 
