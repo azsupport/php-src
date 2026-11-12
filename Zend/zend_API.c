@@ -1016,6 +1016,18 @@ ZEND_API int _array_init(zval *arg, uint size ZEND_FILE_LINE_DC) /* {{{ */
 }
 /* }}} */
 
+/* The smallest array: $_GET, $_POST, $_COOKIE and their sub-arrays start with
+ * it, so that request variables cost as little memory as possible (the
+ * "singleton" arrays of the official fix). nTableMask == 0 marks a table that is
+ * not initialized yet in PHP 5, so 2 is the smallest size that works. */
+ZEND_API int _array_init_singleton(zval *arg ZEND_FILE_LINE_DC) /* {{{ */
+{
+	_array_init(arg, 0 ZEND_FILE_LINE_RELAY_CC);
+	Z_ARRVAL_P(arg)->nTableSize = 2;
+	return SUCCESS;
+}
+/* }}} */
+
 static int zend_merge_property(zval **value TSRMLS_DC, int num_args, va_list args, const zend_hash_key *hash_key) /* {{{ */
 {
 	/* which name should a numeric property have ? */
