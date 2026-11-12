@@ -67,6 +67,7 @@ RUNS_DIR = "distro/gentoo"
 FILE_LIMIT = 4 * 1024 * 1024          # a bigger file of a patch set is left out (named in patchsets.txt)
 DIST_LIMIT = 40 * 1024 * 1024         # a bigger DIST file is not downloaded
 PATCHSET = re.compile(r"(?i)(patch|gentoo)")
+MAX_DEVS = 4                          # developer spaces tried for a DIST file not on the mirrors
 DIRNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+_.-]*/[A-Za-z0-9][A-Za-z0-9+_.-]*$")
 SEP = "\x1e"
 
@@ -86,12 +87,14 @@ def git(repo, *args, data=None, check=True):
     return r.stdout
 
 
-def get(url, tries=3):
-    """The body of url, or None on 404 (and 403/410: not there)."""
+def get(url, tries=2, timeout=30):
+    """The body of url, or None when it is not there (403, 404, 410) or the host
+    does not answer."""
+    err = None
     for i in range(tries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
             if e.code in (403, 404, 410):
@@ -99,8 +102,9 @@ def get(url, tries=3):
             err = e
         except Exception as e:  # noqa: BLE001 - network: try again
             err = e
-        time.sleep(3 * (i + 1))
-    raise RuntimeError("%s: %s" % (url, err))
+        time.sleep(2 * (i + 1))
+    log("  %s: %s" % (url, err))
+    return None
 
 
 def history(repo, dirs):
@@ -213,19 +217,15 @@ def mirror_url(name):
 
 
 def fetch_dist(name, d, devs):
-    """(data, url) of a DIST file, or (None, the addresses tried)."""
+    """(data, url) of a DIST file, or (None, the addresses tried): the mirrors of
+    Gentoo, then the spaces of the developers the ebuilds name (dev.gentoo.org)."""
     cat, pkg = d.split("/", 1)
     tried = [mirror_url(name), "%s/%s" % (MIRROR, name)]
-    for dev in sorted(devs):
+    for dev in sorted(devs)[:MAX_DEVS]:
         base = DEVSPACE % dev
-        tried += ["%s/distfiles/%s/%s/%s" % (base, cat, pkg, name), "%s/distfiles/%s/%s" % (base, pkg, name),
-                  "%s/distfiles/%s" % (base, name)]
+        tried += ["%s/distfiles/%s/%s/%s" % (base, cat, pkg, name), "%s/distfiles/%s" % (base, name)]
     for url in tried:
-        try:
-            data = get(url)
-        except RuntimeError as e:
-            log("  %s" % e)
-            data = None
+        data = get(url)
         if data is not None:
             return data, url
     return None, tried
@@ -245,6 +245,7 @@ def main():
     ap.add_argument("--report")
     ap.add_argument("--repo")
     ap.add_argument("--push", action="store_true")
+    ap.add_argument("--skip-dist", default="", help="a regular expression: DIST files not to download")
     ap.add_argument("dirs", nargs="*")
     a = ap.parse_args()
 
@@ -349,6 +350,9 @@ def main():
         got = miss = 0
         for name, size in sorted(dist[d].items()):
             if not PATCHSET.search(name):
+                continue
+            if a.skip_dist and re.search(a.skip_dist, name):
+                pl.append("%s: skipped (--skip-dist)" % name)
                 continue
             if size > DIST_LIMIT:
                 pl.append("%s: %d bytes, not downloaded" % (name, size))
