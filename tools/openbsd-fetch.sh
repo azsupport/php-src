@@ -32,8 +32,8 @@
 #                                    the patches and the largest files)
 #   <branch>/<port dir>/rlog.txt     its revisions on the branch: the commits
 #                                    merged into it, with date, author and message
-#                                    (cvs rlog -N -r<branch>, the files with
-#                                    revisions on the branch only)
+#                                    (from cvs rlog of the directory: per file,
+#                                    the revisions a.b.n.m of its branch a.b.0.n)
 #   <branch>/<port dir>/branch.diff  the branch against the release it started
 #                                    from (cvs rdiff -u -r <branch>_BASE -r <branch>)
 #   report.md                        the mirror and its host key, the branches of
@@ -315,6 +315,47 @@ prev == "----------------------------" && /^revision [0-9.]+/ {
 END { for (t in seen) print t, cnt[t] + 0 }
 EOF
 
+# the revision entries of branch br (variable) of the files of an rlog: a file
+# whose tag br is a.b.0.n gets its revisions a.b.n.m, with date, author and message
+cat > "$w/branchlog.awk" <<'EOF'
+function flush() {
+    if (entry != "" && pre != "" && index(rev, pre) == 1 && substr(rev, length(pre) + 1) ~ /^[0-9]+$/) {
+        if (!shown) { printf "%s\n", file; shown = 1 }
+        printf "%s", entry
+    }
+    entry = ""; rev = ""
+}
+/^RCS file: / { file = $0; pre = ""; shown = 0; insym = 0; inrev = 0; entry = ""; rev = ""; next }
+/^symbolic names:/ { insym = 1; next }
+insym && /^[ \t]/ {
+    line = $0
+    sub(/^[ \t]+/, "", line)
+    i = index(line, ": ")
+    if (i > 0 && substr(line, 1, i - 1) == br) {
+        r = substr(line, i + 2)
+        if (r ~ /\.0\.[0-9]+$/) {
+            n = split(r, p, ".")
+            pre = ""
+            for (k = 1; k <= n - 2; k++) pre = pre p[k] "."
+            pre = pre p[n] "."
+        }
+    }
+    next
+}
+insym { insym = 0 }
+/^----------------------------$/ { flush(); inrev = 1; entry = $0 "\n"; next }
+/^=============================================================================$/ {
+    flush()
+    if (shown) print
+    inrev = 0
+    next
+}
+inrev {
+    entry = entry $0 "\n"
+    if (rev == "" && $1 == "revision") rev = $2
+}
+EOF
+
 for d in "$@"; do
     d="${d#ports/}"
     d="${d%/}"
@@ -361,24 +402,11 @@ for d in "$@"; do
             fi
             continue
         fi
-        # the cvs of the OpenBSD servers knows no rlog -S: the files without
-        # revisions on the branch are left out here
-        rc=0
-        cvsq "$w/rlog" rlog -N -r"$b" "ports/$d" || rc=$?
-        awk '
-            { blk = blk $0 "\n" }
-            /^total revisions: .*selected revisions: [0-9]+/ { n = $NF + 0 }
-            /^=============================================================================$/ {
-                if (n > 0) printf "%s", blk
-                blk = ""; n = 0
-            }' "$w/rlog" > "$dest/rlog.txt"
-        if [ $rc -ne 0 ] && [ ! -s "$dest/rlog.txt" ] && ! grep -q 'no revision' "$w/cvserr"; then
-            notes="$notes $b: rlog failed ($(tail -n 1 "$w/cvserr" | tr '|' '/'));"
-            printf '(rlog failed: %s)\n' "$(tail -n 1 "$w/cvserr")" > "$dest/rlog.txt"
-            failed=1
-        elif [ ! -s "$dest/rlog.txt" ]; then
+        # the revisions on the branch, from the rlog of the directory (rlog -r of a
+        # tag a file lacks lists all its revisions, and the servers know no -S)
+        awk -v br="$b" -f "$w/branchlog.awk" "$w/full" > "$dest/rlog.txt"
+        [ -s "$dest/rlog.txt" ] ||
             printf '(no revisions of ports/%s on %s: the directory as the release had it)\n' "$d" "$b" > "$dest/rlog.txt"
-        fi
         rc=0
         cvsq "$dest/branch.diff" rdiff -u -r "${b}_BASE" -r "$b" "ports/$d" || rc=$?
         if [ ! -s "$dest/branch.diff" ]; then
