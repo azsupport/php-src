@@ -433,7 +433,11 @@ def nest(n):
     return "(" * n + "a" + ")" * n
 
 
-# (name, kind, query text, ES_JAVA_OPTS of the node for this probe or None)
+# the JVMs the probes run on: (label, JAVA_HOME variable of the runner, more ES_JAVA_OPTS)
+PROBE_CONFIGS = [("17", "JAVA_HOME_17_X64", ""), ("21", "JAVA_HOME_21_X64", "-Djava.security.manager=allow"),
+                 ("17 -Xss4m", "JAVA_HOME_17_X64", "-Xss4m")]
+
+# (name, kind, query text); the configs labelled with -Xss only run those marked "xss"
 PROBES = [
     ("query_string, (((a))) nesting 1000", "query_string", nest(1000)),
     ("query_string, (((a))) nesting 2000", "query_string", nest(2000)),
@@ -453,9 +457,15 @@ PROBES = [
     ("simple_query_string, (((a))) nesting 2000", "simple_query_string", nest(2000)),
     ("simple_query_string, (((a))) nesting 15000", "simple_query_string", nest(15000)),
     ("simple_query_string, flags NONE, nesting 15000", "simple_query_string_none", nest(15000)),
+    ("query_string, regexp /a{1000}{1000}{1000}/ (stacked repeats)", "query_string", "/a{1000}{1000}{1000}/"),
+    ("query_string, regexp /a+++.../ (500 stacked +)", "query_string", "/a" + "+" * 500 + "/"),
+    ("range on a long field, gte 1e-100000000", "range_long", "1e-100000000"),
+    ("index a document, long field 1e-100000000", "index_long", "1e-100000000"),
     ("match, the same text of 15000 (((a)))", "match", nest(15000)),
     ("multi_match, the same text of 15000 (((a)))", "multi_match", nest(15000)),
 ]
+XSS_PROBES = {"query_string, (((a))) nesting 5000", "query_string, (((a))) nesting 15000",
+              "simple_query_string, (((a))) nesting 15000", "query_string, field pattern of 5000 *"}
 
 
 def part_probe(out):
@@ -473,7 +483,7 @@ def part_probe(out):
     with open(os.path.join(home, "config", "elasticsearch.yml"), "a") as f:
         f.write("\ndiscovery.type: single-node\nxpack.ml.enabled: false\nhttp.port: 9200\n")
     rows, logs = [], []
-    for jdk, var, extra in (("17", "JAVA_HOME_17_X64", ""), ("21", "JAVA_HOME_21_X64", "-Djava.security.manager=allow")):
+    for jdk, var, extra in PROBE_CONFIGS:
         java_home = os.environ.get(var)
         if not java_home:
             warn("probe: no %s on this runner" % var)
@@ -491,20 +501,26 @@ def part_probe(out):
         es_http("PUT", "/probe", {"settings": {"number_of_shards": 1, "number_of_replicas": 0},
                                   "mappings": {"_doc": {"properties": {"title": {"type": "text"},
                                                                        "description": {"type": "text"},
-                                                                       "tags": {"type": "keyword"}}}}})
+                                                                       "tags": {"type": "keyword"},
+                                                                       "n": {"type": "long"}}}}})
         es_http("PUT", "/probe/_doc/1?refresh=true", {"title": "a video about cats", "description": "cats and dogs",
-                                                     "tags": ["cats"]})
-        probes = PROBES
+                                                     "tags": ["cats"], "n": 5})
+        probes = [p for p in PROBES if "-Xss" not in jdk or p[0] in XSS_PROBES]
         for name, kind, text in probes:
             if kind == "match":
                 q = {"match": {"title": text}}
             elif kind == "simple_query_string_none":
                 q = {"simple_query_string": {"query": text, "flags": "NONE"}}
+            elif kind == "range_long":
+                q = {"range": {"n": {"gte": text}}}
             elif kind == "multi_match":
                 q = {"multi_match": {"query": text, "fields": ["title", "description"]}}
             else:
                 q = {kind: {"query": text}}
-            st, body, took = es_http("POST", "/probe/_search", {"query": q})
+            if kind == "index_long":
+                st, body, took = es_http("PUT", "/probe/_doc/2", {"title": "x", "n": text}, timeout=180)
+            else:
+                st, body, took = es_http("POST", "/probe/_search", {"query": q}, timeout=180)
             time.sleep(2)
             died = proc.poll() is not None
             alive = (not died) and es_http("GET", "/", timeout=10)[0] == 200
