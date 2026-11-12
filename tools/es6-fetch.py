@@ -21,13 +21,20 @@ after 6.8.23 and against what other distributions patched needs:
   maven      maven-metadata.xml of Maven Central for the libraries the tarball of
              Elasticsearch bundles (the newest release of each line)
   urls       any https URLs given (--urls), saved as they are
+  githist    the history of paths of GitHub repositories (--githist): the trees
+             of other packagers (nixpkgs, homebrew-core, the FreeBSD ports, ...)
+             are too large for the sandbox; a partial clone here, from a day on,
+             and git log with the patches of the commits that touch the paths
 
 The files go into the branch runs of azsupport/azsupport, under
 distro/es6-kibana6/<YYYY-MM-DD>/<part>/ (UTC), committed and pushed with the token
 RUNS_TOKEN as tools/runs-report.sh does; a refused push is made again on the new tip.
 
 Usage: python3 tools/es6-fetch.py --out DIR [--report FILE] [--parts LIST]
-                                  [--urls LIST] [--push]
+                                  [--urls LIST] [--githist LIST] [--push]
+
+--githist: items separated by spaces, <owner>/<repo>@<YYYY-MM-DD>:<path>,<path>...
+(a path may use the pathspec magic of git, :(glob)**/kibana*).
 """
 
 import argparse
@@ -350,6 +357,38 @@ def part_urls(out, urls):
         REPORT.append("- %s: %d bytes (urls/%s)" % (u, len(data), rel))
 
 
+def part_githist(out, items):
+    for item in items:
+        m = re.match(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@(\d{4}-\d{2}-\d{2}):(.+)$", item)
+        if not m:
+            warn("githist %s: not <owner>/<repo>@<YYYY-MM-DD>:<paths>" % item)
+            continue
+        repo, since, paths = m.group(1), m.group(2), m.group(3).split(",")
+        work = tempfile.mkdtemp()
+        d = os.path.join(work, "r")
+        r = subprocess.run(["git", "clone", "-q", "--filter=blob:none", "--no-checkout", "--single-branch",
+                            "--shallow-since=%s" % since, "https://github.com/%s" % repo, d],
+                           capture_output=True, text=True)
+        if r.returncode:
+            warn("githist %s: clone: %s" % (repo, (r.stderr or r.stdout).strip()[-300:]))
+            shutil.rmtree(work, ignore_errors=True)
+            continue
+        label = repo.replace("/", "_")
+        idx = subprocess.run(["git", "-C", d, "log", "--format=%H %ad %an: %s", "--date=short", "--"] + paths,
+                             capture_output=True, text=True).stdout
+        save(out, "githist/%s/index.txt" % label, "# %s since %s: %s\n%s" % (repo, since, " ".join(paths), idx))
+        lg = subprocess.run(["git", "-C", d, "log", "--format=commit %H%nDate: %ad%nAuthor: %an <%ae>%n%n%B",
+                             "--date=iso", "--stat", "-p", "--"] + paths, capture_output=True).stdout
+        if len(lg) > 40 * 1024 * 1024:
+            lg = lg[:40 * 1024 * 1024] + b"\n[cut at 40 MB]\n"
+        save(out, "githist/%s/log.txt" % label, lg)
+        head = subprocess.run(["git", "-C", d, "log", "-1", "--format=%H %cd", "--date=iso"],
+                              capture_output=True, text=True).stdout.strip()
+        REPORT.append("- githist %s since %s (%s): %d commits; head %s" % (repo, since, " ".join(paths),
+                                                                        len(idx.splitlines()), head))
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def push(out, day, run):
     remote = os.environ.get("RUNS_REMOTE") or (RUNS_URL % os.environ["RUNS_TOKEN"]
                                                if os.environ.get("RUNS_TOKEN") else None)
@@ -403,12 +442,14 @@ def main():
     ap.add_argument("--report")
     ap.add_argument("--parts", default="tarballs esa nvd redhat maven")
     ap.add_argument("--urls", default="")
+    ap.add_argument("--githist", default="")
     ap.add_argument("--push", action="store_true")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     day = time.strftime("%Y-%m-%d", time.gmtime())
     parts = a.parts.split()
-    REPORT.append("### Elasticsearch 6.8 and Kibana 6.8 fetch (%s)" % " ".join(parts + (["urls"] if a.urls.split() else [])))
+    REPORT.append("### Elasticsearch 6.8 and Kibana 6.8 fetch (%s)" % " ".join(
+        parts + (["urls"] if a.urls.split() else []) + (["githist"] if a.githist.split() else [])))
     REPORT.append("")
     for name, fn in (("tarballs", part_tarballs), ("esa", part_esa), ("nvd", part_nvd), ("redhat", part_redhat),
                      ("maven", part_maven)):
@@ -421,6 +462,9 @@ def main():
     if a.urls.split():
         log("== urls")
         part_urls(a.out, a.urls.split())
+    if a.githist.split():
+        log("== githist")
+        part_githist(a.out, a.githist.split())
     ok = True
     if a.push:
         ok = push(a.out, day, os.environ.get("GITHUB_RUN_ID", "0"))
