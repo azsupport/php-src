@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       parts:
-        description: 'Parts, separated by spaces: tarballs esa nvd redhat maven probe (empty: none, only the URLs)'
+        description: 'Parts, separated by spaces: tarballs esa nvd redhat maven probe; none: no part (an empty value gives this default)'
         required: false
         type: string
         default: 'tarballs esa nvd redhat maven'
