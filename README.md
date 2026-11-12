@@ -825,7 +825,7 @@ what FreeBSD needs ([`freebsd/curl.conf`](freebsd/curl.conf),
 | libidn2 | 2.3.8 | `dns/libidn2` | international domain names (IDN) |
 | libpsl | 0.23.3 | `dns/libpsl` | the public suffix list: no cookies for a whole public suffix, such as `co.uk` |
 | public suffix list | 21.09.2026 | `dns/public_suffix_list` | built into libpsl |
-| libssh2 | 1.11.1 | `security/libssh2` | SCP and SFTP (`scp://`, `sftp://`), with the OpenSSL of curl and the patches of its port |
+| libssh2 | 1.11.1 | `security/libssh2` | SCP and SFTP (`scp://`, `sftp://`), with the OpenSSL of curl, the patches of its port and the security fixes of 2025 and 2026 after 1.11.1 ([`freebsd/curl/libssh2-1.11.1.patch`](freebsd/curl/libssh2-1.11.1.patch)); without the old algorithms of SSH: the MACs on MD5, 3DES, RC4, Blowfish, CAST (a server that offers only those is not reached; the MD5 of the host key fingerprint stays) |
 
 How it is built and used:
 

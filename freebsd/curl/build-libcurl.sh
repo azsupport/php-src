@@ -62,6 +62,15 @@ ncpu="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 2)"
 notools="ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=: MAKEINFO=:"
 # The libraries in link order, as libcurl.a takes them in.
 deplibs="ssh2 psl idn2 nghttp2 cares brotlidec brotlicommon zstd"
+# libssh2 without the old algorithms of SSH (aZ, 12.11.2026): the MACs on MD5
+# (hmac-md5, hmac-md5-96; LIBSSH2_NO_HMAC_MD5 is of freebsd/curl/libssh2-1.11.1.patch,
+# which keeps the MD5 of the host key fingerprint: ssh2_fingerprint() of PHP), the
+# ciphers 3des-cbc, arcfour and arcfour128, blowfish-cbc, cast128-cbc, as libssh2
+# after 1.11.1 has them off by default (b89858b8); a server that offers only those
+# is no longer reached. The RC4 of PHP (openssl_encrypt) is that of OpenSSL, not
+# touched. The libssh2 of the package az (tools/az-build.sh of azsupport/ports,
+# static with this script, shared with the same switches) is the same.
+ssh2_algos="-DLIBSSH2_NO_HMAC_MD5 -DLIBSSH2_NO_3DES -DLIBSSH2_NO_RC4 -DLIBSSH2_NO_BLOWFISH -DLIBSSH2_NO_CAST"
 
 say() { printf '== %s\n' "$*"; }
 
@@ -216,11 +225,12 @@ EOF
 lib_libssh2() {
     # the OpenSSL of curl (openssl_opt), zlib of the base system; the internal
     # functions hidden, as the CMake build of the port does by default; -pthread for
-    # the link tests of its configure with a static libcrypto
+    # the link tests of its configure with a static libcrypto; without the old
+    # algorithms of SSH (ssh2_algos)
     openssl_opt
     configure_dep libssh2 "$1" "$2" --with-crypto=openssl --with-libssl-prefix="${ossl_inc%/include}" \
         --with-libz --enable-hidden-symbols --disable-examples-build --disable-docker-tests \
-        --disable-sshd-tests LIBS=-pthread
+        --disable-sshd-tests LIBS=-pthread CPPFLAGS="-I$2/include $ssh2_algos"
     mk libssh2 -j"$ncpu" -C src
     mk libssh2 -C src install
     mk libssh2 install-includeHEADERS install-pkgconfigDATA
