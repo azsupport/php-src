@@ -22,7 +22,14 @@
 #ifndef ZEND_ACCELERATOR_MODULE_H
 #define ZEND_ACCELERATOR_MODULE_H
 
+#ifdef COMPILE_DL_OPCACHE
 int start_accel_module(void);
+#else
+/* OPcache built into PHP (--enable-opcache-static, azsupport/php-src) */
+extern zend_module_entry opcache_module_entry;
+#define phpext_opcache_ptr &opcache_module_entry
+void zend_accel_register_ini_entries(TSRMLS_D);
+#endif
 void zend_accel_override_file_functions(TSRMLS_D);
 
 #endif /* _ZEND_ACCELERATOR_MODULE_H */
