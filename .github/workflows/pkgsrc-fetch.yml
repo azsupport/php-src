@@ -1,0 +1,49 @@
+name: pkgsrc fetch
+
+# What a review of the patches of pkgsrc needs from hosts that only a runner
+# reaches: the vulnerability list of pkgsrc (pkg-vulnerabilities, cdn.netbsd.org)
+# and the files a pkgsrc patch is compared with (a release archive, an upstream
+# patch, any https URL; only some members of an archive if asked). The pkgsrc tree,
+# its quarterly branches and pkgsrc-wip are read from their GitHub mirrors.
+# tools/pkgsrc-fetch.sh fetches them and commits them into the branch runs of
+# azsupport/azsupport (secret RUNS_TOKEN), distro/pkgsrc/<YYYY-MM-DD>/:
+# pkg-vulnerabilities, files/<host>/<path> and <run id>.md (the report, also the
+# summary of the run).
+# Started by hand: Actions, "pkgsrc fetch", "Run workflow", or
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/pkgsrc-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[items]=https://example.org/x-1.0.tar.gz=<sha256>::*/src/a.c'
+
+on:
+  workflow_dispatch:
+    inputs:
+      items:
+        description: 'Files, separated by spaces: <url>[=<sha256>][::<member>,<member>...] (empty: pkg-vulnerabilities only)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch
+        env:
+          ITEMS: ${{ inputs.items }}
+        run: |
+          rc=0
+          set -f
+          # shellcheck disable=SC2086
+          sh tools/pkgsrc-fetch.sh fetch out $ITEMS || rc=$?
+          [ -f out/report.md ] && cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      - name: Into azsupport/azsupport (branch runs)
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: '[ -d out ] && sh tools/pkgsrc-fetch.sh push out'
