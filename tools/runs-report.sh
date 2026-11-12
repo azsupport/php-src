@@ -75,13 +75,14 @@ git -C "$r" commit -q -m "$wf $part: run $run" || warn "commit failed"
 
 # the parts of a run push at the same time: on a refused push, rebase and again
 i=0
-while [ $i -lt 5 ]; do
+while [ $i -lt 10 ]; do
     i=$((i + 1))
     if git -C "$r" push -q origin HEAD:runs 2>"$w/err"; then
         echo "runs report: $file"
         exit 0
     fi
-    sleep $((i * 3))
+    # a jitter, so that reports refused together do not try again together
+    sleep $((i * 3 + $(od -An -N1 -tu1 /dev/urandom | tr -d ' ') % 7))
     git -C "$r" pull -q --rebase origin runs 2>>"$w/err" || true
 done
 warn "push to azsupport/azsupport (runs) failed: $(hide < "$w/err" | tail -n 3 | tr '\n' ' ')"
