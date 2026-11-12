@@ -27,7 +27,9 @@
 # What a fetch writes into <out dir>:
 #   <branch>/<port dir>/             the files of the directory on the branch
 #                                    (cvs export -r <branch>): Makefile, distinfo,
-#                                    patches/, files/, pkg/
+#                                    patches/, files/, pkg/ without the packing
+#                                    lists (pkg/PLIST*, no use for a review of
+#                                    the patches and the largest files)
 #   <branch>/<port dir>/rlog.txt     its revisions on the branch: the commits
 #                                    merged into it, with date, author and message
 #                                    (cvs rlog -N -r<branch>, the files with
@@ -346,8 +348,9 @@ for d in "$@"; do
         mkdir -p "$(dirname "$dest")"
         rc=0
         (cd "$(dirname "$dest")" && cvsq "$w/export.out" export -r "$b" -d "$(basename "$dest")" "ports/$d") || rc=$?
-        if [ -d "$dest" ] && [ -z "$(find "$dest" -type f | head -n 1)" ]; then
-            rm -rf "$dest"
+        if [ -d "$dest" ]; then
+            find "$dest" -type f -path '*/pkg/PLIST*' -exec rm -f {} +
+            [ -n "$(find "$dest" -type f | head -n 1)" ] || rm -rf "$dest"
         fi
         if [ ! -d "$dest" ]; then
             if [ $rc -eq 0 ] || grep -q -E 'no revision|no such tag|cannot find module|could not find' "$w/cvserr"; then
