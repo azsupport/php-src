@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""debian-fetch.py - the patches Debian carries for source packages, in every suite.
+"""debian-fetch.py - the patches Debian (or Ubuntu) carries for source packages, in every suite.
 
 For each source package asked for, the version of every suite of Debian that has
-it (SUITES below):
+it (SUITES below), or with --distro ubuntu of every suite of Ubuntu (UBUNTU below):
 
   deb.debian.org       sid, experimental, testing, trixie, bookworm, bullseye, with
                        their -updates, -proposed-updates and -backports
@@ -43,11 +43,25 @@ versions of that day), committed and pushed with the token RUNS_TOKEN as
 tools/runs-report.sh does; several runs may push at the same time, so a refused
 push is made again on the new tip (the files of a version do not change).
 
+With --distro ubuntu (UBUNTU below): the releases of archive.ubuntu.com (the
+supported ones, the development one, and those in Ubuntu Pro's ESM: trusty,
+xenial, bionic, focal) with their -security (security.ubuntu.com), -updates,
+-proposed and -backports pockets, and the releases at their end of life of
+old-releases.ubuntu.com from 14.04 on with -security and -updates (an older
+release, or another pocket of them, when --suites names it); found in the
+dists/ of both archives, newest first. The fixes of a release past its standard
+support are in ESM, which is not public: source.txt says so, and gives the date
+of the newest entry of the changelog (where the public history stops). A file
+missing from its pool, a "name=version" and a package that no suite has any
+more come from Launchpad (instead of snapshot.debian.org). The tree goes to
+distro/ubuntu/<YYYY-MM-DD>/ of the branch runs.
+
 Usage: python3 tools/debian-fetch.py --out DIR [--report FILE] [--suites LIST]
-                                     [--push] PACKAGE[=VERSION]...
+                                     [--distro debian|ubuntu] [--push] PACKAGE[=VERSION]...
   --out      where the tree is written (empty or new)
   --report   a summary in Markdown (the job summary, the report of the run)
   --suites   only these suites (names as above, separated by spaces or commas)
+  --distro   debian (the default) or ubuntu
   --push     commit the tree into azsupport/azsupport (branch runs); RUNS_REMOTE
              (a path or URL) instead, for a test
 """
@@ -132,6 +146,25 @@ NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]+$")
 VERSION = re.compile(r"^[A-Za-z0-9.+~:-]+$")
 RUNS_URL = "https://x-access-token:%s@github.com/azsupport/azsupport.git"
 RUNS_DIR = "distro/debian"
+
+# Ubuntu (--distro ubuntu): main() puts its suites into SUITES, its components into
+# COMPONENTS and its directory into RUNS_DIR
+UBUNTU = "https://archive.ubuntu.com/ubuntu"
+UBUNTU_SEC = "https://security.ubuntu.com/ubuntu"
+UBUNTU_OLD = "https://old-releases.ubuntu.com/ubuntu"
+UBUNTU_COMPONENTS = ("main", "restricted", "universe", "multiverse")
+UBUNTU_POCKETS = ("", "-security", "-updates", "-proposed", "-backports")
+UBUNTU_OLD_POCKETS = ("", "-security", "-updates")     # of a release at its end of life, by default
+UBUNTU_OLDEST = (14, 4)                                 # older releases only when --suites names them
+# the end of the standard support of the releases in ESM (Ubuntu Pro): their later fixes are not public
+UBUNTU_ESM = {"trusty": "2019-04", "xenial": "2021-04", "bionic": "2023-05", "focal": "2025-05"}
+UBUNTU_RUNS_DIR = "distro/ubuntu"
+LAUNCHPAD = "https://api.launchpad.net/1.0/ubuntu/+archive/primary"
+LAUNCHPAD_FILE = "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/%s/%s/%s"
+
+DISTRO = "debian"
+DEFAULT = None          # the suites read when --suites is empty (None: all of SUITES)
+RELEASES = {}           # Ubuntu: codename -> (version, archive)
 
 warnings = []
 
@@ -262,14 +295,177 @@ def read_index(base, dist):
     return stanzas if found else None
 
 
+def read_index_filtered(base, dist, names):
+    """read_index for the big indexes of Ubuntu: (the stanzas that may be of names,
+    the number of all of them), or None when the suite is not there."""
+    stanzas, total, found = [], 0, False
+    for comp in COMPONENTS:
+        data = None
+        for ext, unpack in (("xz", lzma.decompress), ("gz", gzip.decompress), ("bz2", bz2.decompress), ("", None)):
+            raw = get("%s/dists/%s/%s/source/Sources%s" % (base, dist, comp, "." + ext if ext else ""))
+            if raw is None:
+                continue
+            data = unpack(raw) if unpack else raw
+            break
+        if data is None:
+            if comp == "main":
+                return None
+            continue
+        found = True
+        for para in re.split(r"\n[ \t]*\n", data.decode("utf-8", "replace")):
+            if not para.strip():
+                continue
+            total += 1
+            if not any(n in para for n in names):
+                continue
+            for s in deb822(para):
+                s["_base"] = base
+                s["_dist"] = dist
+                s["_component"] = comp
+                stanzas.append(s)
+    return (stanzas, total) if found else None
+
+
+def ubuntu_suites():
+    """The suites of Ubuntu, newest release first ([(suite, [(archive, dist)])]), and
+    those read by default: the releases of archive.ubuntu.com with every pocket, those
+    of old-releases.ubuntu.com from UBUNTU_OLDEST on with UBUNTU_OLD_POCKETS."""
+    found = {}
+    for base in (UBUNTU, UBUNTU_OLD):
+        try:
+            raw = get(base + "/dists/")
+        except RuntimeError as e:
+            warn("%s/dists/: %s" % (base, e))
+            continue
+        for name in re.findall(r'href="([a-z]+)/"', (raw or b"").decode("utf-8", "replace")):
+            if name != "devel" and name not in found:
+                found[name] = base
+    releases = []
+    for name, base in found.items():
+        try:
+            rel = get("%s/dists/%s/Release" % (base, name))
+        except RuntimeError as e:
+            warn("%s %s: %s" % (name, base, e))
+            continue
+        m = re.search(r"^Version:\s*(\d+)\.(\d+)", (rel or b"").decode("utf-8", "replace"), re.M)
+        if not m:
+            warn("%s/dists/%s/Release: no version, left out" % (base, name))
+            continue
+        releases.append((name, (int(m.group(1)), int(m.group(2))), base))
+    releases.sort(key=lambda r: r[1], reverse=True)
+    suites, default = [], set()
+    for name, ver, base in releases:
+        RELEASES[name] = ("%d.%02d" % ver, base)
+        old = base == UBUNTU_OLD
+        for pocket in UBUNTU_POCKETS:
+            suite = name + pocket
+            if old:
+                cands = [(UBUNTU_OLD, suite), (UBUNTU, suite)]
+            elif pocket == "-security":
+                cands = [(UBUNTU_SEC, suite), (UBUNTU, suite), (UBUNTU_OLD, suite)]
+            else:
+                cands = [(UBUNTU, suite), (UBUNTU_OLD, suite)]
+            suites.append((suite, cands))
+            if ver >= UBUNTU_OLDEST and (not old or pocket in UBUNTU_OLD_POCKETS):
+                default.add(suite)
+    return tuple(suites), default
+
+
+def ubuntu_notes(suite, staged):
+    """What source.txt says of a version of Ubuntu: the date of the newest entry of
+    its changelog, and whether its release still gets public fixes."""
+    notes = []
+    try:
+        text = open(os.path.join(staged, "changelog"), encoding="utf-8", errors="replace").read()
+        m = re.search(r"^ -- .*?>\s+(.+)$", text, re.M)
+        notes.append("Date: %s" % email.utils.parsedate_to_datetime(m.group(1).strip()).date().isoformat())
+    except (OSError, AttributeError, TypeError, ValueError):
+        pass
+    name = re.sub(r"-(security|updates|proposed|backports)$", "", suite)
+    if name in UBUNTU_ESM:
+        notes.append("Support: %s is in ESM since %s: its later fixes are in Ubuntu Pro, not public; "
+                     "this is its last public version in this pocket" % (name, UBUNTU_ESM[name]))
+    elif RELEASES.get(name, ("", ""))[1] == UBUNTU_OLD:
+        notes.append("Support: %s is at its end of life (old-releases.ubuntu.com): no fixes after this" % name)
+    return notes
+
+
+def launchpad_sources(src, version=None):
+    """The publications of a source package in Ubuntu (Launchpad), every series and pocket."""
+    q = {"ws.op": "getPublishedSources", "source_name": src, "exact_match": "true", "ws.size": "300"}
+    if version:
+        q["version"] = version
+    url, out = "%s?%s" % (LAUNCHPAD, urllib.parse.urlencode(q)), []
+    while url:
+        raw = get(url)
+        if raw is None:
+            break
+        data = json.loads(raw)
+        out += data.get("entries", [])
+        url = data.get("next_collection_link")
+    return out
+
+
+def launchpad_latest(src):
+    best = None
+    for e in launchpad_sources(src):
+        v = e.get("source_package_version")
+        if v and (best is None or vercmp(v, best) > 0):
+            best = v
+    return best
+
+
+def from_launchpad(fetcher, src, version):
+    entries = launchpad_sources(src, version)
+    if not entries:
+        raise RuntimeError("Launchpad has no %s %s" % (src, version))
+    e = entries[0]
+    urls = {}
+    for u in json.loads(get(e["self_link"] + "?ws.op=sourceFileUrls") or b"[]"):
+        urls[urllib.parse.unquote(u.rsplit("/", 1)[1])] = u
+    dsc = [n for n in urls if n.endswith(".dsc")]
+    if not dsc:
+        raise RuntimeError("Launchpad: no .dsc of %s %s" % (src, version))
+    st = deb822(unsign((get(urls[dsc[0]]) or b"").decode("utf-8", "replace")))
+    if not st:
+        raise RuntimeError("Launchpad: %s unreadable" % dsc[0])
+    files = checksums(st[0])
+    sizes = {f[0]: (f[1], f[2]) for f in files}
+
+    def getter(name):
+        body = get(urls.get(name) or LAUNCHPAD_FILE % (src, urllib.parse.quote(version), name))
+        if body is None or len(body) != sizes[name][0] or not digest_ok(body, sizes[name][1]):
+            raise RuntimeError("Launchpad %s: missing, or size or SHA-256 differs from the .dsc" % name)
+        return body
+
+    series = e.get("distro_series_link", "").rstrip("/").rsplit("/", 1)[-1]
+    where = "Launchpad: %s %s (%s %s, %s)" % (src, version, series, e.get("pocket", "?"), e.get("status", "?"))
+    dest = fetcher.write(src, "launchpad", version, st[0].get("Format", ""), where, files, getter,
+                         stanza_fields(st[0]))
+    return version, st[0].get("Format", ""), dest
+
+
 def checksums(stanza):
-    """[(name, size, sha256)] of a Sources entry or .dsc."""
+    """[(name, size, sha256)] of a Sources entry or .dsc; without Checksums-Sha256 (the
+    indexes of the newest releases of Ubuntu), "sha512:<hex>" of Checksums-Sha512."""
     out = []
     for line in stanza.get("Checksums-Sha256", "").splitlines():
         p = line.split()
         if len(p) == 3:
             out.append((p[2], int(p[1]), p[0]))
+    if not out:
+        for line in stanza.get("Checksums-Sha512", "").splitlines():
+            p = line.split()
+            if len(p) == 3:
+                out.append((p[2], int(p[1]), "sha512:" + p[0]))
     return out
+
+
+def digest_ok(data, sha):
+    """Whether data has the checksum of checksums(): a SHA-256, or "sha512:<hex>"."""
+    if sha.startswith("sha512:"):
+        return hashlib.sha512(data).hexdigest() == sha[len("sha512:"):]
+    return hashlib.sha256(data).hexdigest() == sha
 
 
 def debian_file(names):
@@ -465,6 +661,8 @@ class Fetcher:
         shutil.copytree(staged, dest)
         info = ["Source: %s" % src, "Version: %s" % version, "Format: %s" % (fmt or "?"),
                 "Suite: %s" % suite, "From: %s" % where] + notes + fields
+        if DISTRO == "ubuntu":
+            info[5:5] = ubuntu_notes(suite, staged)
         info.append("Files of the source:")
         info += ["  %s %d %s" % f for f in files]
         with open(os.path.join(dest, "source.txt"), "w") as f:
@@ -497,7 +695,9 @@ def from_suite(fetcher, src, suite, s):
     def getter(name):
         size, sha = sizes[name]
         urls = ["%s/%s/%s" % (b, directory, name) for b in bases]
-        if name in sha1:
+        if DISTRO == "ubuntu":
+            urls.append(LAUNCHPAD_FILE % (src, urllib.parse.quote(version), name))
+        elif name in sha1:
             urls.append("%s/file/%s" % (SNAPSHOT, sha1[name]))
         tried = []
         for url in urls:
@@ -509,7 +709,7 @@ def from_suite(fetcher, src, suite, s):
             if raw is None:
                 tried.append("%s: not found" % url)
                 continue
-            if len(raw) != size or hashlib.sha256(raw).hexdigest() != sha:
+            if len(raw) != size or not digest_ok(raw, sha):
                 tried.append("%s: size or SHA-256 differs from the index" % url)
                 continue
             if url != urls[0]:
@@ -627,6 +827,8 @@ def from_sury(fetcher, src, pub):
 
 
 def index_md(pkgdir, src, day):
+    if DISTRO == "ubuntu":
+        return index_md_ubuntu(pkgdir, src, day)
     rows = []
     for d in sorted(os.listdir(pkgdir)):
         p = os.path.join(pkgdir, d, "source.txt")
@@ -640,6 +842,29 @@ def index_md(pkgdir, src, day):
              "Written by tools/debian-fetch.py of azsupport/php-src (workflow debian-fetch.yml).", "",
              "| suite | version | format | directory |", "|---|---|---|---|"]
     lines += ["| %s | %s | %s | [%s](%s/) |" % (r[1], r[2], r[3], r[0], r[0]) for r in rows]
+    with open(os.path.join(pkgdir, "index.md"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def index_md_ubuntu(pkgdir, src, day):
+    rows = []
+    for d in sorted(os.listdir(pkgdir)):
+        p = os.path.join(pkgdir, d, "source.txt")
+        if not os.path.isfile(p):
+            continue
+        info = dict(line.split(": ", 1) for line in open(p).read().splitlines() if ": " in line)
+        support = info.get("Support", "")
+        rows.append((d, info.get("Suite", "?"), info.get("Version", "?"), info.get("Format", "?"),
+                     info.get("Date", "?"), "ESM, not public after it" if " ESM " in support
+                     else "end of life" if "end of life" in support else ""))
+    order = {s[0]: i for i, s in enumerate(SUITES)}
+    rows.sort(key=lambda r: (order.get(r[1], len(order)), r[2]))
+    lines = ["# %s: Ubuntu, %s" % (src, day), "",
+             "Written by tools/debian-fetch.py of azsupport/php-src (workflow debian-fetch.yml, distro ubuntu).",
+             "Date: of the newest entry of the changelog of the version. ESM: the release is past its standard",
+             "support, its later fixes are in Ubuntu Pro and not public.", "",
+             "| suite | version | format | date | support | directory |", "|---|---|---|---|---|---|"]
+    lines += ["| %s | %s | %s | %s | %s | [%s](%s/) |" % (r[1], r[2], r[3], r[4], r[5], r[0], r[0]) for r in rows]
     with open(os.path.join(pkgdir, "index.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -680,7 +905,7 @@ def push(out, day, packages, run):
                 return True
             git("-c", "user.name=github-actions[bot]",
                 "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com",
-                "commit", "-q", "-m", "debian-fetch: %s (run %s)" % (" ".join(packages)[:200], run), cwd=repo)
+                "commit", "-q", "-m", "%s-fetch: %s (run %s)" % (DISTRO, " ".join(packages)[:200], run), cwd=repo)
             r = git("push", "-q", "origin", "HEAD:runs", cwd=repo, check=False)
             if r.returncode == 0:
                 log("runs: pushed %s" % target)
@@ -696,30 +921,39 @@ def push(out, day, packages, run):
 
 
 def main():
+    global SUITES, COMPONENTS, RUNS_DIR, DISTRO, DEFAULT
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", required=True)
     ap.add_argument("--report")
     ap.add_argument("--suites", default="")
+    ap.add_argument("--distro", default="debian", choices=("debian", "ubuntu"))
     ap.add_argument("--push", action="store_true")
     ap.add_argument("packages", nargs="*")
     a = ap.parse_args()
+    ubuntu = a.distro == "ubuntu"
 
     asked = []
     for item in " ".join(a.packages).replace(",", " ").split():
         name, _, version = item.partition("=")
         if not NAME.match(name) or (version and not VERSION.match(version)):
-            warn("not a Debian source package (or version): %r, left out" % item)
+            warn("not a%s source package (or version): %r, left out" % ("n Ubuntu" if ubuntu else " Debian", item))
             continue
         if (name, version or None) not in asked:
             asked.append((name, version or None))
     if not asked:
         log("no packages")
         return 2
+    if ubuntu:
+        DISTRO, COMPONENTS, RUNS_DIR = "ubuntu", UBUNTU_COMPONENTS, UBUNTU_RUNS_DIR
+        SUITES, DEFAULT = ubuntu_suites()
+        if not SUITES:
+            log("no release of Ubuntu found")
+            return 1
     only = set(a.suites.replace(",", " ").split())
     unknown = only - {s[0] for s in SUITES}
     if unknown:
         warn("unknown suites, left out: %s" % " ".join(sorted(unknown)))
-    suites = [s for s in SUITES if not only or s[0] in only]
+    suites = [s for s in SUITES if (s[0] in only if only else DEFAULT is None or s[0] in DEFAULT)]
     names = {n for n, _ in asked}
 
     # the indexes: the entries of the packages asked for (by source or binary name)
@@ -730,12 +964,17 @@ def main():
         stanzas = None
         for base, dist in candidates:
             try:
-                stanzas = read_index(base, dist)
+                if ubuntu:
+                    got = read_index_filtered(base, dist, names)
+                    stanzas, total = got if got is not None else (None, 0)
+                else:
+                    stanzas = read_index(base, dist)
+                    total = len(stanzas) if stanzas is not None else 0
             except Exception as e:  # noqa: BLE001
                 warn("%s %s: %s" % (suite, dist, e))
                 stanzas = None
             if stanzas is not None:
-                read.append((suite, "%s/dists/%s" % (base, dist), len(stanzas)))
+                read.append((suite, "%s/dists/%s" % (base, dist), total))
                 break
         if stanzas is None:
             read.append((suite, "not there", 0))
@@ -746,7 +985,7 @@ def main():
             for n in names:
                 if pkg == n or n in binaries:
                     found.setdefault(n, []).append((suite, s))
-        log("%s: %d sources" % (suite, len(stanzas)))
+        log("%s: %d sources" % (suite, read[-1][2]))
 
     os.makedirs(a.out, exist_ok=True)
     fetcher = Fetcher(a.out)
@@ -791,20 +1030,24 @@ def main():
         want = [version] if version else []
         if not use and not version:
             try:
-                latest = snapshot_latest(name)
+                latest = launchpad_latest(name) if ubuntu else snapshot_latest(name)
             except Exception as e:  # noqa: BLE001
                 latest = None
-                errors.append("%s: snapshot.debian.org: %s" % (name, e))
+                errors.append("%s: %s: %s" % (name, "Launchpad" if ubuntu else "snapshot.debian.org", e))
             if latest:
                 want.append(latest)
             elif not in_sury:
                 missing.append(name)
         for v in want:
             try:
+                if ubuntu:
+                    v, fmt, dest = from_launchpad(fetcher, name, v)
+                    results.append((name, name, "launchpad", v, fmt, os.path.relpath(dest, a.out)))
+                    continue
                 v, fmt, dest = from_snapshot(fetcher, name, v)
                 results.append((name, name, "snapshot", v, fmt, os.path.relpath(dest, a.out)))
             except Exception as e:  # noqa: BLE001
-                errors.append("%s %s (snapshot): %s" % (name, v, e))
+                errors.append("%s %s (%s): %s" % (name, v, "Launchpad" if ubuntu else "snapshot", e))
     fetcher.close()
     if any(su[0] == "sury" for su in suites):
         read.append(("sury", "%s/%s (by name)" % (LAUNCHPAD, SURY_PPA), sury_read[0]))
@@ -817,19 +1060,29 @@ def main():
         pushed = push(a.out, day, [n if not v else "%s=%s" % (n, v) for n, v in asked],
                       os.environ.get("GITHUB_RUN_ID", "local"))
 
-    rep = ["### Debian fetch", "",
+    rep = ["### %s fetch" % ("Ubuntu" if ubuntu else "Debian"), "",
            "Packages: `%s`; suites: %s." % (" ".join(n if not v else "%s=%s" % (n, v) for n, v in asked),
-                                            " ".join(sorted(only)) if only else "all"),
+                                            " ".join(sorted(only)) if only else
+                                            "the default ones" if ubuntu else "all"),
            ""]
     if pushed:
         rep += ["Pushed to the branch runs of azsupport/azsupport: `%s/%s/<package>/<suite>_<version>/`." % (
             RUNS_DIR, day), ""]
     elif a.push:
         rep += ["**Not pushed** to azsupport/azsupport (see the warnings).", ""]
-    rep += ["| asked | source | suite | version | format | directory |", "|---|---|---|---|---|---|"]
-    rep += ["| %s | %s | %s | %s | %s | `%s` |" % r for r in results]
+    if ubuntu:
+        rep += ["| asked | source | suite | version | format | date | directory |", "|---|---|---|---|---|---|---|"]
+        for r in results:
+            info = open(os.path.join(a.out, r[5], "source.txt")).read()
+            m = re.search(r"^Date: (.+)$", info, re.M)
+            esm = " (ESM after it)" if re.search(r"^Support: .* ESM ", info, re.M) else ""
+            rep.append("| %s | %s | %s | %s | %s | %s%s | `%s` |" % (r[:5] + (m.group(1) if m else "?", esm, r[5])))
+    else:
+        rep += ["| asked | source | suite | version | format | directory |", "|---|---|---|---|---|---|"]
+        rep += ["| %s | %s | %s | %s | %s | `%s` |" % r for r in results]
     if missing:
-        rep += ["", "In no suite and not on snapshot.debian.org: %s" % ", ".join(missing)]
+        rep += ["", "In no suite and not on %s: %s" % ("Launchpad" if ubuntu else "snapshot.debian.org",
+                                                      ", ".join(missing))]
     if warnings:
         rep += ["", "Warnings:", ""] + ["- %s" % w for w in warnings]
     rep += ["", "<details><summary>Suites read</summary>", "", "| suite | index | sources |", "|---|---|---|"]
