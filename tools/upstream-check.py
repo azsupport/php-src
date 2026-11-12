@@ -1947,7 +1947,8 @@ def check_remi(workdir):
             if not os.path.isdir(g):
                 os.makedirs(os.path.dirname(g), exist_ok=True)
                 run(["git", "init", "-q", "--bare", g])
-            p = subprocess.run(["git", "fetch", "-q", "--no-tags", REMI_GIT % repo] + refs, cwd=g,
+            # the log is all that is read: commits only, where the server filters
+            p = subprocess.run(["git", "fetch", "-q", "--no-tags", "--filter=tree:0", REMI_GIT % repo] + refs, cwd=g,
                                capture_output=True, text=True, env=GIT_ENV, timeout=120)
             if p.returncode:
                 raise RuntimeError(p.stderr.strip()[-300:])
