@@ -429,6 +429,35 @@ def es_start(home, logf, java_home, extra):
     return proc, False
 
 
+def nest(n):
+    return "(" * n + "a" + ")" * n
+
+
+# (name, kind, query text, ES_JAVA_OPTS of the node for this probe or None)
+PROBES = [
+    ("query_string, (((a))) nesting 1000", "query_string", nest(1000)),
+    ("query_string, (((a))) nesting 2000", "query_string", nest(2000)),
+    ("query_string, (((a))) nesting 3000", "query_string", nest(3000)),
+    ("query_string, (((a))) nesting 4000", "query_string", nest(4000)),
+    ("query_string, (((a))) nesting 5000", "query_string", nest(5000)),
+    ("query_string, (((a))) nesting 15000", "query_string", nest(15000)),
+    ("query_string, field pattern of 500 *", "query_string", "*" * 500 + ":a"),
+    ("query_string, field pattern of 1000 *", "query_string", "*" * 1000 + ":a"),
+    ("query_string, field pattern of 2000 *", "query_string", "*" * 2000 + ":a"),
+    ("query_string, field pattern of 5000 *", "query_string", "*" * 5000 + ":a"),
+    ("query_string, a term of 5000 * (no field)", "query_string", "a" + "*" * 5000),
+    ("query_string, a*a*a... term of 2000 parts", "query_string", "a*" * 2000),
+    ("query_string, regexp /(((a)))/ nesting 2000", "query_string", "/" + nest(2000) + "/"),
+    ("query_string, regexp /a{1,30000}/", "query_string", "/a{1,30000}/"),
+    ("query_string, fuzzy of a 300 letter term", "query_string", "a" * 300 + "~2"),
+    ("simple_query_string, (((a))) nesting 2000", "simple_query_string", nest(2000)),
+    ("simple_query_string, (((a))) nesting 15000", "simple_query_string", nest(15000)),
+    ("simple_query_string, flags NONE, nesting 15000", "simple_query_string_none", nest(15000)),
+    ("match, the same text of 15000 (((a)))", "match", nest(15000)),
+    ("multi_match, the same text of 15000 (((a)))", "multi_match", nest(15000)),
+]
+
+
 def part_probe(out):
     raw = ES_TARBALL.get("raw")
     if raw is None:
@@ -465,21 +494,12 @@ def part_probe(out):
                                                                        "tags": {"type": "keyword"}}}}})
         es_http("PUT", "/probe/_doc/1?refresh=true", {"title": "a video about cats", "description": "cats and dogs",
                                                      "tags": ["cats"]})
-        probes = [
-            ("query_string, (((a))) nesting 1000", "query_string", "(" * 1000 + "a" + ")" * 1000),
-            ("query_string, (((a))) nesting 5000", "query_string", "(" * 5000 + "a" + ")" * 5000),
-            ("query_string, (((a))) nesting 15000", "query_string", "(" * 15000 + "a" + ")" * 15000),
-            ("query_string, field pattern of 5000 *", "query_string", "*" * 5000 + ":a"),
-            ("query_string, field pattern of 50000 *", "query_string", "*" * 50000 + ":a"),
-            ("query_string, regexp /(((a)))/ nesting 2000", "query_string", "/" + "(" * 2000 + "a" + ")" * 2000 + "/"),
-            ("query_string, regexp /(((a)))/ nesting 20000", "query_string", "/" + "(" * 20000 + "a" + ")" * 20000 + "/"),
-            ("simple_query_string, (((a))) nesting 15000", "simple_query_string", "(" * 15000 + "a" + ")" * 15000),
-            ("match, the same text of 15000 (((a)))", "match", "(" * 15000 + "a" + ")" * 15000),
-            ("multi_match, the same text of 15000 (((a)))", "multi_match", "(" * 15000 + "a" + ")" * 15000),
-        ]
+        probes = PROBES
         for name, kind, text in probes:
             if kind == "match":
                 q = {"match": {"title": text}}
+            elif kind == "simple_query_string_none":
+                q = {"simple_query_string": {"query": text, "flags": "NONE"}}
             elif kind == "multi_match":
                 q = {"multi_match": {"query": text, "fields": ["title", "description"]}}
             else:
@@ -521,12 +541,98 @@ def part_probe(out):
             data = open(lp, "rb").read()
         except OSError:
             continue
-        keep = [l for l in data.decode("utf-8", "replace").splitlines()
-                if re.search(r"fatal|StackOverflow|OutOfMemory|exiting|ERROR|started|Exception", l)]
+        text = data.decode("utf-8", "replace").splitlines()
+        keep = []
+        for i, l in enumerate(text):
+            if re.search(r"fatal|StackOverflow|OutOfMemory|exiting|ERROR|started|Exception", l):
+                keep.append(l)
+                if re.search(r"StackOverflowError|OutOfMemoryError", l):
+                    keep.extend(text[i + 1:i + 25])
         save(out, "probe/es-jdk%s.log" % jdk, "\n".join(keep[-400:]) + "\n")
     REPORT.append("- probe: %d requests (probe/results.md)" % len(rows))
-    REPORT += ["", "| JDK | query | size | HTTP | took | reason | node |", "|---|---|---|---|---|---|---|"] + rows + [""]
+    REPORT.extend(["", "| JDK | query | size | HTTP | took | reason | node |", "|---|---|---|---|---|---|---|"] + rows + [""])
+    cluster_probe(out, home, base)
     shutil.rmtree(base, ignore_errors=True)
+
+
+def cluster_probe(out, home, base):
+    """Two nodes of one cluster, an index of one shard with one replica, and one request with 5000
+    nested parentheses in query_string sent to the first node: does a failed copy of the shard take
+    the other copy down too (the search goes on to the next copy of a failed shard)?"""
+    java_home = os.environ.get("JAVA_HOME_17_X64")
+    if not java_home:
+        return
+    procs, lines = [], []
+    for i in (0, 1):
+        h = os.path.join(base, "node%d" % i)
+        shutil.copytree(home, h, symlinks=True, ignore=shutil.ignore_patterns("data", "logs", "tmp"))
+        with open(os.path.join(h, "config", "elasticsearch.yml"), "w") as f:
+            f.write("cluster.name: probe2\nnode.name: n%d\nxpack.ml.enabled: false\nhttp.port: %d\n"
+                    "transport.tcp.port: %d\ndiscovery.zen.ping.unicast.hosts: [\"127.0.0.1:9310\", \"127.0.0.1:9311\"]\n"
+                    "discovery.zen.minimum_master_nodes: 1\nnetwork.host: 127.0.0.1\n" % (i, 9210 + i, 9310 + i))
+        env = dict(os.environ, JAVA_HOME=java_home, ES_JAVA_OPTS="-Xms384m -Xmx384m",
+                   ES_TMPDIR=os.path.join(h, "tmp"))
+        os.makedirs(env["ES_TMPDIR"], exist_ok=True)
+        logf = open(os.path.join(base, "node%d.log" % i), "ab")
+        procs.append(subprocess.Popen([os.path.join(h, "bin", "elasticsearch")], env=env, stdout=logf,
+                                      stderr=subprocess.STDOUT, cwd=h))
+
+    def call(port, method, path, body=None, timeout=60):
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path), data=data, method=method,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8", "replace")
+        except Exception as e:  # noqa: BLE001
+            return 0, "%s: %s" % (type(e).__name__, e)
+
+    ok = False
+    for _ in range(180):
+        st, body = call(9210, "GET", "/_cluster/health?wait_for_nodes=2&timeout=1s", timeout=5)
+        if st == 200 and '"number_of_nodes":2' in body:
+            ok = True
+            break
+        time.sleep(1)
+    if not ok:
+        lines.append("the two nodes did not form a cluster: %s" % body[:200])
+    else:
+        call(9210, "PUT", "/probe", {"settings": {"number_of_shards": 1, "number_of_replicas": 1},
+                                     "mappings": {"_doc": {"properties": {"title": {"type": "text"}}}}})
+        call(9210, "PUT", "/probe/_doc/1?refresh=true", {"title": "cats"})
+        st, body = call(9210, "GET", "/_cluster/health/probe?wait_for_status=green&timeout=60s", timeout=70)
+        lines.append("index probe: 1 shard, 1 replica: %s" % ("green" if '"status":"green"' in body else body[:200]))
+        st, body = call(9210, "GET", "/_cat/shards/probe?h=prirep,node", timeout=10)
+        lines.append("copies: %s" % " ".join(body.split()))
+        for attempt in (1, 2):
+            if procs[0].poll() is not None and procs[1].poll() is not None:
+                break
+            port = 9210 if procs[0].poll() is None else 9211
+            st, body = call(port, "POST", "/probe/_search", {"query": {"query_string": {"query": nest(5000)}}})
+            time.sleep(8)
+            lines.append("request %d (5000 nested parentheses, sent to the node of port %d): HTTP %s; node n0 %s, node n1 %s"
+                         % (attempt, port, st, "died (exit %s)" % procs[0].returncode if procs[0].poll() is not None else "alive",
+                            "died (exit %s)" % procs[1].returncode if procs[1].poll() is not None else "alive"))
+    for p in procs:
+        if p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                p.kill()
+    for i in (0, 1):
+        try:
+            data = open(os.path.join(base, "node%d.log" % i), "rb").read().decode("utf-8", "replace")
+        except OSError:
+            continue
+        keep = [l for l in data.splitlines() if re.search(r"fatal|StackOverflow|OutOfMemory|exiting|failed|ERROR|WARN", l)]
+        save(out, "probe/cluster-n%d.log" % i, "\n".join(keep[-200:]) + "\n")
+    save(out, "probe/cluster.md", "# Two nodes, one shard with a replica, 5000 nested parentheses in query_string\n\n"
+         + "\n".join("- " + l for l in lines) + "\n")
+    REPORT.append("- probe, two nodes:")
+    REPORT.extend("  - " + l for l in lines)
 
 
 def push(out, day, run):
