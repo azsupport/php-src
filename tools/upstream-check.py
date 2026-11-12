@@ -42,8 +42,21 @@ that has caught up with a take line, which can go then.
 
 Other distributions (aZ, 11.11.2026: the FreeBSD tree lacked fixes that they
 carry), each row of freebsd/upstream.conf with the date of its last review:
-"gentoo" and "openbsd" lines, the commits of gentoo/gentoo or openbsd/ports to a
-directory after that date (their patches); "debian" lines, the advisories of
+"gentoo", "openbsd", "nixos", "macports", "homebrew", "alpine", "void" and
+"pkgsrc" lines (TREES), and "tree" lines that name any repository and branch on
+GitHub (OpenEmbedded, Buildroot, Wolfi, Photon OS, OpenWrt): the commits that landed
+on the branch after that date and change a directory or a file (their patches),
+read with git, not with the API of GitHub (check_trees: one fetch of a few weeks of
+commits per branch, then the trees of the commits compared; a merge lands the
+commits of its pull request, whatever their dates); "slackware" lines, the entries
+of the ChangeLog.txt of slackware64-current and slackware64-15.0 that name a
+package (from a mirror whose CHECKSUMS.md5 the key of Slackware signed); "remi"
+lines, the commits of a branch of Remi Collet's git server after a commit (the
+sources of his RPMs); "arch" lines, the commits of the packaging repository of an
+Arch Linux package (gitlab.archlinux.org), the AUR by "github" lines (its GitHub
+mirror, a branch per package); "suse" lines, the entries of the .changes of a
+package of the Open Build Service (openSUSE, and the maintenance projects of SUSE
+Linux Enterprise that backport to old versions); "debian" lines, the advisories of
 Debian (DSA, DLA) and of Freexian's Extended LTS (ELA) for a source package and,
 with "uploads", its uploads to unstable; "sury" and "ubuntu" lines, the uploads
 of a package to the PPA of Ondrej Sury or to Ubuntu, with their changelog (the
@@ -58,7 +71,8 @@ the backports these distributions carry, often to old versions. The line
 "fedora <package> <date> <ours> [<branches>]"; a clone of the repository without
 its file contents, the commits after the date with their branches.
 UPSTREAM_EXTRA_ROWS (lines of upstream.conf, separated by newlines or ";") is
-read after freebsd/upstream.conf: a test of rows, with --dry-run.
+read after freebsd/upstream.conf: a test of rows, with --dry-run; --only runs some
+of the checks (a closed source leaves the issues of the others alone).
 
 Default versions. The "default" rows of freebsd/upstream.conf: PYTHON_DEFAULT and
 PERL5_DEFAULT of Mk/bsd.default-versions.mk of freebsd-ports main against the
@@ -80,7 +94,11 @@ closing an issue is how to say "not wanted". Nothing is applied.
 
 Usage: python3 tools/upstream-check.py [--dry-run] [--repo OWNER/NAME]
                                        [--workdir DIR] [--days N] [--ports DIR]
+                                       [--only CHECK,...]
   --dry-run   print the findings, do not read or change issues
+  --only      only these checks (releases, bundles, ports, eol, trees, github,
+              defaults, debian, launchpad, cves, distgit, slackware, remi, arch,
+              suse); the issues of the others stay as they are
   --repo      repository of the issues (default: $GITHUB_REPOSITORY)
   --workdir   where the git clones go (default: a temporary directory)
   --days      freebsd-ports history to fetch (default 180); a reviewed revision
@@ -101,9 +119,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORTS_URL = "https://github.com/freebsd/freebsd-ports"
@@ -880,7 +900,32 @@ def github_json(path):
         return json.loads(r.read().decode("utf-8", "replace"))
 
 
-TREES = {"gentoo": ("gentoo/gentoo", "Gentoo"), "openbsd": ("openbsd/ports", "OpenBSD")}
+# The trees of other distributions on GitHub (aZ, 11.11.2026: the FreeBSD tree lacked
+# fixes they carry; the reviews of 12.11.2026): the kind of row, (repository, name,
+# default branch, whether "<dir>@<branch>" names another branch: not for Homebrew,
+# whose formulae have "@" in their names, php@8.1.rb). A row "<kind> <dir>[@<branch>]
+# <date> <ours>"; the row "tree <owner>/<repo>@<branch> <path> <date> <ours>" names the
+# repository itself.
+TREES = {
+    "gentoo": ("gentoo/gentoo", "Gentoo", "master", True),
+    "openbsd": ("openbsd/ports", "OpenBSD", "master", True),
+    "nixos": ("NixOS/nixpkgs", "NixOS", "master", True),
+    "macports": ("macports/macports-ports", "MacPorts", "master", True),
+    "homebrew": ("Homebrew/homebrew-core", "Homebrew", "main", False),
+    "alpine": ("alpinelinux/aports", "Alpine", "master", True),
+    "void": ("void-linux/void-packages", "Void Linux", "master", True),
+    "pkgsrc": ("NetBSD/pkgsrc", "pkgsrc", "trunk", True),
+}
+TREE_MARGIN = 60   # days of history before the oldest date of a branch fetched (commits only):
+                   # a merge whose pull request is older is a shallow border that cuts the
+                   # first-parent chain of the branch, the more often the closer the day
+TREE_RUN = 20      # first-parent commits dated on or before the date that end the walk back
+TREE_REPAIR = 100  # fetches that mend the first-parent chain cut by such a border, per branch
+TREE_LIST = 40     # commits listed in an issue at most
+TREE_BATCH = 2000  # commits per fetch of their trees
+GIT_ENV = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/bin/false")
+# reading a clone without file contents needs none: fail rather than fetch them one by one
+GIT_LOCAL_ENV = dict(GIT_ENV, GIT_NO_LAZY_FETCH="1")
 
 
 def ours(what):
@@ -894,39 +939,339 @@ def ours(what):
     return "`%s` of azsupport/ports" % what
 
 
-def check_trees():
-    """The rows "gentoo <dir> <date> <ours>" and "openbsd <dir> <date> <ours>" of
-    upstream.conf: the commits of gentoo/gentoo or openbsd/ports (the GitHub mirror of
-    the CVS tree of OpenBSD) to <dir> after <date>, the fixes those trees carry."""
-    findings, checked = [], set()
+def tree_rows():
+    """The rows of upstream.conf read from a git tree on GitHub: dicts with the kind of
+    row, repo, name, branch, path, date, what (<ours>), label (<dir>[@<branch>], or
+    <repo>@<branch>:<path> for a "tree" row) and row (how upstream.conf names it)."""
+    rows = []
     for r in conf("upstream.conf"):
-        if r[0] not in TREES or len(r) < 4:
-            continue
-        kind, (repo, name) = r[0], TREES[r[0]]
-        d, date, what = r[1], r[2], r[3]
+        if r[0] in TREES and len(r) >= 4:
+            repo, name, default, at = TREES[r[0]]
+            path, _, branch = r[1].partition("@") if at else (r[1], "", "")
+            rows.append({"kind": r[0], "repo": repo, "name": name, "branch": branch or default,
+                         "path": path.strip("/"), "date": r[2], "what": r[3], "label": r[1],
+                         "row": "%s %s" % (r[0], r[1])})
+        elif r[0] == "tree" and len(r) >= 5:
+            repo, _, branch = r[1].partition("@")
+            if not branch or repo.count("/") != 1:
+                warn("upstream.conf: tree %s %s: not <owner>/<repo>@<branch>" % (r[1], r[2]))
+                continue
+            rows.append({"kind": "tree", "repo": repo, "name": r[1], "branch": branch,
+                         "path": r[2].strip("/"), "date": r[3], "what": r[4], "label": "%s:%s" % (r[1], r[2]),
+                         "row": "tree %s %s" % (r[1], r[2])})
+    return rows
+
+
+def day_end(day):
+    """The Unix time of the end of a day (YYYY-MM-DD) in UTC."""
+    d = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+    return int(d.timestamp()) + 86399
+
+
+def commit_object(body):
+    """(parents, committer time, message) of the bytes of a commit object."""
+    head, _, msg = body.partition(b"\n\n")
+    parents, ctime = [], 0
+    for line in head.split(b"\n"):
+        if line.startswith(b"parent "):
+            parents.append(line[7:].decode())
+        elif line.startswith(b"committer "):
+            try:
+                ctime = int(line.rsplit(b" ", 2)[1])
+            except (IndexError, ValueError):
+                pass
+    return parents, ctime, msg.decode("utf-8", "replace")
+
+
+class GitTree:
+    """Branches of a GitHub repository read with git: their history as commits only
+    (--filter=tree:0) of the days the rows need (--shallow-since), read without the grafts
+    of its shallow borders; and, in a second clone, the trees (no file contents) of the
+    commits compared, each fetched alone (--depth=1). A commit "landed" on a branch when
+    the first-parent chain of the branch took it: as a commit of its own, or brought by
+    a merge (the merge is made when it lands; the commits of a pull request keep their own,
+    older dates). A merge whose other parent is older than the days fetched is a shallow
+    border of the history, and the server sends nothing behind it: such a cut of the
+    first-parent chain is mended by fetching its first parent with the same days."""
+
+    def __init__(self, workdir, repo):
+        self.repo = repo
+        self.url = "https://github.com/%s.git" % repo
+        base = os.path.join(workdir, "trees", repo.replace("/", "__"))
+        self.git, self.trees = base + ".git", base + ".trees.git"
+        for d in (self.git, self.trees):
+            if not os.path.isdir(d):
+                os.makedirs(os.path.dirname(d), exist_ok=True)
+                self.cmd(["init", "-q", "--bare", d], cwd=None)
+        self.info, self.have_trees, self.since = {}, set(), {}
+
+    def cmd(self, args, cwd="", data=None, timeout=GIT_TIMEOUT):
+        """git <args> in the clone of the commits (cwd: another one, None: none); its
+        output, RuntimeError on failure. Only fetch may fetch objects."""
         try:
-            commits = github_json("repos/%s/commits?path=%s&since=%sT23:59:59Z&per_page=50" % (repo, d, date))
-        except Exception as e:  # noqa: BLE001 - the source is down: leave its issue alone
-            warn("%s %s: %s" % (repo, d, e))
+            p = subprocess.run(["git"] + args, cwd=self.git if cwd == "" else cwd, input=data, capture_output=True,
+                               env=GIT_ENV if args[0] == "fetch" else GIT_LOCAL_ENV, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("git %s: no answer in %d s" % (args[0], timeout))
+        if p.returncode:
+            raise RuntimeError("git %s: %s" % (args[0], p.stderr.decode("utf-8", "replace").strip()[-300:]))
+        return p.stdout
+
+    def fetch_history(self, ref, since):
+        """The commits of ref dated on or after the day since (commits only); ref alone
+        when it is older (nothing selected: "error processing shallow info")."""
+        try:
+            self.cmd(["fetch", "-q", "--no-tags", "--filter=tree:0", "--shallow-since=" + since, self.url, ref])
+        except RuntimeError as e:
+            if "shallow" not in str(e).lower():
+                raise
+            self.cmd(["fetch", "-q", "--no-tags", "--filter=tree:0", "--depth=1", self.url, ref])
+
+    def fetch(self, branch, since):
+        self.since[branch] = since
+        self.fetch_history("+refs/heads/%s:refs/heads/%s" % (branch, branch), since)
+
+    def commits(self):
+        """{sha: (parents, committer time, message)} of every commit of the clone, as
+        their objects have them (a shallow border keeps its parents here)."""
+        out = self.cmd(["cat-file", "--batch-all-objects", "--unordered",
+                        "--batch-check=%(objectname) %(objecttype)"]).decode()
+        shas = [l.split()[0] for l in out.splitlines() if l.endswith(" commit") and l.split()[0] not in self.info]
+        data = self.cmd(["cat-file", "--batch"], data=("\n".join(shas) + "\n").encode()) if shas else b""
+        i = 0
+        while i < len(data):
+            nl = data.index(b"\n", i)
+            head = data[i:nl].split()
+            size = int(head[2])
+            self.info[head[0].decode()] = commit_object(data[nl + 1:nl + 1 + size])
+            i = nl + 1 + size + 1
+        return self.info
+
+    def tip(self, branch):
+        out = subprocess.run(["git", "rev-parse", "--verify", "-q", "refs/heads/%s^{commit}" % branch],
+                             cwd=self.git, capture_output=True, text=True, env=GIT_LOCAL_ENV)
+        return out.stdout.strip() or None
+
+    def landed(self, branch, end):
+        """The commits that landed on branch after end (a Unix time): (landings, newest
+        first; {landing: the commits it brought}; whether the history reaches the commits
+        of before end). The first-parent chain is walked back from the tip until TREE_RUN
+        commits in a row are dated at or before end (a commit pushed days after it was
+        made does not end the walk), a cut of it mended."""
+        tip = self.tip(branch)
+        if not tip:
+            raise RuntimeError("no branch %s" % branch)
+        repaired = 0
+        while True:
+            info = self.commits()
+            chain, c, old, missing = [], tip, 0, None
+            while c:
+                ci = info.get(c)
+                if ci is None:
+                    missing = c
+                    break
+                chain.append(c)
+                if ci[1] > end:
+                    old = 0
+                else:
+                    old += 1
+                    if old >= TREE_RUN:
+                        break
+                c = ci[0][0] if ci[0] else None
+            # a cut, not the start of the days fetched: the chain stops at a commit of
+            # less than half of those days before the date
+            if (missing and old < TREE_RUN and repaired < TREE_REPAIR and chain
+                    and info[chain[-1]][1] > end - TREE_MARGIN * 86400 // 2):
+                self.fetch_history("+%s:refs/fetched/%s" % (missing, missing), self.since[branch])
+                repaired += 1
+                continue
+            break
+        if repaired:
+            log("%s %s: the first-parent chain mended %d time%s" % (self.repo, branch, repaired,
+                                                                    "" if repaired == 1 else "s"))
+        n = max([i + 1 for i, c in enumerate(chain) if info[c][1] > end] or [0])
+        landings, base = chain[:n], chain[n] if n < len(chain) else None
+        complete = base is not None or not missing
+        if not complete:
+            warn("%s %s: the history before %s was not fetched: the commits that landed before it are not "
+                 "listed" % (self.repo, branch, chain[-1][:12] if chain else tip[:12]))
+        # the commits of each landing: those it reaches that the landings before it do not
+        seen, todo = set(), [base] if base else []
+        while todo:
+            c = todo.pop()
+            if c in seen or c not in info:
+                continue
+            seen.add(c)
+            todo.extend(info[c][0])
+        brought = {}
+        for land in reversed(landings):
+            new, todo = [], [land]
+            while todo:
+                c = todo.pop()
+                if c in seen or c not in info:
+                    continue
+                seen.add(c)
+                new.append(c)
+                todo.extend(info[c][0])
+            brought[land] = new
+        return landings, brought, complete
+
+    def fetch_trees(self, shas):
+        """The trees of these commits into the second clone, each commit alone."""
+        want = sorted({c for c in shas if c and c not in self.have_trees})
+        for i in range(0, len(want), TREE_BATCH):
+            part = want[i:i + TREE_BATCH]
+            self.cmd(["fetch", "-q", "--no-tags", "--filter=blob:none", "--depth=1", "--stdin", self.url],
+                     cwd=self.trees, data=("\n".join(part) + "\n").encode())
+            self.have_trees |= set(part)
+
+    def touched(self, pairs, paths):
+        """{commit: the paths of paths (directories or files) that it changes against the
+        commit given with it}, for the pairs (commit, parent)."""
+        out = {}
+        pairs = [(c, p) for c, p in pairs if c and p]
+        if not pairs or not paths:
+            return out
+        self.fetch_trees([x for pair in pairs for x in pair])
+        data = "".join("%s %s\n" % (c, p) for c, p in pairs).encode()
+        text = self.cmd(["diff-tree", "--stdin", "-r", "--name-only", "--no-renames", "--"] + sorted(paths),
+                        cwd=self.trees, data=data).decode("utf-8", "replace")
+        cur = None
+        for line in text.splitlines():
+            if re.fullmatch(r"[0-9a-f]{40}( [0-9a-f]{40})*", line):
+                cur = line[:40]
+                continue
+            if cur is None or not line:
+                continue
+            for p in paths:
+                if line == p or line.startswith(p + "/"):
+                    out.setdefault(cur, set()).add(p)
+        return out
+
+    def missing_paths(self, branch, paths):
+        """The paths of paths that the tip of branch has not."""
+        tip = self.tip(branch)
+        self.fetch_trees([tip])
+        out = self.cmd(["ls-tree", "-z", tip, "--"] + sorted(paths), cwd=self.trees).decode("utf-8", "replace")
+        have = {e.split("\t", 1)[1] for e in out.split("\0") if "\t" in e}
+        return set(paths) - have
+
+
+def commit_title(msg):
+    """The first line of a commit message; of a merge of a pull request with its title."""
+    lines = [l.strip() for l in msg.splitlines()]
+    first = lines[0] if lines else ""
+    if first.startswith("Merge pull request #"):
+        rest = next((l for l in lines[1:] if l), "")
+        if rest:
+            first += ": " + rest
+    return first.replace("|", "\\|")
+
+
+def check_trees(workdir):
+    """The rows of the trees of other distributions (TREES: "gentoo <dir> <date> <ours>",
+    "openbsd", "nixos", "macports", "homebrew", "alpine", "void", "pkgsrc", <dir> with
+    "@<branch>" for another branch than the default one) and the rows
+    "tree <owner>/<repo>@<branch> <path> <date> <ours>" of upstream.conf: the commits that
+    landed on the branch after <date> and change <dir> or <path> (a directory or a file),
+    the fixes these trees carry. Read with git (GitTree), not the API of GitHub: one fetch
+    per branch and only of the days needed, whatever the number of rows."""
+    findings, checked = [], set()
+    rows = tree_rows()
+    by_repo = {}
+    for t in rows:
+        by_repo.setdefault(t["repo"], {}).setdefault(t["branch"], []).append(t)
+    for repo, branches in sorted(by_repo.items()):
+        try:
+            g = GitTree(workdir, repo)
+        except RuntimeError as e:
+            warn("%s: %s" % (repo, e))
             continue
-        checked.add("%s:%s:" % (kind, d))
-        if not commits:
-            continue
-        lines = ["Commits of [%s](https://github.com/%s/tree/master/%s) to `%s` after %s (newest first), for %s:"
-                 % (repo, repo, d, d, date, ours(what)), ""]
-        for c in commits:
-            msg = c["commit"]["message"].splitlines()[0].replace("|", "\\|")
-            lines.append("- [`%s`](https://github.com/%s/commit/%s) %s %s" % (
-                c["sha"][:12], repo, c["sha"], c["commit"]["committer"]["date"][:10], msg))
-        lines += ["", "After the review: what %s needs (a fix it lacks) into its patches, then set the date of "
-                      "`%s %s` in `freebsd/upstream.conf` to the day of the review; the next check closes this issue."
-                      % (ours(what), kind, d)]
-        findings.append({"key": "%s:%s:%s" % (kind, d, date), "kind": "release" if what.startswith("freebsd/") else "ports",
-                         "title": "%s: %s, %d commit%s after %s" % (name, d, len(commits),
-                                                                   "" if len(commits) == 1 else "s", date),
-                         "body": "\n".join(lines)})
+        for branch, trs in sorted(branches.items()):
+            since = (datetime.datetime.strptime(min(t["date"] for t in trs), "%Y-%m-%d").date()
+                     - datetime.timedelta(days=TREE_MARGIN)).isoformat()
+            started = time.time()
+            try:
+                g.fetch(branch, since)
+                gone = g.missing_paths(branch, sorted({t["path"] for t in trs}))
+                for date in sorted({t["date"] for t in trs}):
+                    landings, brought, complete = g.landed(branch, day_end(date))
+                    dated = [t for t in trs if t["date"] == date]
+                    findings += tree_findings(g, branch, dated, landings, brought, complete, gone)
+                log("%s %s: %d rows (%.0f s)" % (repo, branch, len(trs), time.time() - started))
+            except (RuntimeError, OSError, ValueError) as e:  # the source is down: leave its issues alone
+                warn("%s %s: %s" % (repo, branch, e))
+                continue
+            checked |= {"%s:%s:" % (t["kind"], t["label"]) for t in trs}
     return findings, checked
 
+
+def tree_findings(g, branch, rows, landings, brought, complete, gone):
+    """The findings of the rows of one branch and date: the landings that change their
+    paths, each with the commits it brought that do; a path the branch has not."""
+    info = g.commits()
+    paths = sorted({t["path"] for t in rows})
+    hit = g.touched([(c, info[c][0][0]) for c in landings if info[c][0]], paths)
+    # the commits a merge brought, against their first parents (fetched alone, so even
+    # the old commit a pull request started from); merges among them do not count
+    pairs = [(c, info[c][0][0]) for land in landings if land in hit for c in brought.get(land, ())
+             if c != land and len(info[c][0]) == 1]
+    inner = g.touched(pairs, paths)
+    findings = []
+    for t in rows:
+        p = t["path"]
+        entries, n = [], 0
+        for land in landings:
+            if p not in hit.get(land, ()):
+                continue
+            mine = [c for c in brought.get(land, ()) if c != land and p in inner.get(c, ())]
+            entries.append((land, mine))
+            n += len(mine) or 1
+        if not entries and p not in gone:
+            continue
+        repo, link = g.repo, "https://github.com/%s/commit/%%s" % g.repo
+        what = ours(t["what"])
+        lines = []
+        if entries:
+            lines += ["Commits of [%s](https://github.com/%s/tree/%s/%s) (`%s`) to `%s` that landed after %s "
+                      "(newest first), for %s:" % (repo, repo, branch, p, branch, p, t["date"], what), ""]
+            shown = 0
+            for land, mine in entries:
+                if shown >= TREE_LIST:
+                    lines.append("- ... and %d more" % (n - shown))
+                    break
+                lines.append("- [`%s`](%s) %s %s" % (land[:12], link % land, time.strftime(
+                    "%Y-%m-%d", time.gmtime(info[land][1])), commit_title(info[land][2])))
+                shown += 0 if mine else 1
+                for c in mine:
+                    if shown >= TREE_LIST:
+                        lines.append("    - ... and %d more" % (n - shown))
+                        break
+                    lines.append("    - [`%s`](%s) %s %s" % (c[:12], link % c, time.strftime(
+                        "%Y-%m-%d", time.gmtime(info[c][1])), commit_title(info[c][2])))
+                    shown += 1
+            lines.append("")
+            if any(mine for _land, mine in entries):
+                lines += ["Under a merge: the commits it brought that change `%s`, with their own dates (they "
+                          "landed with the merge)." % p, ""]
+            if not complete:
+                lines += ["The history fetched does not reach back to %s: landings before it are not listed."
+                          % t["date"], ""]
+        if p in gone:
+            lines += ["**`%s` is not on `%s` of %s**: moved, removed or misspelt? Set the row to its new place "
+                      "or take it out." % (p, branch, repo), ""]
+        lines.append("After the review: what %s needs (a fix it lacks) into its patches, then set the date of `%s` "
+                     "in `freebsd/upstream.conf` to the day of the review; the next check closes this issue."
+                     % (what, t["row"]))
+        body = "\n".join(lines)
+        if len(body) > BODY_LIMIT:
+            body = body[:BODY_LIMIT] + "\n\n... (cut)"
+        title = "%s: %s, " % (t["name"], t["path"] if t["kind"] == "tree" else t["label"])
+        title += ("%d commit%s after %s" % (n, "" if n == 1 else "s", t["date"])) if entries else "not on %s" % branch
+        findings.append({"key": "%s:%s:%s" % (t["kind"], t["label"], t["date"]),
+                         "kind": "release" if t["what"].startswith("freebsd/") else "ports",
+                         "title": title, "body": body})
+    return findings
 
 
 def check_github():
@@ -1372,6 +1717,444 @@ def check_cves():
     return findings, checked
 
 
+HOST_FAILS = {}   # host: requests in a row that failed (after their tries)
+HOST_DOWN = 2     # that many: the host is down for this run, its other rows wait for the next
+
+
+def http_bytes(url, tries=3, timeout=60):
+    """GET url: its body (bytes); None on 404 or 410 (not there); RuntimeError when the
+    host does not answer after tries, or at once when it is down for this run."""
+    host = urllib.parse.urlsplit(url).netloc
+    if HOST_FAILS.get(host, 0) >= HOST_DOWN:
+        raise RuntimeError("%s: down for this run (%d requests in a row failed)" % (host, HOST_FAILS[host]))
+    try:
+        body = _http_bytes(url, tries, timeout)
+    except RuntimeError:
+        HOST_FAILS[host] = HOST_FAILS.get(host, 0) + 1
+        raise
+    HOST_FAILS[host] = 0
+    return body
+
+
+def _http_bytes(url, tries, timeout):
+    err = None
+    for n in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "upstream-check (azsupport/php-src)"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 410):
+                return None
+            err = e
+            if e.code in (401, 403):
+                break
+        except Exception as e:  # noqa: BLE001
+            err = e
+        if n + 1 < tries:
+            time.sleep(5 * (n + 1))
+    raise RuntimeError("%s: %s" % (url, err))
+
+
+# Slackware (review of 12.11.2026: docs/distro-patches-nixos-macports-dports-2026-11-12.md
+# of azsupport/azsupport): the ChangeLog.txt of these trees, from the first mirror whose
+# CHECKSUMS.md5 is signed by the key of the Slackware Linux Project (the fingerprint
+# tools/slackware-fetch.sh checks) and lists the ChangeLog.txt it serves.
+SLACKWARE_MIRRORS = ("https://slackware.uk/slackware", "https://mirrors.kernel.org/slackware",
+                     "https://ftp.osuosl.org/pub/slackware")
+SLACKWARE_TREES = ("slackware64-current", "slackware64-15.0")
+SLACKWARE_FPR = "EC5649DA401E22ABFA6736EF6A4463C040102233"
+SLACKWARE_DATE = re.compile(r"^[A-Z][a-z]{2} ([A-Z][a-z]{2}) +(\d{1,2}) (\d\d):(\d\d):(\d\d) [A-Z]+ (\d{4})$")
+# a package of an entry: <series>/, patches/packages/, extra/<dir>/ ... <name>-<version>-<arch>-<build>.t?z
+SLACKWARE_ITEM = re.compile(r"^((?:[^/\s]+/)*)([^/\s]+?)-([^-/\s]+)-([^-/\s]+)-([^-/\s]+?)\.t[gblx]z:\s*(.*)$")
+
+
+def slackware_signed(base, sums, sig):
+    """Whether sig is a good signature of sums by the key of Slackware (gpg, the key from
+    the mirror, its fingerprint compared): (True, "") or (False, why)."""
+    try:
+        key = http_bytes(base + "GPG-KEY")
+    except RuntimeError as e:
+        return False, "GPG-KEY: %s" % e
+    if not key:
+        return False, "no GPG-KEY"
+    with tempfile.TemporaryDirectory(prefix="upstream-gpg-") as home:
+        os.chmod(home, 0o700)
+        for name, data in (("sums", sums), ("sums.asc", sig)):
+            with open(os.path.join(home, name), "wb") as f:
+                f.write(data)
+        try:
+            subprocess.run(["gpg", "--homedir", home, "--batch", "--quiet", "--import"], input=key,
+                           capture_output=True, timeout=60)
+            p = subprocess.run(["gpg", "--homedir", home, "--batch", "--status-fd", "1", "--verify",
+                                os.path.join(home, "sums.asc"), os.path.join(home, "sums")],
+                               capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return False, "gpg: %s" % e
+    fprs = [l.split()[-1] for l in p.stdout.splitlines() if l.startswith("[GNUPG:] VALIDSIG ")]
+    if p.returncode == 0 and SLACKWARE_FPR in fprs:
+        return True, ""
+    return False, "the signature of CHECKSUMS.md5 is not good, or not by %s (%s)" % (
+        SLACKWARE_FPR, ", ".join(fprs) or p.stderr.strip()[-200:])
+
+
+def slackware_changelog(tree):
+    """(ChangeLog.txt of a tree, the URL of the tree) from the first mirror that serves
+    it checked; (None, None) when none does."""
+    for mirror in SLACKWARE_MIRRORS:
+        base = "%s/%s/" % (mirror, tree)
+        try:
+            text, sums, sig = (http_bytes(base + n) for n in ("ChangeLog.txt", "CHECKSUMS.md5", "CHECKSUMS.md5.asc"))
+        except RuntimeError as e:
+            warn("Slackware %s: %s" % (tree, e))
+            continue
+        if not (text and sums and sig):
+            warn("Slackware %s: %s lacks ChangeLog.txt, CHECKSUMS.md5 or its signature" % (tree, base))
+            continue
+        good, why = slackware_signed(base, sums, sig)
+        if not good:
+            warn("Slackware %s: %s: %s" % (tree, base, why))
+            continue
+        m = re.search(rb"^([0-9a-f]{32})\s+\./ChangeLog\.txt\s*$", sums, re.M)
+        if not m:
+            warn("Slackware %s: %s: ChangeLog.txt is not in CHECKSUMS.md5" % (tree, base))
+            continue
+        if hashlib.md5(text).hexdigest() != m.group(1).decode():
+            warn("Slackware %s: %s: ChangeLog.txt differs from CHECKSUMS.md5 (a mirror in sync?)" % (tree, base))
+            continue
+        return text.decode("utf-8", "replace"), base
+    return None, None
+
+
+def slackware_entries(text, after):
+    """The entries of a ChangeLog.txt of Slackware dated after <after> (YYYY-MM-DD),
+    newest first: (date and time UTC, [(package path, name, what, [lines])])."""
+    out = []
+    for block in text.split("+--------------------------+"):
+        lines = block.strip("\n").splitlines()
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        if not lines:
+            continue
+        m = SLACKWARE_DATE.match(lines[0].strip())
+        if not m:
+            continue
+        mon = datetime.datetime.strptime(m.group(1), "%b").month
+        when = "%s-%02d-%02d %s:%s" % (m.group(6), mon, int(m.group(2)), m.group(3), m.group(4))
+        if when[:10] <= after:
+            continue
+        items, cur = [], None
+        for line in lines[1:]:
+            im = SLACKWARE_ITEM.match(line)
+            if im:
+                cur = ("%s%s-%s-%s-%s" % (im.group(1), im.group(2), im.group(3), im.group(4), im.group(5)),
+                       im.group(2), im.group(6).strip(), [])
+                items.append(cur)
+            elif cur is not None and line[:1].isspace() and line.strip():
+                cur[3].append(line.strip())
+            else:
+                cur = None
+        out.append((when, items))
+    return out
+
+
+def check_slackware():
+    """The rows "slackware <name> <date> <ours>" of upstream.conf: the entries of the
+    ChangeLog.txt of slackware64-current and slackware64-15.0 after <date> that name the
+    package <name> (the name of its source directory: n/php, extra/php81,
+    patches/packages/php for 15.0), with their text (CVE ids, "Patched"): the security
+    updates of Slackware, which patch old versions too. The files of a package:
+    workflow slackware-fetch.yml."""
+    findings, checked = [], set()
+    rows = [r for r in conf("upstream.conf") if r[0] == "slackware" and len(r) >= 4]
+    if not rows:
+        return findings, checked
+    oldest = min(r[2] for r in rows)
+    logs = {}
+    for tree in SLACKWARE_TREES:
+        text, base = slackware_changelog(tree)
+        if text is None:
+            continue
+        logs[tree] = (slackware_entries(text, oldest), base)
+    if len(logs) < len(SLACKWARE_TREES):
+        return findings, checked  # a tree could not be read: leave the issues alone
+    for r in rows:
+        name, date, what = r[1], r[2], r[3]
+        checked.add("slackware:%s:" % name)
+        hits = []
+        for tree in SLACKWARE_TREES:
+            entries, base = logs[tree]
+            for when, items in entries:
+                if when[:10] <= date:
+                    continue
+                for path, pkg, act, more in items:
+                    if pkg.lower() == name.lower():
+                        hits.append((tree, base, when, path, act, more))
+        if not hits:
+            continue
+        lines = ["Entries of the ChangeLog.txt of Slackware after %s that name the package `%s` (newest first), "
+                 "for %s:" % (date, name, ours(what)), ""]
+        for tree in SLACKWARE_TREES:
+            mine = [h for h in hits if h[0] == tree]
+            if not mine:
+                continue
+            base = mine[0][1]
+            lines += ["**%s** ([ChangeLog.txt](%sChangeLog.txt), [the source directories](%ssource/)):" % (
+                tree, base, base), ""]
+            for _tree, _base, when, path, act, more in mine[:30]:
+                lines.append("- %s UTC `%s`: %s" % (when, path, act))
+                lines += ["    %s" % l for l in more[:25]]
+                if len(more) > 25:
+                    lines.append("    ... (%d more lines)" % (len(more) - 25))
+            lines.append("")
+        ids = security_ids("\n".join(" ".join(h[5]) for h in hits))
+        if ids:
+            lines += ["They name %s." % ", ".join(ids), ""]
+        lines += ["The patches of a package: workflow slackware-fetch.yml of this fork "
+                  "(`inputs[packages]=%s`). After the review: what %s lacks into its patches, then set the date of "
+                  "`slackware %s` in `freebsd/upstream.conf` to the day of the review; the next check closes this "
+                  "issue." % (name, ours(what), name)]
+        findings.append({"key": "slackware:%s:%s" % (name, date),
+                         "kind": "release" if what.startswith("freebsd/") else "ports",
+                         "title": "Slackware: %s, %d entr%s after %s" % (name, len(hits), "y" if len(hits) == 1
+                                                                          else "ies", date),
+                         "body": "\n".join(lines)[:BODY_LIMIT]})
+    return findings, checked
+
+
+REMI_GIT = "https://git.remirepo.net/cgit/%s"
+
+
+def check_remi(workdir):
+    """The rows "remi <repository>@<branch> <commit> <ours>" of upstream.conf: the
+    commits of a branch of a repository of Remi Collet's git server (the sources of his
+    RPMs, https://git.remirepo.net/cgit/) after <commit>, the last one reviewed: the
+    patches of his PHP and PECL packages beyond his php-src-security branches."""
+    findings, checked = [], set()
+    rows = [r for r in conf("upstream.conf") if r[0] == "remi" and len(r) >= 4]
+    by_repo = {}
+    for r in rows:
+        repo, _, branch = r[1].partition("@")
+        by_repo.setdefault(repo, []).append((branch or "master", r[2], r[3], r[1]))
+    fails = 0
+    for repo, rs in sorted(by_repo.items()):
+        if fails >= HOST_DOWN:
+            warn("Remi %s: git.remirepo.net is down for this run (%d fetches in a row failed)" % (repo, fails))
+            continue
+        g = os.path.join(workdir, "remi", repo.replace("/", "__"))
+        refs = ["+refs/heads/%s:refs/heads/%s" % (b, b) for b in sorted({b for b, _c, _w, _s in rs})]
+        try:
+            if not os.path.isdir(g):
+                os.makedirs(os.path.dirname(g), exist_ok=True)
+                run(["git", "init", "-q", "--bare", g])
+            p = subprocess.run(["git", "fetch", "-q", "--no-tags", REMI_GIT % repo] + refs, cwd=g,
+                               capture_output=True, text=True, env=GIT_ENV, timeout=120)
+            if p.returncode:
+                raise RuntimeError(p.stderr.strip()[-300:])
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:  # the source is down: leave its issues alone
+            warn("Remi %s: %s" % (repo, e))
+            fails += 1
+            continue
+        fails = 0
+        web = REMI_GIT % repo
+        for branch, base, what, src in rs:
+            checked.add("remi:%s:" % src)
+            known = run(["git", "rev-parse", "--verify", "-q", base + "^{commit}"], cwd=g, check=False).strip()
+            rng = "%s..refs/heads/%s" % (known, branch) if known else "refs/heads/%s" % branch
+            out = run(["git", "log", "--format=%H%x09%cs%x09%an%x09%s", "-n", "60", rng], cwd=g)
+            commits = [l.split("\t", 3) for l in out.splitlines() if l.count("\t") >= 3]
+            if known and not commits:
+                continue
+            lines = ["Commits of the branch [`%s`](%s/log/?h=%s) of [%s](%s) after `%s` (newest first), for %s:"
+                     % (branch, web, branch, repo, web, base, ours(what)), ""]
+            if not known:
+                lines += ["**`%s` is not on the server** (the branch rewritten?): review the branch whole; its last "
+                          "commits:" % base, ""]
+            for sha, day, author, subject in commits:
+                lines.append("- [`%s`](%s/commit/?h=%s&id=%s) %s %s: %s" % (
+                    sha[:12], web, branch, sha, day, author, subject.replace("|", "\\|")))
+            lines += ["", "After the review: the fixes %s lacks (each with its upstream commit) into its patches, "
+                          "then set the commit of `remi %s` in `freebsd/upstream.conf` to the newest one reviewed; the "
+                          "next check closes this issue." % (ours(what), src)]
+            n = len(commits)
+            findings.append({"key": "remi:%s:%s" % (src, base), "kind": "release" if what.startswith("freebsd/")
+                             else "ports",
+                             "title": "Remi: %s, %s after %s" % (src, ("%d commit%s" % (n, "" if n == 1 else "s"))
+                                                                if known else "%s gone" % base, base),
+                             "body": "\n".join(lines)[:BODY_LIMIT]})
+    return findings, checked
+
+
+ARCH_GITLAB = "https://gitlab.archlinux.org"
+
+
+def arch_project(pkgbase):
+    """The project of a pkgbase on gitlab.archlinux.org (its rules: + is plus, tree is
+    unix-tree; as tools/arch-fetch.py)."""
+    if pkgbase == "tree":
+        return "unix-tree"
+    p = re.sub(r"[^a-zA-Z0-9_.-]", "-", pkgbase.replace("+", "plus"))
+    return re.sub(r"[_.-]{2,}", "-", p)
+
+
+def check_arch():
+    """The rows "arch <pkgbase> <date> <ours>" of upstream.conf: the commits of the
+    packaging repository of an Arch Linux package on gitlab.archlinux.org
+    (archlinux/packaging/packages/<pkgbase>) after <date>: its patches and fixes."""
+    findings, checked = [], set()
+    for r in conf("upstream.conf"):
+        if r[0] != "arch" or len(r) < 4:
+            continue
+        pkg, date, what = r[1], r[2], r[3]
+        path = "archlinux/packaging/packages/%s" % arch_project(pkg)
+        api = "%s/api/v4/projects/%s/repository/commits?since=%sT23:59:59Z&per_page=50" % (
+            ARCH_GITLAB, urllib.parse.quote(path, safe=""), date)
+        try:
+            raw = http_bytes(api)
+        except RuntimeError as e:  # the source is down: leave its issue alone
+            warn("Arch %s: %s" % (pkg, e))
+            continue
+        checked.add("arch:%s:" % pkg)
+        web = "%s/%s" % (ARCH_GITLAB, path)
+        if raw is None:
+            lines = ["**`%s` is not a package of Arch Linux** ([%s](%s) answers 404): renamed or dropped? Set the "
+                     "row to its new name or take it out." % (pkg, path, web)]
+            findings.append({"key": "arch:%s:%s" % (pkg, date), "kind": "ports",
+                             "title": "Arch: %s, not on gitlab.archlinux.org" % pkg, "body": "\n".join(lines)})
+            continue
+        try:
+            commits = [c for c in json.loads(raw.decode("utf-8", "replace"))
+                       if (c.get("committed_date") or "")[:10] > date]
+        except (ValueError, AttributeError) as e:
+            warn("Arch %s: %s" % (pkg, e))
+            checked.discard("arch:%s:" % pkg)
+            continue
+        if not commits:
+            continue
+        lines = ["Commits of [%s](%s/-/commits/main) after %s (newest first), for %s:" % (path, web, date,
+                                                                                         ours(what)), ""]
+        for c in commits:
+            lines.append("- [`%s`](%s) %s %s" % (c.get("short_id") or c.get("id", "")[:12], c.get("web_url") or web,
+                                                 (c.get("committed_date") or "")[:10],
+                                                 (c.get("title") or "").replace("|", "\\|")))
+        lines += ["", "After the review: what %s lacks into its patches, then set the date of `arch %s` in "
+                      "`freebsd/upstream.conf` to the day of the review; the next check closes this issue."
+                      % (ours(what), pkg)]
+        findings.append({"key": "arch:%s:%s" % (pkg, date), "kind": "release" if what.startswith("freebsd/")
+                         else "ports",
+                         "title": "Arch: %s, %d commit%s after %s" % (pkg, len(commits),
+                                                                     "" if len(commits) == 1 else "s", date),
+                         "body": "\n".join(lines)[:BODY_LIMIT]})
+    return findings, checked
+
+
+OBS_PUBLIC = "https://api.opensuse.org/public/source"
+SUSE_SEP = re.compile(r"^-{30,}\s*$")
+SUSE_DATE = re.compile(r"^[A-Z][a-z]{2} ([A-Z][a-z]{2}) +(\d{1,2}) [\d:]+ (?:[A-Z]+ )?(\d{4})\b")
+
+
+def suse_entries(text, after):
+    """The entries of a .changes of the Open Build Service dated after <after>
+    (YYYY-MM-DD), newest first: (date, head line, [lines])."""
+    lines = text.splitlines()
+    out, i = [], 0
+    while i < len(lines):
+        if SUSE_SEP.match(lines[i]) and i + 1 < len(lines) and SUSE_DATE.match(lines[i + 1]):
+            m = SUSE_DATE.match(lines[i + 1])
+            try:
+                day = datetime.datetime.strptime("%s %s %s" % (m.group(3), m.group(1), m.group(2)),
+                                                 "%Y %b %d").date().isoformat()
+            except ValueError:
+                day = ""
+            head, body, i = lines[i + 1].strip(), [], i + 2
+            while i < len(lines) and not (SUSE_SEP.match(lines[i]) and i + 1 < len(lines)
+                                          and SUSE_DATE.match(lines[i + 1])):
+                if lines[i].strip():
+                    body.append(lines[i].rstrip())
+                i += 1
+            if day and day <= after:
+                break
+            out.append((day, head, body))
+            continue
+        i += 1
+    return out
+
+
+def check_suse():
+    """The rows "suse <package>@<project> <date> <ours>" of upstream.conf: the entries of
+    the .changes of a package of the Open Build Service (the anonymous API
+    api.opensuse.org/public) after <date>, with the CVE ids they name: openSUSE Factory,
+    devel projects, and the maintenance projects of SUSE Linux Enterprise
+    (SUSE:SLE-15-SP<n>:Update, SUSE:SLE-12-SP5:Update, SUSE:SLFO:Main), which backport
+    fixes to old versions. A package missing from a maintenance project by its name is
+    read from its newest maintenance incident (<package>.<number>)."""
+    findings, checked, projects = [], set(), {}
+    q = urllib.parse.quote
+    for r in conf("upstream.conf"):
+        if r[0] != "suse" or len(r) < 4:
+            continue
+        src, date, what = r[1], r[2], r[3]
+        pkg, _, project = src.partition("@")
+        try:
+            listing = http_bytes("%s/%s/%s?expand=1" % (OBS_PUBLIC, q(project, safe=":"), q(pkg, safe="")))
+            used = pkg
+            if listing is None:
+                if project not in projects:
+                    raw = http_bytes("%s/%s" % (OBS_PUBLIC, q(project, safe=":")))
+                    projects[project] = set() if raw is None else {
+                        e.get("name") for e in ET.fromstring(raw).findall("entry")}
+                inc = [n for n in projects[project] if n.startswith(pkg + ".") and n[len(pkg) + 1:].isdigit()]
+                if inc:
+                    used = max(inc, key=lambda n: int(n.rsplit(".", 1)[1]))
+                    listing = http_bytes("%s/%s/%s?expand=1" % (OBS_PUBLIC, q(project, safe=":"), q(used, safe="")))
+            if listing is None:
+                checked.add("suse:%s:" % src)
+                findings.append({"key": "suse:%s:%s" % (src, date), "kind": "ports",
+                                 "title": "SUSE: %s, not in the Open Build Service" % src,
+                                 "body": "**`%s` has no package `%s`** (nor a maintenance incident of it): renamed or "
+                                         "dropped? Set the row to its new place or take it out." % (project, pkg)})
+                continue
+            names = [e.get("name") for e in ET.fromstring(listing).findall("entry")]
+            changes = [n for n in names if n and n.endswith(".changes")]
+            pick = "%s.changes" % pkg if "%s.changes" % pkg in changes else (sorted(changes) or [None])[0]
+            if pick is None:
+                warn("SUSE %s: no .changes in %s/%s" % (src, project, used))
+                continue
+            raw = http_bytes("%s/%s/%s/%s?expand=1" % (OBS_PUBLIC, q(project, safe=":"), q(used, safe=""),
+                                                      q(pick, safe="")))
+        except (RuntimeError, ET.ParseError) as e:  # the source is down: leave its issue alone
+            warn("SUSE %s: %s" % (src, e))
+            continue
+        if raw is None:
+            warn("SUSE %s: %s/%s/%s is not there" % (src, project, used, pick))
+            continue
+        checked.add("suse:%s:" % src)
+        entries = suse_entries(raw.decode("utf-8", "replace"), date)
+        if not entries:
+            continue
+        web = "https://build.opensuse.org/package/show/%s/%s" % (project, used)
+        lines = ["Entries of `%s` of [%s/%s](%s) after %s (newest first), for %s:" % (pick, project, used, web, date,
+                                                                                      ours(what)), ""]
+        for day, head, body in entries[:15]:
+            lines.append("- %s" % head)
+            lines += ["    %s" % l.strip() for l in body[:40]]
+            if len(body) > 40:
+                lines.append("    ... (%d more lines)" % (len(body) - 40))
+        ids = security_ids("\n".join("\n".join(b) for _d, _h, b in entries))
+        if ids:
+            lines += ["", "They name %s." % ", ".join(ids)]
+        lines += ["", "After the review: what %s lacks (a fix of a vulnerability that touches us, or a bug we have) "
+                      "into its patches, then set the date of `suse %s` in `freebsd/upstream.conf` to the day of the "
+                      "review; the next check closes this issue." % (ours(what), src)]
+        findings.append({"key": "suse:%s:%s" % (src, date), "kind": "release" if what.startswith("freebsd/")
+                         else "ports",
+                         "title": "%s: %s, %d entr%s after %s" % ("SUSE" if project.startswith("SUSE:") else "openSUSE",
+                                                                 src, len(entries), "y" if len(entries) == 1 else "ies",
+                                                                 date),
+                         "body": "\n".join(lines)[:BODY_LIMIT]})
+    return findings, checked
+
+
 def bundled_dists():
     """(name, version, port, distfile, sha256, where) of curl and the libraries it needs."""
     out = []
@@ -1551,33 +2334,48 @@ class Issues:
                 "-f", "color=" + color, "-f", "description=" + desc])
 
     def api(self, method, path, payload):
-        run(["gh", "api", "-X", method, "repos/%s/%s" % (self.repo, path), "--input", "-"],
-            data=json.dumps(payload))
+        """A request that writes; True when it went through. GitHub asks for a second
+        between such requests (its secondary rate limit), and one that fails does not stop
+        the others."""
+        try:
+            run(["gh", "api", "-X", method, "repos/%s/%s" % (self.repo, path), "--input", "-"],
+                data=json.dumps(payload))
+        except RuntimeError as e:
+            warn("%s %s: %s" % (method, path, e))
+            self.failed += 1
+            ok = False
+        else:
+            ok = True
+        time.sleep(1)
+        return ok
 
     def sync(self, findings, checked):
+        """Open, update and close the issues; the number of requests that failed."""
         owner = self.repo.split("/")[0]
         keys = set()
+        self.failed = 0
         for f in findings:
             keys.add(f["key"])
             body = "%s\n\ncc @%s\n\n%s" % (f["body"], owner, MARK % f["key"])
             issue = self.known.get(f["key"])
             if issue is None:
-                self.api("POST", "issues", {"title": f["title"], "body": body,
-                                            "labels": ["upstream", f["kind"]]})
-                print("opened: %s" % f["title"])
+                if self.api("POST", "issues", {"title": f["title"], "body": body,
+                                               "labels": ["upstream", f["kind"]]}):
+                    print("opened: %s" % f["title"])
             elif issue["state"] == "open" and (issue["body"] != body or issue["title"] != f["title"]):
-                self.api("PATCH", "issues/%d" % issue["number"], {"title": f["title"], "body": body})
-                print("updated #%d: %s" % (issue["number"], f["title"]))
+                if self.api("PATCH", "issues/%d" % issue["number"], {"title": f["title"], "body": body}):
+                    print("updated #%d: %s" % (issue["number"], f["title"]))
         for key, issue in self.known.items():
             if issue["state"] != "open" or key in keys:
                 continue
             if not any(key.startswith(prefix) for prefix in checked):
                 continue  # its source could not be checked this time: leave it
-            self.api("POST", "issues/%d/comments" % issue["number"],
-                     {"body": "The check finds nothing for this any more: freebsd/pecl.conf or the "
-                              "reviewed revision has moved on, or a newer release has its own issue."})
-            self.api("PATCH", "issues/%d" % issue["number"], {"state": "closed", "state_reason": "completed"})
-            print("closed #%d: %s" % (issue["number"], issue["title"]))
+            if self.api("POST", "issues/%d/comments" % issue["number"],
+                        {"body": "The check finds nothing for this any more: freebsd/pecl.conf or the "
+                                 "reviewed revision has moved on, or a newer release has its own issue."}) and \
+                    self.api("PATCH", "issues/%d" % issue["number"], {"state": "closed", "state_reason": "completed"}):
+                print("closed #%d: %s" % (issue["number"], issue["title"]))
+        return self.failed
 
 
 def main():
@@ -1587,6 +2385,10 @@ def main():
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     ap.add_argument("--workdir")
     ap.add_argument("--days", type=int, default=180)
+    ap.add_argument("--only", default="",
+                    help="only these checks, separated by commas (%s)" % ", ".join(
+                        ("releases", "bundles", "ports", "eol", "trees", "github", "defaults", "debian",
+                         "launchpad", "cves", "distgit", "slackware", "remi", "arch", "suse")))
     ap.add_argument("--ports", default=PORTS_DIR,
                     help="a checkout of azsupport/ports, for the conf files of the bundles (default: ports/ here)")
     args = ap.parse_args()
@@ -1608,26 +2410,37 @@ def main():
                      "Features, Issues." % (args.repo, e, args.repo))
 
     pins = {r[1]: r[2] for r in conf("upstream.conf") if r[0] == "pin"}
-    findings, checked = check_releases(workdir, pins)
-    more, checked_deps = check_deps_releases()
-    findings += more
-    checked |= checked_deps
-    more, checked_ports = check_ports(workdir, args.days)
-    findings += more
-    checked |= checked_ports
-    more, checked_eol = check_php_eol()
-    findings += more
-    checked |= checked_eol
-    for check in (check_trees, check_github, check_defaults, check_debian, check_launchpad):
+    checks = (
+        ("releases", lambda: check_releases(workdir, pins)),
+        ("bundles", check_deps_releases),
+        ("ports", lambda: check_ports(workdir, args.days)),
+        ("eol", check_php_eol),
+        ("trees", lambda: check_trees(workdir)),
+        ("github", check_github),
+        ("defaults", check_defaults),
+        ("debian", check_debian),
+        ("launchpad", check_launchpad),
+        ("cves", check_cves),
+        ("distgit", lambda: check_distgit(workdir)),
+        ("slackware", check_slackware),
+        ("remi", lambda: check_remi(workdir)),
+        ("arch", check_arch),
+        ("suse", check_suse),
+    )
+    only = set(re.split(r"[\s,]+", args.only.strip())) if args.only and args.only.strip() else None
+    if only and only - {n for n, _c in checks}:
+        ap.error("--only: no check %s (checks: %s)" % (", ".join(sorted(only - {n for n, _c in checks})),
+                                                        ", ".join(n for n, _c in checks)))
+    findings, checked = [], set()
+    for name, check in checks:
+        if only and name not in only:
+            continue
+        started = time.time()
         more, checked_more = check()
+        log("%s: %d finding%s, %d checked (%.0f s)" % (name, len(more), "" if len(more) == 1 else "s",
+                                                      len(checked_more), time.time() - started))
         findings += more
         checked |= checked_more
-    more, checked_cves = check_cves()
-    findings += more
-    checked |= checked_cves
-    more, checked_distgit = check_distgit(workdir)
-    findings += more
-    checked |= checked_distgit
 
     summary = ["- %s" % f["title"] for f in findings] or ["- nothing new"]
     print("\n".join(summary))
@@ -1638,7 +2451,8 @@ def main():
         for f in findings:
             print("\n==== %s  [%s]\n%s" % (f["title"], f["key"], f["body"]))
         return
-    issues.sync(findings, checked)
+    if issues.sync(findings, checked):
+        sys.exit("%d requests to the issues of %s failed (see the warnings)" % (issues.failed, args.repo))
 
 
 if __name__ == "__main__":
