@@ -1,0 +1,77 @@
+name: Distro fetch
+
+# The specs and patches of RPM distributions, per dist-git branch
+# (tools/distro-fetch.py): Fedora (rawhide, the fNN branches, those of releases at
+# their end of life, EPEL, retired packages before their retirement), CentOS Stream
+# (c8s, c9s, c10s: the sources of RHEL), git.centos.org (c7, c8 and the module
+# streams of RHEL 8), AlmaLinux and Rocky Linux (the current RHEL sources with the
+# backports of Red Hat), OpenELA. Their sites are closed to the sandbox of Claude
+# Code, GitHub is not: the files go into the branch runs of the private
+# azsupport/azsupport (secret RUNS_TOKEN), distro/<source>/<YYYY-MM-DD>/<package>/
+# <branch>/ (source.txt, the spec, changelog, commits.txt, files/), with index.md
+# per package, and the report of the run into distro-fetch/<YYYY-MM-DD>/<run id>-
+# <source>.md there (tools/runs-report.sh).
+# Started by hand (Actions, "Distro fetch", "Run workflow") or by the API:
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/distro-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[source]=fedora' -f 'inputs[packages]=vsftpd unzip'
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Where from'
+        required: true
+        type: choice
+        options:
+          - fedora
+          - centos-stream
+          - centos
+          - almalinux
+          - rocky
+          - openela
+      packages:
+        description: 'Source package names (dist-git repositories), separated by spaces'
+        required: true
+        type: string
+      branches:
+        description: 'Only the branches matching this regular expression (rawhide|f4[0-9]|epel.*); empty: all'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch and push to azsupport/azsupport (branch runs)
+        id: fetch
+        env:
+          SOURCE: ${{ inputs.source }}
+          PACKAGES: ${{ inputs.packages }}
+          BRANCHES: ${{ inputs.branches }}
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: |
+          set -f
+          rc=0
+          # shellcheck disable=SC2086
+          python3 -I tools/distro-fetch.py --source "$SOURCE" --out "$RUNNER_TEMP/distro" --report report.md \
+            --branches "$BRANCHES" --push -- $PACKAGES || rc=$?
+          [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Report
+        if: always()
+        env:
+          SOURCE: ${{ inputs.source }}
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: source=${{ inputs.source }} packages=${{ inputs.packages }} branches=${{ inputs.branches }}
+          RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
+        run: |
+          [ -s report.md ] || printf '### Distro fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
+          sh tools/runs-report.sh report.md "$SOURCE"
