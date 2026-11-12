@@ -445,6 +445,9 @@ PROBES = [
     ("query_string, (((a))) nesting 4000", "query_string", nest(4000)),
     ("query_string, (((a))) nesting 5000", "query_string", nest(5000)),
     ("query_string, (((a))) nesting 15000", "query_string", nest(15000)),
+    ("query_string, field pattern of 5000 escaped \\* (\\*\\*...:a)", "query_string", "\\*" * 5000 + ":a"),
+    ("query_string, field pattern of 20000 escaped \\* (\\*\\*...:a)", "query_string", "\\*" * 20000 + ":a"),
+    ("query_string, field pattern \\*a\\*a... of 3000 parts", "query_string", "\\*t" * 3000 + ":a"),
     ("query_string, field pattern of 500 *", "query_string", "*" * 500 + ":a"),
     ("query_string, field pattern of 1000 *", "query_string", "*" * 1000 + ":a"),
     ("query_string, field pattern of 2000 *", "query_string", "*" * 2000 + ":a"),
@@ -506,6 +509,8 @@ def part_probe(out):
         es_http("PUT", "/probe/_doc/1?refresh=true", {"title": "a video about cats", "description": "cats and dogs",
                                                      "tags": ["cats"], "n": 5})
         probes = [p for p in PROBES if "-Xss" not in jdk or p[0] in XSS_PROBES]
+        if os.environ.get("PROBE_FILTER"):
+            probes = [p for p in probes if re.search(os.environ["PROBE_FILTER"], p[0])]
         for name, kind, text in probes:
             if kind == "match":
                 q = {"match": {"title": text}}
@@ -567,7 +572,8 @@ def part_probe(out):
         save(out, "probe/es-jdk%s.log" % jdk, "\n".join(keep[-400:]) + "\n")
     REPORT.append("- probe: %d requests (probe/results.md)" % len(rows))
     REPORT.extend(["", "| JDK | query | size | HTTP | took | reason | node |", "|---|---|---|---|---|---|---|"] + rows + [""])
-    cluster_probe(out, home, base)
+    if not os.environ.get("PROBE_FILTER") or re.search(os.environ["PROBE_FILTER"], "two nodes"):
+        cluster_probe(out, home, base)
     shutil.rmtree(base, ignore_errors=True)
 
 
