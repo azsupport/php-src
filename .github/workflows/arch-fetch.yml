@@ -1,0 +1,64 @@
+name: Arch fetch
+
+# The packaging of Arch Linux packages (tools/arch-fetch.py): the git repository of
+# each package on gitlab.archlinux.org (archlinux/packaging/packages/<pkgbase>, the
+# whole history, the years of svn too): its files now (PKGBUILD, .SRCINFO,
+# patches), the patches its PKGBUILD fetches by URL, every version of every patch
+# file it ever held, the history of PKGBUILD and a log of the commits with the
+# version of each. The sites of Arch Linux are closed to the sandbox of Claude
+# Code, GitHub is not: the files go into the branch runs of the private
+# azsupport/azsupport (secret RUNS_TOKEN), distro/arch/<YYYY-MM-DD>/<pkgbase>/, and
+# the report of the run into arch-fetch/<YYYY-MM-DD>/<run id>-fetch.md there
+# (tools/runs-report.sh). "urls" fetches files of other hosts closed to the
+# sandbox (patches named in a PKGBUILD) into distro/arch/<YYYY-MM-DD>/_urls/.
+# Started by hand (Actions, "Arch fetch", "Run workflow") or by the API:
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/arch-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[packages]=curl sudo'
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Arch Linux packages, separated by spaces (pkgbase, or a pkgname: its pkgbase is looked up)'
+        required: false
+        type: string
+        default: ''
+      urls:
+        description: 'Files to fetch as they are (patches of hosts closed to the sandbox), separated by spaces'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch and push to azsupport/azsupport (branch runs)
+        id: fetch
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          URLS: ${{ inputs.urls }}
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: |
+          set -f
+          rc=0
+          python3 -I tools/arch-fetch.py --out "$RUNNER_TEMP/arch" --report report.md \
+            --url "$URLS" --push -- $PACKAGES || rc=$?
+          [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Report
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: packages=${{ inputs.packages }} urls=${{ inputs.urls }}
+          RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
+        run: |
+          [ -s report.md ] || printf '### Arch fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
+          sh tools/runs-report.sh report.md fetch
