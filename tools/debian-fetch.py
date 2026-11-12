@@ -433,8 +433,7 @@ class Fetcher:
         dest = os.path.join(self.out, src, dirname(suite, version))
         key = (src, version)
         if key not in self.cache:
-            staged = os.path.join(self.stage, str(len(self.cache)))
-            os.makedirs(staged)
+            staged = tempfile.mkdtemp(dir=self.stage)
             name = debian_file([f[0] for f in files])
             notes, content, listing = [], [], []
             if name is None:
@@ -476,15 +475,37 @@ def from_suite(fetcher, src, suite, s):
     files = checksums(s)
     base, directory = s["_base"], s.get("Directory", "")
     sizes = {f[0]: (f[1], f[2]) for f in files}
+    sha1 = {}
+    for line in s.get("Checksums-Sha1", "").splitlines():
+        p = line.split()
+        if len(p) == 3:
+            sha1[p[2]] = p[0]
+    # where the file may be: the archive of the index, the other archives of the suite
+    # (a suite being moved to archive.debian.org), snapshot.debian.org by its SHA-1
+    bases = [base] + [b for b, _ in dict(SUITES)[suite] if b != base]
 
     def getter(name):
-        raw = get("%s/%s/%s" % (base, directory, name))
-        if raw is None:
-            raise RuntimeError("%s/%s/%s: not found" % (base, directory, name))
         size, sha = sizes[name]
-        if len(raw) != size or hashlib.sha256(raw).hexdigest() != sha:
-            raise RuntimeError("%s: size or SHA-256 differs from the index" % name)
-        return raw
+        urls = ["%s/%s/%s" % (b, directory, name) for b in bases]
+        if name in sha1:
+            urls.append("%s/file/%s" % (SNAPSHOT, sha1[name]))
+        tried = []
+        for url in urls:
+            try:
+                raw = get(url)
+            except RuntimeError as e:
+                tried.append(str(e))
+                continue
+            if raw is None:
+                tried.append("%s: not found" % url)
+                continue
+            if len(raw) != size or hashlib.sha256(raw).hexdigest() != sha:
+                tried.append("%s: size or SHA-256 differs from the index" % url)
+                continue
+            if url != urls[0]:
+                log("%s: taken from %s" % (name, url))
+            return raw
+        raise RuntimeError("; ".join(tried))
 
     where = "%s dists/%s/%s" % (base, s["_dist"], s["_component"])
     dest = fetcher.write(src, suite, version, fmt, where, files, getter, stanza_fields(s))
