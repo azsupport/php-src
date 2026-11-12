@@ -1,0 +1,63 @@
+name: Debian fetch
+
+# The patches Debian carries for source packages, from every suite that has them
+# (tools/debian-fetch.py): sid, experimental, testing, trixie, bookworm, bullseye with
+# their security, -updates, -proposed-updates and -backports; buster, stretch and
+# jessie of archive.debian.org; Freexian's ELTS; and snapshot.debian.org for a package
+# no suite has any more ("name=version" takes that version from there too). Of every
+# version: debian/patches with series, the other patch files of debian/, debian/rules,
+# the head of debian/changelog, source.txt. Debian's sites are closed to the sandbox
+# of Claude Code, GitHub is not: the files go into the branch runs of the private
+# azsupport/azsupport (secret RUNS_TOKEN), distro/debian/<YYYY-MM-DD>/<package>/
+# <suite>_<version>/, with index.md per package, and the report of the run into
+# debian-fetch/<YYYY-MM-DD>/<run id>-fetch.md there (tools/runs-report.sh).
+# Started by hand (Actions, "Debian fetch", "Run workflow") or by the API:
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/debian-fetch.yml/dispatches \
+#     -f ref=master -f 'inputs[packages]=vsftpd unzip'
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Debian source packages, separated by spaces (name, or name=version for that version from snapshot.debian.org)'
+        required: true
+        type: string
+      suites:
+        description: 'Only these suites, separated by spaces (sid, trixie-security, buster-elts...); empty: all'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch and push to azsupport/azsupport (branch runs)
+        id: fetch
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          SUITES: ${{ inputs.suites }}
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: |
+          set -f
+          rc=0
+          python3 -I tools/debian-fetch.py --out "$RUNNER_TEMP/debian" --report report.md \
+            --suites "$SUITES" --push -- $PACKAGES || rc=$?
+          [ ! -s report.md ] || cat report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Report
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: packages=${{ inputs.packages }} suites=${{ inputs.suites }}
+          RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
+        run: |
+          [ -s report.md ] || printf '### Debian fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
+          sh tools/runs-report.sh report.md fetch
