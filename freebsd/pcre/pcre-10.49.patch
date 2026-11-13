@@ -1,0 +1,128 @@
+Description: GHSA-9qww-pwc4-77qq (CVE-2026-89160): pcre2_dfa_match() (\X, word boundaries, the rewind of a lookbehind) and the JIT \X read before the start of a UTF subject that was not checked there (it begins with continuation bytes, and a start offset is into it: a check of UTF covers only the part a match can reach); bounded by the checked part, as pcre2_match() is since 10.48. preg_* with /u, \X and an offset, with the JIT. Not fixed upstream (10.49 has the same code)
+Origin: the patches of SUSE (Martin Schreiner, 10.09.2026, bsc#1277710, SLE 16 and Leap 16.0: pcre2-dfa-match-check-subject.patch and pcre2-jit-extuni-backchar-bound.patch), as they are on 10.49, the same as files/patch-GHSA-9qww-pwc4-77qq of devel/pcre2 of azsupport/ports; the paths those of ext/pcre/pcre2lib
+
+--- a/ext/pcre/pcre2lib/pcre2_dfa_match.c
++++ b/ext/pcre/pcre2lib/pcre2_dfa_match.c
+@@ -576,6 +576,7 @@ int active_count, new_count, match_count;
+ independent variables in the hope that this will perform better. */
+ 
+ PCRE2_SPTR start_subject = mb->start_subject;
++PCRE2_SPTR check_subject = mb->check_subject;
+ PCRE2_SPTR end_subject = mb->end_subject;
+ PCRE2_SPTR start_code = mb->start_code;
+ 
+@@ -638,9 +639,9 @@ if (*this_start_code == OP_ASSERTBACK || *this_start_code == OP_ASSERTBACK_NOT)
+     {
+     for (gone_back = 0; gone_back < max_back; gone_back++)
+       {
+-      if (current_subject <= start_subject) break;
++      if (current_subject <= check_subject) break;
+       current_subject--;
+-      ACROSSCHAR(current_subject > start_subject, current_subject,
++      ACROSSCHAR(current_subject > check_subject, current_subject,
+         current_subject--);
+       }
+     }
+@@ -1124,7 +1125,7 @@ for (;;)
+         {
+         int left_word, right_word;
+ 
+-        if (ptr > start_subject)
++        if (ptr > check_subject)
+           {
+           PCRE2_SPTR temp = ptr - 1;
+           if (temp < mb->start_used_ptr) mb->start_used_ptr = temp;
+@@ -1596,7 +1597,7 @@ for (;;)
+           active_count--;           /* Remove non-match possibility */
+           next_active_state--;
+           }
+-        (void)PRIV(extuni)(c, ptr + clen, mb->start_subject, end_subject, utf,
++        (void)PRIV(extuni)(c, ptr + clen, check_subject, end_subject, utf,
+           &ncount);
+         count++;
+         ADD_NEW_DATA(-state_offset, count, ncount);
+@@ -1867,7 +1868,7 @@ for (;;)
+           active_count--;           /* Remove non-match possibility */
+           next_active_state--;
+           }
+-        (void)PRIV(extuni)(c, ptr + clen, mb->start_subject, end_subject, utf,
++        (void)PRIV(extuni)(c, ptr + clen, check_subject, end_subject, utf,
+           &ncount);
+         ADD_NEW_DATA(-(state_offset + count), 0, ncount);
+         }
+@@ -2149,7 +2150,7 @@ for (;;)
+           active_count--;           /* Remove non-match possibility */
+           next_active_state--;
+           }
+-        nptr = PRIV(extuni)(c, ptr + clen, mb->start_subject, end_subject, utf,
++        nptr = PRIV(extuni)(c, ptr + clen, check_subject, end_subject, utf,
+           &ncount);
+         if (nptr >= end_subject && (mb->moptions & PCRE2_PARTIAL_HARD) != 0)
+             reset_could_continue = TRUE;
+@@ -2328,7 +2329,7 @@ for (;;)
+       if (clen > 0)
+         {
+         int ncount = 0;
+-        PCRE2_SPTR nptr = PRIV(extuni)(c, ptr + clen, mb->start_subject,
++        PCRE2_SPTR nptr = PRIV(extuni)(c, ptr + clen, check_subject,
+           end_subject, utf, &ncount);
+         if (nptr >= end_subject && (mb->moptions & PCRE2_PARTIAL_HARD) != 0)
+             reset_could_continue = TRUE;
+@@ -3556,6 +3557,7 @@ if (mb->heap_limit > re->limit_heap)
+ mb->start_code = (PCRE2_SPTR)((const uint8_t *)re + re->code_start);
+ mb->tables = re->tables;
+ mb->start_subject = subject;
++mb->check_subject = subject;
+ mb->end_subject = end_subject;
+ mb->start_offset = start_offset;
+ mb->allowemptypartial = (re->max_lookbehind > 0) ||
+@@ -3619,6 +3621,9 @@ is a number of characters, not code units. */
+ #ifdef SUPPORT_UNICODE
+ if (utf && (options & PCRE2_NO_UTF_CHECK) == 0)
+   {
++  /* The mb->check_subject field points to the start of UTF checking;
++  lookbehinds can go back no further than this. */
++
+   PCRE2_SPTR check_subject = start_match;  /* start_match includes offset */
+ 
+   if (start_offset > 0)
+@@ -3654,6 +3659,8 @@ if (utf && (options & PCRE2_NO_UTF_CHECK) == 0)
+     match_data->startchar += (PCRE2_SIZE)(check_subject - subject);
+     goto EXIT;
+     }
++
++  mb->check_subject = check_subject;
+   }
+ #endif  /* SUPPORT_UNICODE */
+ 
+--- a/ext/pcre/pcre2lib/pcre2_intmodedep.h
++++ b/ext/pcre/pcre2lib/pcre2_intmodedep.h
+@@ -1086,6 +1086,7 @@ typedef struct dfa_match_block {
+   pcre2_memctl memctl;            /* For general use */
+   PCRE2_SPTR start_code;          /* Start of the compiled pattern */
+   PCRE2_SPTR start_subject ;      /* Start of the subject string */
++  PCRE2_SPTR check_subject;       /* Where UTF-checked from */
+   PCRE2_SPTR end_subject;         /* End of subject string */
+   PCRE2_SPTR start_used_ptr;      /* Earliest consulted character */
+   PCRE2_SPTR last_used_ptr;       /* Latest consulted character */
+--- a/ext/pcre/pcre2lib/pcre2_jit_char_inc.h
++++ b/ext/pcre/pcre2lib/pcre2_jit_char_inc.h
+@@ -1524,11 +1524,16 @@ do
+     ricount = 0;
+     bptr = prevcc;
+ 
+-    /* bptr is pointing to the left-hand character */
++    /* bptr is pointing to the left-hand character. The backward step must
++    not go below start_subject: the subject may start in the middle of a
++    character, or may not be valid UTF at all before the point from which
++    it was checked, in which case the unbounded BACKCHAR macro would step
++    outside the caller's buffer. */
++
+     while (bptr > start_subject)
+       {
+       bptr--;
+-      BACKCHAR(bptr);
++      while (bptr > start_subject && NOT_FIRSTCU(*bptr)) bptr--;
+       GETCHAR(c, bptr);
+ 
+       if (UCD_GRAPHBREAK(c) != ucp_gbRegional_Indicator)

@@ -1,0 +1,45 @@
+Description: OpenSSL 3 (that of the base system of FreeBSD 15) takes a TLS peer that closes the connection without close_notify for an attack on the end of the data: "SSL: ... unexpected eof while reading", a warning and a failed read in https://, ssl://, tls:// streams and SoapClient, where OpenSSL 1.1.1 gave the end of the data (bug #79589, GH-8369; many servers close so); SSL_OP_IGNORE_UNEXPECTED_EOF keeps the behaviour of OpenSSL 1.1.1, as PHP 8.1 and later do
+Origin: php-src commit 74f75db0c3665677ec006cd379fd561feacffdc6 (Jakub Zelenka, 15.05.2022, PHP 8.1.7), as Ondřej Surý carries it for 7.4 (php7.4 7.4.33-31, debian/patches/0051-Fix-bug-79589-ssl3_read_n-unexpected-eof-while-readi.patch), with its test (the SKIPIF of 7.4; an online test, skipped with SKIP_ONLINE_TESTS)
+
+diff --git a/ext/openssl/tests/bug79589.phpt b/ext/openssl/tests/bug79589.phpt
+new file mode 100644
+index 00000000..c778afdc
+--- /dev/null
++++ b/ext/openssl/tests/bug79589.phpt
+@@ -0,0 +1,20 @@
++--TEST--
++Bug #79589: TLS unexpected EOF failure
++--SKIPIF--
++<?php
++if (!extension_loaded("openssl")) die("skip openssl not loaded");
++if (getenv("SKIP_ONLINE_TESTS")) die("skip online test");
++?>
++--FILE--
++<?php
++
++$release = file_get_contents(
++    'https://chromedriver.storage.googleapis.com/LATEST_RELEASE',
++    false,
++    stream_context_create(['ssl' => ['verify_peer'=> false]])
++);
++echo gettype($release);
++
++?>
++--EXPECT--
++string
+diff --git a/ext/openssl/xp_ssl.c b/ext/openssl/xp_ssl.c
+index 98fa3a46..4571ab51 100644
+--- a/ext/openssl/xp_ssl.c
++++ b/ext/openssl/xp_ssl.c
+@@ -1661,6 +1661,11 @@ int php_openssl_setup_crypto(php_stream *stream,
+ 
+ 	ssl_ctx_options &= ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
+ 
++#ifdef SSL_OP_IGNORE_UNEXPECTED_EOF
++	/* Only for OpenSSL 3+ to keep OpenSSL 1.1.1 behavior */
++	ssl_ctx_options |= SSL_OP_IGNORE_UNEXPECTED_EOF;
++#endif
++
+ 	if (!GET_VER_OPT("disable_compression") || zend_is_true(val)) {
+ 		ssl_ctx_options |= SSL_OP_NO_COMPRESSION;
+ 	}

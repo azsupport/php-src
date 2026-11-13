@@ -1,0 +1,35 @@
+Description: dns_get_record(), checkdnsrr() and getmxrr() leaked, on every call, the memory res_ninit() of the libc of FreeBSD allocates for the state of the resolver: php_dns.h of 5.6 ends that state with res_nclose(), which leaves it, and only res_ndestroy() frees it. Memory of the libc, outside memory_limit: a php-fpm worker or an Apache child grew until it was recycled. res_ndestroy() where the libc has it (a configure check), as PHP 7 does
+Origin: ext/standard/php_dns.h and config.m4 of PHP 7 (HAVE_RES_NDESTROY; Remi Collet's 7.4 branch, which our 7.4 to 8.4 have), the leak as pkgsrc fixes it for lang/php56 (patches/patch-ext_standard_php__dns.h: res_ndestroy() but on glibc)
+
+diff --git a/ext/standard/config.m4 b/ext/standard/config.m4
+index 985cfdd5..76a68bf5 100644
+--- a/ext/standard/config.m4
++++ b/ext/standard/config.m4
+@@ -419,6 +419,7 @@ dnl Detect library functions needed by php dns_xxx functions
+ dnl ext/standard/php_dns.h will collect these in a single define: HAVE_FULL_DNS_FUNCS
+ dnl
+ PHP_CHECK_FUNC(res_nsearch, resolv, bind, socket)
++PHP_CHECK_FUNC(res_ndestroy, resolv, bind, socket)
+ PHP_CHECK_FUNC(dns_search, resolv, bind, socket)
+ PHP_CHECK_FUNC(dn_expand, resolv, bind, socket)
+ PHP_CHECK_FUNC(dn_skipname, resolv, bind, socket)
+diff --git a/ext/standard/php_dns.h b/ext/standard/php_dns.h
+index 4fc12adf..507e394d 100644
+--- a/ext/standard/php_dns.h
++++ b/ext/standard/php_dns.h
+@@ -32,9 +32,15 @@
+ #elif defined(HAVE_RES_NSEARCH)
+ #define php_dns_search(res, dname, class, type, answer, anslen) \
+ 			res_nsearch(res, dname, class, type, answer, anslen);
++#if HAVE_RES_NDESTROY
++#define php_dns_free_handle(res) \
++			res_ndestroy(res); \
++			php_dns_free_res(*res)
++#else
+ #define php_dns_free_handle(res) \
+ 			res_nclose(res); \
+ 			php_dns_free_res(*res)
++#endif
+ 
+ #elif defined(HAVE_RES_SEARCH)
+ #define php_dns_search(res, dname, class, type, answer, anslen) \

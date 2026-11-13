@@ -151,13 +151,42 @@ Not affected, nothing to port: GHSA-p3x9-6h7p-cgfc (CVE-2025-1219: 5.6 takes no
 charset from the Content-Type of a libxml stream) and GHSA-h96m-rvf9-jgm2
 (CVE-2025-14178: `array_merge()` of 5.6 does not add up the sizes beforehand).
 
+**The fixes the distributions carry (13.11.2026).** From a review of the patches of
+Debian, Ondřej Surý, Ubuntu, Fedora and Red Hat, openSUSE and SUSE, Gentoo, pkgsrc,
+Alpine, MacPorts and Remi Collet's RPMs against these branches: what they carry and
+the branches lack, where it touches FreeBSD servers. Each patch names its source in
+its `Origin:` line:
+
+| Branch | Patch | Fixes |
+|---|---|---|
+| 5.6, 7.4 | `backport-openssl3-unexpected-eof.patch` | bug #79589: with OpenSSL 3, a TLS peer that closes without close_notify made `https://`, `ssl://` and SoapClient fail with "unexpected eof while reading"; the behaviour of OpenSSL 1.1.1, as 8.1 and later have it |
+| 5.6, 7.4, 8.1 | `backport-xml-libxml213-entities.patch` | GH-14834: with libxml2 2.13 and later, ext/xml handed the entities of attribute values to the default handler as text |
+| 5.6 | `backport-dns-empty-record.patch` | CVE-2019-9022: `dns_get_record()` and a DNS record with no data |
+| 5.6 | `backport-dns-res-ndestroy.patch` | `dns_get_record()`, `checkdnsrr()`, `getmxrr()` leaked the state of the resolver of FreeBSD on every call (`res_ndestroy()`, as PHP 7) |
+| 5.6 | `backport-zip-empty-file.patch` | bug #79296: `ZipArchive::open()` of an empty file with libzip 1.6 and later |
+| 5.6 | `backport-mysqlnd-free-result.patch` | bug #69899: `$stmt->close()` after `free_result()` on a closed connection crashed |
+| 5.6 | `backport-fileinfo-libmagic.patch` | the bundled libmagic 5.17: CVE-2019-18218 and six fixes of file 5.30 and 5.31 for crafted files |
+| 5.6 | `backport-disabled-class-properties.patch` | bug #77494: reading a property of a class in `disable_classes` crashed |
+| 5.6 | [`freebsd/pecl/ssh2-0.13.patch`](freebsd/pecl/ssh2-0.13.patch) | `ssh2.sftp://$sftp/...` with the resource in the URL (PHP 5.6.28 and later) |
+| 7.4, 8.1, 8.2 | `backport-separate-live-range.patch` | CVE-2024-11235: a use-after-free with `??=` on a property of the result of a call (fixed upstream in 8.3.19 and 8.4.5 only) |
+| 7.4 | `backport-fpm-status-null-pool.patch` | GH-12705: `fpm_get_status()` crashed php-fpm while the scoreboard was busy |
+| 8.1, 8.2 | `backport-fpm-scoreboard-readers.patch` | GH-13437: the status page of php-fpm under load, "scoreboard: failed to lock (already locked)" |
+| 8.1 | `backport-gd-font-uninitialized.patch` | GH-13082: the gd functions with a font of `imageloadfont()` used an uninitialised value |
+| 5.6 (PCRE 8.45), 7.4 to 8.4 (PCRE2 10.49) | [`freebsd/pcre/`](freebsd/pcre) | see [Bundled PCRE](#bundled-pcre) |
+
+Not taken: bug #76846 of 5.6 (a shutdown function after the memory limit crashed):
+the branch ends the process at the memory limit since CVE-2026-109618 (`_exit()`), so
+no shutdown function runs after it. GH-13437 of 7.4: its status page takes the lock of
+the scoreboard itself and answers 503 "Server busy" while a worker updates it; the code
+of the bug (`fpm_scoreboard_copy()`) came with 8.0.
+
 **The commits.** Every branch is upstream plus these commits, in this order:
 
 | # | Commit | What it does |
 |---|---|---|
 | 1 | **Apply curated FreeBSD ports patches** | the patches of `lang/phpXY` in the [FreeBSD ports collection](https://github.com/freebsd/freebsd-ports) that matter here ([below](#freebsd-ports-patches-applied-and-not-applied)), as files with a description and origin line in [`freebsd/patches/`](freebsd/patches). It also removes the upstream `.github/` directory, so that php-src's own CI does not run in this fork (release tarballs never contain it anyway) |
 | 2 | **Apply build compatibility patches** | in every branch the file name of the Apache module (`libphpXY.so`), in 5.6 and 7.4 also the changes that make an old branch build and work on current FreeBSD: [Build compatibility patches](#build-compatibility-patches) |
-| 3 | **Backport security fixes** | only while there is one (now 5.6): [Interim backports](#interim-backports) |
+| 3 | **Backport security fixes** | only while there is one (now 5.6, 7.4, 8.1 and 8.2): [Interim backports](#interim-backports) |
 | 4 | **Bundle PECL extensions** | redis, memcached, memcache, igbinary, imagick, gmagick, swoole, OpenSwoole, excimer, mcrypt and ssh2 in `ext/`, built only when enabled: [Bundled PECL extensions](#bundled-pecl-extensions) |
 | 5 | **Bundle curl** | curl in `ext/curl/libcurl` and its libraries in `ext/curl/deps`, built into PHP with `--with-curl=bundled`: [Bundled curl](#bundled-curl) |
 | 6 | **Bundle PCRE** | the newest PCRE2 (5.6: PCRE 8.45) instead of the one upstream bundles: [Bundled PCRE](#bundled-pcre) |
@@ -873,6 +902,7 @@ How a release gets into the tree:
 | The import | [`freebsd/pcre/import-pcre2.sh`](freebsd/pcre/import-pcre2.sh) (5.6: [`import-pcre1.sh`](freebsd/pcre/import-pcre1.sh)), the way php-src does: the library sources, PHP's own `config.h` (plus the defaults of the release it lacks, such as `MAX_VARLOOKBEHIND` for 7.4 to 8.3), the list of sources in `ext/pcre/config0.m4` |
 | Function names | PHP renames the functions of its bundled PCRE in `main/php_compat.h` (`pcre2_compile_8` becomes `php_pcre2_compile`), so a libpcre2 that Apache has loaded does not take their calls. The list in php-src misses the functions added since PCRE2 10.30 (and the JIT functions of PCRE 8.x), and `pcre2_substitute` of 10.49 calls one of them, so the import renames those too |
 | Tests | the `ext/pcre` tests pass as before; the ones that print messages of the library expect the old and the new wording, as php-src has them since 8.1 and 8.3 (`freebsd/pcre/tests-<version>.patch`) |
+| Fixes | what a release lacks and a distribution carries, applied after the import (`freebsd/pcre/pcre-<version>.patch`, the same as the patch of the port of this tree): 10.49 the bound of the backward scans of `pcre2_dfa_match()` and of the JIT `\X` (GHSA-9qww-pwc4-77qq, the patches of SUSE), 8.45 the initialised name table of a compiled pattern (Fedora) |
 | New features | a newer PCRE brings them to the old branches too: PHP 7.4 with 10.49 knows lookbehinds of limited variable length, such as `(?<=a{1,3})b` |
 | System PCRE | `--with-external-pcre` (5.6: `--with-pcre-regex=DIR`) still takes it. `config-check.sh` leaves those options out when the PCRE of the tree is not older than the one of the system, so the build needs no `pcre2` or `pcre` package, and says so; a newer library in the system keeps the option |
 | New releases | the daily [upstream check](#upstream-check) opens an issue for each new PCRE2 release |

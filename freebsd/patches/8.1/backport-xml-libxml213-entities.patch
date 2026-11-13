@@ -1,0 +1,51 @@
+Description: ext/xml with libxml2 2.13 and later (that of az is 2.15): _get_entity() of compat.c waited for parser states that libxml2 2.13 no longer sets, so the entities in attribute and entity values went to the default handler as text, data that is not in the document (<a hint="x&apos;y"> gave an extra ' to the character data handler; GH-14834, PEAR could not read its package.xml): only in the content of elements now
+Origin: php-src commit 67259e451d5d58b4842776c5696a66d74e157609 (Niels Dossche, 05.07.2024, PHP 8.2.22), as pkgsrc carries it for lang/php74 and lang/php81 (patches/patch-ext_xml_compat.c) and MacPorts for php74, with its test (the SKIPIF of 8.1)
+
+diff --git a/ext/xml/compat.c b/ext/xml/compat.c
+index 18a7beae..3de77d07 100644
+--- a/ext/xml/compat.c
++++ b/ext/xml/compat.c
+@@ -376,7 +376,7 @@ _get_entity(void *user, const xmlChar *name)
+ 			ret = xmlGetDocEntity(parser->parser->myDoc, name);
+ 
+ 		ZEND_DIAGNOSTIC_IGNORED_START("-Wdeprecated-declarations")
+-		if (ret == NULL || (parser->parser->instate != XML_PARSER_ENTITY_VALUE && parser->parser->instate != XML_PARSER_ATTRIBUTE_VALUE)) {
++		if (ret == NULL || parser->parser->instate == XML_PARSER_CONTENT) {
+ 		ZEND_DIAGNOSTIC_IGNORED_END
+ 			if (ret == NULL || ret->etype == XML_INTERNAL_GENERAL_ENTITY || ret->etype == XML_INTERNAL_PARAMETER_ENTITY || ret->etype == XML_INTERNAL_PREDEFINED_ENTITY) {
+ 				/* Predefined entities will expand unless no cdata handler is present */
+diff --git a/ext/xml/tests/gh14834.phpt b/ext/xml/tests/gh14834.phpt
+new file mode 100644
+index 00000000..59db56a1
+--- /dev/null
++++ b/ext/xml/tests/gh14834.phpt
+@@ -0,0 +1,29 @@
++--TEST--
++GH-14834 (Error installing PHP when --with-pear is used)
++--SKIPIF--
++<?php if (!extension_loaded("xml")) die("skip xml extension not loaded"); ?>
++--FILE--
++<?php
++$xml = <<<XML
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE root [
++    <!ENTITY foo "ent">
++]>
++<root>
++  <element hint="hello&apos;world">&foo;<![CDATA[ &amp; ]]><?x &amp; ?></element>
++</root>
++XML;
++
++$parser = xml_parser_create();
++xml_set_character_data_handler($parser, function($_, $data) {
++    var_dump($data);
++});
++xml_parse($parser, $xml, true);
++?>
++--EXPECT--
++string(3) "
++  "
++string(3) "ent"
++string(7) " &amp; "
++string(1) "
++"

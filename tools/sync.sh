@@ -390,6 +390,13 @@ pcre_bundle() {
         return 1
     fi
     rm -rf "$pt"
+    # fixes the release lacks (freebsd/pcre/pcre-<version>.patch, -p1 from the top of
+    # the tree): one that no longer applies fails the build, so that it gets reviewed
+    lp="$pcre_dir/pcre-$pv.patch"
+    if [ -f "$lp" ] && ! patch -p1 -N -s -f < "$lp"; then
+        echo "sync: $target: ${lp##*/} does not apply" >&2
+        return 1
+    fi
     tp="$pcre_dir/tests-$target.patch"
     if [ -f "$tp" ] && ! patch -p1 -N -s -f < "$tp"; then
         echo "sync: $target: ${tp##*/} does not apply" >&2
@@ -616,6 +623,11 @@ make_commits() {
             echo "so a PCRE library that another module loads into the same process (the"
             echo "libpcre2 of Apache, for mod_php) stays separate. $4 still"
             echo "takes the library of the system."
+            if [ -f "$pcre_dir/pcre-$v.patch" ]; then
+                echo
+                echo "pcre-$v.patch: $(sed -n 's/^Description: //p' "$pcre_dir/pcre-$v.patch" | head -1)"
+                echo "  Origin: $(sed -n 's/^Origin: //p' "$pcre_dir/pcre-$v.patch" | head -1)"
+            fi
             if [ -f "$pcre_dir/tests-$target.patch" ]; then
                 echo
                 echo "tests-$target.patch: $(sed -n 's/^Description: //p' "$pcre_dir/tests-$target.patch" | head -1)"

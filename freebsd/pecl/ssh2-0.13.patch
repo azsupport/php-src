@@ -1,5 +1,5 @@
-Description: Build with clang 16+ and GCC 14+, where incompatible function pointer types are errors: the stream wrapper functions of 0.13 took char * for the paths and modes that the php_stream_wrapper_ops of PHP 5.6 pass as const char * (the shell, exec, scp, tunnel and sftp wrappers). They take const char * now, as in ssh2 1.x, and the mode parser is static inline (a plain C99 inline that is not inlined has no definition).
-Origin: azsupport
+Description: Build with clang 16+ and GCC 14+, where incompatible function pointer types are errors: the stream wrapper functions of 0.13 took char * for the paths and modes that the php_stream_wrapper_ops of PHP 5.6 pass as const char * (the shell, exec, scp, tunnel and sftp wrappers). They take const char * now, as in ssh2 1.x, and the mode parser is static inline (a plain C99 inline that is not inlined has no definition). And ssh2.sftp://, ssh2.scp://, ssh2.exec:// with the SSH2 or SFTP resource put into the string ("ssh2.sftp://$sftp/path", the example of the documentation): since PHP 5.6.28 php_url_parse() takes the "#" of "Resource id #5" for the start of a fragment and the wrapper failed (Debian bug #848632; only intval($sftp) worked); "Resource id #" right after "://" is taken away before the parse now, so that the host is the number of the resource
+Origin: azsupport; the resource in the URL: pecl-networking-ssh2 commit 093906ec1c065e86ad1cd4dabbc89b1ccae11938 (Remi Collet, 10.11.2016, branch php5, after 0.13; in ssh2 1.0 and later), as Debian (php-ssh2 0.12-3+deb8u1, debian/patches/0003-fix-for-PHP-7.0.13-where-php_url_parse-fails.patch), Remi (php-pecl-ssh2, branch php5, ssh2-php5628.patch) and Gentoo (0.13-parse_url-fix.patch) carry it, with a memmove() of the rest of the string instead of its strncpy(), whose length writes past the copy when "Resource id #" stands more than 15 characters into the URL, and only right after "://", where the host is (strstr() anywhere took a path with it in it apart)
 
 diff --git a/php_ssh2.h b/php_ssh2.h
 index 08dc87f..9f6e46d 100644
@@ -139,3 +139,42 @@ index 6a06525..a93535e 100644
  {
  	LIBSSH2_SESSION *session = NULL;
  	LIBSSH2_SFTP *sftp = NULL;
+diff --git a/ssh2_fopen_wrappers.c b/ssh2_fopen_wrappers.c
+index f090d77..2d92733 100644
+--- a/ssh2_fopen_wrappers.c
++++ b/ssh2_fopen_wrappers.c
+@@ -199,9 +199,23 @@ php_url *php_ssh2_fopen_wraper_parse_path(	const char *path, char *type, php_str
+ 	zval *methods = NULL, *callbacks = NULL, zsession, **tmpzval;
+ 	long resource_id;
+ 	char *s, *username = NULL, *password = NULL, *pubkey_file = NULL, *privkey_file = NULL;
++	const char *h;
+ 	int username_len = 0, password_len = 0;
+ 
+-	resource = php_url_parse(path);
++	h = strstr(path, "://");
++	if (h && strncmp(h + 3, "Resource id #", sizeof("Resource id #") - 1) == 0) {
++		/* Starting with 5.6.28, 7.0.13 need to be clean, else php_url_parse will fail:
++		   "#" starts a fragment there, so the host of ssh2.sftp://Resource id #5/path
++		   (a resource put into a string) is given as its number alone */
++		const char *r = h + 3 + sizeof("Resource id #") - 1;
++		char *tmp = estrdup(path);
++
++		memmove(tmp + (h + 3 - path), r, strlen(r) + 1);
++		resource = php_url_parse(tmp);
++		efree(tmp);
++	} else {
++		resource = php_url_parse(path);
++	}
+ 	if (!resource || !resource->path) {
+ 		return NULL;
+ 	}
+@@ -232,9 +246,6 @@ php_url *php_ssh2_fopen_wraper_parse_path(	const char *path, char *type, php_str
+ 
+ 	/* Look for a resource ID to reuse a session */
+ 	s = resource->host;
+-	if (strncmp(resource->host, "Resource id #", sizeof("Resource id #") - 1) == 0) {
+-		s = resource->host + sizeof("Resource id #") - 1;
+-	}
+ 	if (is_numeric_string(s, strlen(s), &resource_id, NULL, 0) == IS_LONG) {
+ 		php_ssh2_sftp_data *sftp_data;
+ 

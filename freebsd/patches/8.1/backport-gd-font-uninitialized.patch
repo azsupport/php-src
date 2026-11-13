@@ -1,0 +1,31 @@
+Description: gd: imagefontwidth(), imagefontheight(), imagestring(), imagestringup(), imagechar() and imagecharup() with a font of imageloadfont() (a GdFont object) left the integer of the font uninitialised, which the font of the object was looked up with too: undefined behaviour, a wrong font with clang 14 and later at -Os (GH-13082); both initialised now
+Origin: php-src commits 1e464e5b55f81b7fb9476a55f481fe1d2a25d6d9 and df85c2556e2217c1bec0fa371f58e20266ffbb28 (Niels Dossche, 09.01.2024 and 13.01.2024, PHP 8.2.15), as MacPorts carries them for php81 (lang/php/files/patch-php81-ext-gd.diff); their test needs a binary font file, which a patch cannot carry: left out
+
+diff --git a/ext/gd/gd.c b/ext/gd/gd.c
+index 5a261c71..f1d8da66 100644
+--- a/ext/gd/gd.c
++++ b/ext/gd/gd.c
+@@ -2831,8 +2831,8 @@ static gdFontPtr php_find_gd_font(zend_object *font_obj, zend_long font_int)
+  */
+ static void php_imagefontsize(INTERNAL_FUNCTION_PARAMETERS, int arg)
+ {
+-	zend_object *font_obj;
+-	zend_long font_int;
++	zend_object *font_obj = NULL;
++	zend_long font_int = 0;
+ 	gdFontPtr font;
+ 
+ 	ZEND_PARSE_PARAMETERS_START(1, 1)
+@@ -2899,9 +2899,9 @@ static void php_imagechar(INTERNAL_FUNCTION_PARAMETERS, int mode)
+ 	gdImagePtr im;
+ 	int ch = 0, col, x, y, i, l = 0;
+ 	unsigned char *str = NULL;
+-	zend_object *font_obj;
+-	zend_long font_int;
+-	gdFontPtr font;
++	zend_object *font_obj = NULL;
++	zend_long font_int = 0;
++	gdFontPtr font = NULL;
+ 
+ 	ZEND_PARSE_PARAMETERS_START(6, 6)
+ 		Z_PARAM_OBJECT_OF_CLASS(IM, gd_image_ce)
