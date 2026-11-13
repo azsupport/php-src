@@ -24,10 +24,24 @@ PHP_ARG_WITH([capstone],,
   [no],
   [no])
 
+PHP_ARG_ENABLE([opcache-static],
+  [whether to build OPcache into PHP],
+  [AS_HELP_STRING([--enable-opcache-static],
+    [Build OPcache into PHP instead of opcache.so (azsupport/php-src): no
+    zend_extension line is needed, zend_extension=opcache.so is skipped])],
+  [no],
+  [no])
+
 if test "$PHP_OPCACHE" != "no"; then
 
   dnl Always build as shared extension
-  ext_shared=yes
+  dnl Built into PHP with --enable-opcache-static (azsupport/php-src), as PHP 8.5
+  dnl always does.
+  AS_VAR_IF([PHP_OPCACHE_STATIC], [yes], [
+    ext_shared=no
+    AC_DEFINE([HAVE_OPCACHE_STATIC], [1],
+      [Define to 1 if OPcache is built into PHP (--enable-opcache-static).])
+  ], [ext_shared=yes])
 
   if test "$PHP_HUGE_CODE_PAGES" = "yes"; then
     AC_DEFINE(HAVE_HUGE_CODE_PAGES, 1, [Define to enable copying PHP CODE pages into HUGE PAGES (experimental)])
@@ -304,6 +318,13 @@ int main(void) {
     [PHP_OPCACHE_CFLAGS="$PHP_OPCACHE_CFLAGS -Wno-implicit-fallthrough"],,
     [-Werror])
 
+  AS_IF([test "$PHP_OPCACHE_STATIC" = "yes" && test "$PHP_THREAD_SAFETY" = "yes" && test "$PHP_OPCACHE_JIT" = "yes"],
+    [AC_MSG_ERROR(m4_text_wrap([
+      --enable-opcache-static does not go with ZTS and the JIT before PHP 8.5
+      (the JIT reaches thread-local data in a way that works only from
+      opcache.so): add --disable-opcache-jit, or build opcache.so.
+    ]))])
+
   PHP_NEW_EXTENSION(opcache,
 	ZendAccelerator.c \
 	zend_accelerator_blacklist.c \
@@ -319,7 +340,7 @@ int main(void) {
 	shared_alloc_mmap.c \
 	shared_alloc_posix.c \
 	$ZEND_JIT_SRC,
-	shared,,"$PHP_OPCACHE_CFLAGS -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1",,yes)
+	$ext_shared,,"$PHP_OPCACHE_CFLAGS -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1",,yes)
 
   PHP_ADD_EXTENSION_DEP(opcache, pcre)
 
