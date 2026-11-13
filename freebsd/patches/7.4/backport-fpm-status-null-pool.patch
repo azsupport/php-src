@@ -1,0 +1,16 @@
+Description: php-fpm: fpm_get_status() while the scoreboard was busy logged the pool name of the scoreboard it had not got, a NULL pointer: the worker crashed (GH-12705); "(unknown)" in its place now
+Origin: php-src commit df259f88daaf7df5673fd78a0a1b76a1d831d0a2 (Patrick Prasse, 17.11.2023, PHP 8.1.27), as Ubuntu carries it for 7.4 (php7.4 7.4.3-4ubuntu2.29 of focal, fix-segfault-in-fpm_status_export_to_zval.patch, LP #2057576)
+
+diff --git a/sapi/fpm/fpm/fpm_status.c b/sapi/fpm/fpm/fpm_status.c
+index 9926ebd6..d974b91f 100644
+--- a/sapi/fpm/fpm/fpm_status.c
++++ b/sapi/fpm/fpm/fpm_status.c
+@@ -56,7 +56,7 @@ int fpm_status_export_to_zval(zval *status)
+ 
+ 	scoreboard_p = fpm_scoreboard_acquire(NULL, 1);
+ 	if (!scoreboard_p) {
+-		zlog(ZLOG_NOTICE, "[pool %s] status: scoreboard already in use.", scoreboard_p->pool);
++		zlog(ZLOG_NOTICE, "[pool (unknown)] status: scoreboard already in use.");
+ 		return -1;
+ 	}
+ 

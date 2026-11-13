@@ -1,0 +1,17 @@
+Description: the table of named groups of a compiled pattern initialised after its allocation: add_name() compares the names of its entries past their ends, so a pattern with named groups whose names begin alike, (?<f>)(?<fir>), read uninitialised memory while it was compiled (MemorySanitizer, Exim bug 2661); there is no release of PCRE1 after 8.45
+Origin: Petr Pisar's fix as Fedora carries it on 8.45 (pcre-8.44-Inicialize-name-table-memory-region.patch, f0bb9e8b of 19.10.2020), the same as files/patch-name-table of devel/pcre of azsupport/ports
+
+--- a/ext/pcre/pcrelib/pcre_compile.c
++++ b/ext/pcre/pcrelib/pcre_compile.c
+@@ -9423,6 +9423,11 @@
+   goto PCRE_EARLY_ERROR_RETURN;
+   }
+ 
++/* Initialize the memory. Name table entry values are accessed past their ends
++ * (e.g. in add_name()) when comparing the values. Also a size of the entry can
++ * grow later. It's safer to initialize here than to hunt the gaps later. */
++memset(re, 0, size);
++
+ /* Put in the magic number, and save the sizes, initial options, internal
+ flags, and character table pointer. NULL is used for the default character
+ tables. The nullpad field is at the end; it's there to help in the case when a

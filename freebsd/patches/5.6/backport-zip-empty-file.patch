@@ -1,0 +1,29 @@
+Description: ZipArchive::open() of an existing empty file (one of tempnam(), say) without ZipArchive::OVERWRITE failed with "Not a zip archive" with libzip 1.6.0 and later, which no longer take an empty file for an empty archive (bug #79296): the modules of 5.6 are built with the libzip of az (1.12); such a file is opened as with ZipArchive::OVERWRITE now, as PHP 7.3 and later do. Nothing changes with the libzip bundled in PHP (0.11)
+Origin: php-src commit 8aab43c85d67fc1c1935f91bc64db800c4ef4754 (Remi Collet, 19.03.2020, PHP 7.3.17), as Ondřej Surý carries it for 5.6 (php5.6 5.6.40-105, debian/patches/0146-Fix-Bug-79296-ZipArchive-open-fails-on-empty-file.patch); the version of libzip checked when building (that of az, linked dynamically)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index f78ecc54..0768c48e 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -1572,6 +1572,21 @@ static ZIPARCHIVE_METHOD(open)
+ 		ze_obj->filename = NULL;
+ 	}
+ 
++#if LIBZIP_VERSION_MAJOR > 1 || LIBZIP_VERSION_MAJOR == 1 && LIBZIP_VERSION_MINOR >= 6
++	/* reduce BC break introduce in libzip 1.6.0
++	   "Do not accept empty files as valid zip archives any longer" */
++
++	/* open for write without option to empty the archive */
++	if ((flags & (ZIP_TRUNCATE | ZIP_RDONLY)) == 0) {
++		struct stat st;
++
++		/* exists and is empty */
++		if (VCWD_STAT(resolved_path, &st) == 0 && st.st_size == 0) {
++			flags |= ZIP_TRUNCATE;
++		}
++	}
++#endif
++
+ 	intern = zip_open(resolved_path, flags, &err);
+ 	if (!intern || err) {
+ 		efree(resolved_path);

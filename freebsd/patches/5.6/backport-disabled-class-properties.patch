@@ -1,0 +1,47 @@
+Description: a class in disable_classes: new on it gave an object without the table of its declared properties, and reading one of them crashed the process ($o = new CURLFile; $o->name; bug #77494); the table is made, empty, now. Only where php.ini of 5.6 has disable_classes
+Origin: php-src commit 73f222d722460bebb98a1d2f11f891eefe4defde (Dmitry Stogov, 24.01.2019, PHP 7.2.15), as Gentoo carries it for 5.6 (proj/php-patches, branch php5.6, 00100_bug77494.patch), with its test
+
+diff --git a/Zend/tests/bug77494.phpt b/Zend/tests/bug77494.phpt
+new file mode 100644
+index 00000000..1793f6b2
+--- /dev/null
++++ b/Zend/tests/bug77494.phpt
+@@ -0,0 +1,16 @@
++--TEST--
++Bug #77494 (Disabling class causes segfault on member access)
++--SKIPIF--
++<?php if (!extension_loaded("curl")) exit("skip curl extension not loaded"); ?>
++--INI--
++disable_classes=CURLFile
++--FILE--
++<?php
++$a = new CURLFile();
++var_dump($a->name);
++?>
++--EXPECTF--
++Warning: CURLFile() has been disabled for security reasons in %sbug77494.php on line 2
++
++Notice: Undefined property: CURLFile::$name in %sbug77494.php on line 3
++NULL
+diff --git a/Zend/zend_API.c b/Zend/zend_API.c
+index 94601660..4f4c7d21 100644
+--- a/Zend/zend_API.c
++++ b/Zend/zend_API.c
+@@ -2711,7 +2711,17 @@ static zend_object_value display_disabled_class(zend_class_entry *class_type TSR
+ {
+ 	zend_object_value retval;
+ 	zend_object *intern;
++	int i;
+ 	retval = zend_objects_new(&intern, class_type TSRMLS_CC);
++
++	/* Initialize default properties */
++	if (EXPECTED(class_type->default_properties_count != 0)) {
++		intern->properties_table = emalloc(sizeof(zval*) * class_type->default_properties_count);
++		for (i = 0; i < class_type->default_properties_count; i++) {
++			intern->properties_table[i] = NULL;
++		}
++	}
++
+ 	zend_error(E_WARNING, "%s() has been disabled for security reasons", class_type->name);
+ 	return retval;
+ }

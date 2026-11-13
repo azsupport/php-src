@@ -152,13 +152,41 @@ CVE-2024-8929), которого нет ни в 5.6 у Remi Collet, ни у Ond�
 кодировку из Content-Type потока libxml) и GHSA-h96m-rvf9-jgm2 (CVE-2025-14178:
 `array_merge()` в 5.6 не складывает размеры заранее).
 
+**Исправления, которые несут дистрибутивы (13.11.2026).** По разбору патчей Debian,
+Ondřej Surý, Ubuntu, Fedora и Red Hat, openSUSE и SUSE, Gentoo, pkgsrc, Alpine, MacPorts
+и RPM Remi Collet к этим веткам: то, что у них есть, а в ветках нет, там, где это касается
+серверов FreeBSD. Источник каждого патча — в его строке `Origin:`:
+
+| Ветка | Патч | Что исправляет |
+|---|---|---|
+| 5.6, 7.4 | `backport-openssl3-unexpected-eof.patch` | bug #79589: с OpenSSL 3 собеседник TLS, закрывший соединение без close_notify, ронял `https://`, `ssl://` и SoapClient с «unexpected eof while reading»; поведение OpenSSL 1.1.1, как в 8.1 и новее |
+| 5.6, 7.4, 8.1 | `backport-xml-libxml213-entities.patch` | GH-14834: с libxml2 2.13 и новее ext/xml отдавал сущности из значений атрибутов обработчику по умолчанию как текст |
+| 5.6 | `backport-dns-empty-record.patch` | CVE-2019-9022: `dns_get_record()` и запись DNS без данных |
+| 5.6 | `backport-dns-res-ndestroy.patch` | `dns_get_record()`, `checkdnsrr()`, `getmxrr()` на каждом вызове теряли состояние резолвера FreeBSD (`res_ndestroy()`, как в PHP 7) |
+| 5.6 | `backport-zip-empty-file.patch` | bug #79296: `ZipArchive::open()` пустого файла с libzip 1.6 и новее |
+| 5.6 | `backport-mysqlnd-free-result.patch` | bug #69899: `$stmt->close()` после `free_result()` на закрытом соединении ронял процесс |
+| 5.6 | `backport-fileinfo-libmagic.patch` | встроенный libmagic 5.17: CVE-2019-18218 и шесть исправлений file 5.30 и 5.31 для подделанных файлов |
+| 5.6 | `backport-disabled-class-properties.patch` | bug #77494: чтение свойства класса из `disable_classes` роняло процесс |
+| 5.6 | [`freebsd/pecl/ssh2-0.13.patch`](freebsd/pecl/ssh2-0.13.patch) | `ssh2.sftp://$sftp/...` с ресурсом в адресе (PHP 5.6.28 и новее) |
+| 7.4, 8.1, 8.2 | `backport-separate-live-range.patch` | CVE-2024-11235: обращение к освобождённой памяти при `??=` на свойстве результата вызова (апстрим исправил только 8.3.19 и 8.4.5) |
+| 7.4 | `backport-fpm-status-null-pool.patch` | GH-12705: `fpm_get_status()` ронял php-fpm, пока табло занято |
+| 8.1, 8.2 | `backport-fpm-scoreboard-readers.patch` | GH-13437: страница статуса php-fpm под нагрузкой, «scoreboard: failed to lock (already locked)» |
+| 8.1 | `backport-gd-font-uninitialized.patch` | GH-13082: функции gd со шрифтом `imageloadfont()` брали неинициализированное значение |
+| 5.6 (PCRE 8.45), 7.4–8.4 (PCRE2 10.49) | [`freebsd/pcre/`](freebsd/pcre) | см. [Встроенная PCRE](#встроенная-pcre) |
+
+Не взято: bug #76846 в 5.6 (функция завершения после предела памяти роняла процесс): с
+CVE-2026-109618 ветка завершает процесс на пределе памяти (`_exit()`), и функции
+завершения после него не выполняются. GH-13437 в 7.4: её страница статуса сама берёт
+блокировку табло и отвечает 503 «Server busy», пока воркер его обновляет; код этой ошибки
+(`fpm_scoreboard_copy()`) появился в 8.0.
+
 **Коммиты.** Каждая ветка — это апстрим плюс такие коммиты, в таком порядке:
 
 | # | Коммит | Что делает |
 |---|---|---|
 | 1 | **Apply curated FreeBSD ports patches** | те патчи `lang/phpXY` из [коллекции портов FreeBSD](https://github.com/freebsd/freebsd-ports), которые здесь важны ([ниже](#патчи-портов-freebsd-что-применено-и-что-нет)), — файлами с описанием и строкой происхождения в [`freebsd/patches/`](freebsd/patches). Тот же коммит удаляет каталог `.github/` апстрима, чтобы собственный CI php-src не запускался в этом форке (в тарболах релизов его и так нет) |
 | 2 | **Apply build compatibility patches** | во всех ветках — имя файла модуля Apache (`libphpXY.so`), в 5.6 и 7.4 ещё и изменения, с которыми старая ветка собирается и работает на современной FreeBSD: [Патчи совместимости сборки](#патчи-совместимости-сборки) |
-| 3 | **Backport security fixes** | только пока такие есть (сейчас 5.6): [Временные бэкпорты](#временные-бэкпорты) |
+| 3 | **Backport security fixes** | только пока такие есть (сейчас 5.6, 7.4, 8.1 и 8.2): [Временные бэкпорты](#временные-бэкпорты) |
 | 4 | **Bundle PECL extensions** | redis, memcached, memcache, igbinary, imagick, gmagick, swoole, OpenSwoole, excimer, mcrypt и ssh2 в `ext/`; собираются, только если включены: [Встроенные расширения PECL](#встроенные-расширения-pecl) |
 | 5 | **Bundle curl** | curl в `ext/curl/libcurl` и его библиотеки в `ext/curl/deps`, встраиваются в PHP с `--with-curl=bundled`: [Встроенный curl](#встроенный-curl) |
 | 6 | **Bundle PCRE** | новейшая PCRE2 (5.6: PCRE 8.45) вместо той, что встроена в апстриме: [Встроенная PCRE](#встроенная-pcre) |
@@ -861,6 +889,7 @@ php-src несёт старую PCRE с известными ошибками б
 | Импорт | [`freebsd/pcre/import-pcre2.sh`](freebsd/pcre/import-pcre2.sh) (5.6: [`import-pcre1.sh`](freebsd/pcre/import-pcre1.sh)) так же, как это делает php-src: исходники библиотеки, собственный `config.h` PHP (плюс умолчания релиза, которых в нём нет, например `MAX_VARLOOKBEHIND` для 7.4–8.3), список исходников в `ext/pcre/config0.m4` |
 | Имена функций | PHP переименовывает функции своей встроенной PCRE в `main/php_compat.h` (`pcre2_compile_8` становится `php_pcre2_compile`), так что libpcre2, которую загрузил Apache, не перехватывает их вызовы. В списке php-src нет функций, добавленных после PCRE2 10.30 (и функций JIT у PCRE 8.x), а `pcre2_substitute` в 10.49 вызывает одну из них, поэтому импорт переименовывает и их |
 | Тесты | тесты `ext/pcre` проходят как раньше; те, что печатают сообщения библиотеки, ожидают и старую, и новую формулировку, как в php-src с 8.1 и 8.3 (`freebsd/pcre/tests-<версия>.patch`) |
+| Исправления | то, чего нет в выпуске и что несёт дистрибутив, — после импорта (`freebsd/pcre/pcre-<версия>.patch`, тот же, что патч порта в azsupport/ports): 10.49 — граница обратного прохода `pcre2_dfa_match()` и `\X` в JIT (GHSA-9qww-pwc4-77qq, патчи SUSE), 8.45 — инициализированная таблица имён скомпилированного шаблона (Fedora) |
 | Новые возможности | новая PCRE приносит их и в старые ветки: PHP 7.4 с 10.49 понимает lookbehind ограниченной переменной длины, например `(?<=a{1,3})b` |
 | Системная PCRE | её по-прежнему берёт `--with-external-pcre` (5.6: `--with-pcre-regex=DIR`). `config-check.sh` не пишет эти опции, если PCRE дерева не старее системной, так что сборке не нужен пакет `pcre2` или `pcre`, и говорит об этом; если в системе библиотека новее, опция остаётся |
 | Новые релизы | ежедневная [проверка апстрима](#проверка-апстрима) открывает issue на каждый новый релиз PCRE2 |

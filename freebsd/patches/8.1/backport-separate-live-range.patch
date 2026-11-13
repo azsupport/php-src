@@ -1,0 +1,112 @@
+Description: CVE-2024-11235 (GHSA-rwp7-7vc6-8477): the live range of the temporary that ZEND_SEPARATE defines again was ended there, which broke the handling of COPY_TMP: ??= on a property of the result of a call ($a->f()->p ??= ..., f()->p ??= ...), with __set or a typed property that throws, freed the value twice (a use-after-free). Fixed upstream in 8.3.19 and 8.4.5 only; the same code (zend_calc_live_ranges()) is in this branch
+Origin: php-src commit ef2c459941b5ffae501e5311f5ac2041aadbe461 (Ilija Tovilo, 13.11.2024, PHP 8.3.19), with its three tests, as SUSE carries it for 7.4.33 and 8.0.30 (php7-CVE-2024-11235.patch, SLE 15) and Ubuntu for 7.4 (focal) and 8.1 (jammy) (CVE-2024-11235.patch)
+
+diff --git a/Zend/tests/ghsa-rwp7-7vc6-8477_001.phpt b/Zend/tests/ghsa-rwp7-7vc6-8477_001.phpt
+new file mode 100644
+index 00000000..d0e9ddcb
+--- /dev/null
++++ b/Zend/tests/ghsa-rwp7-7vc6-8477_001.phpt
+@@ -0,0 +1,26 @@
++--TEST--
++GHSA-rwp7-7vc6-8477: Use-after-free for ??= due to incorrect live-range calculation
++--FILE--
++<?php
++
++class Foo {
++    public function foo() {
++        return $this;
++    }
++
++    public function __set($name, $value) {
++        throw new Exception('Hello');
++    }
++}
++
++$foo = new Foo();
++
++try {
++    $foo->foo()->baz ??= 1;
++} catch (Exception $e) {
++    echo $e->getMessage();
++}
++
++?>
++--EXPECT--
++Hello
+diff --git a/Zend/tests/ghsa-rwp7-7vc6-8477_002.phpt b/Zend/tests/ghsa-rwp7-7vc6-8477_002.phpt
+new file mode 100644
+index 00000000..4115d9ea
+--- /dev/null
++++ b/Zend/tests/ghsa-rwp7-7vc6-8477_002.phpt
+@@ -0,0 +1,24 @@
++--TEST--
++GHSA-rwp7-7vc6-8477: Use-after-free for ??= due to incorrect live-range calculation
++--FILE--
++<?php
++
++class Foo {
++    public int $prop;
++
++    public function foo() {
++        return $this;
++    }
++}
++
++$foo = new Foo();
++
++try {
++    $foo->foo()->prop ??= 'foo';
++} catch (Error $e) {
++    echo $e->getMessage();
++}
++
++?>
++--EXPECT--
++Cannot assign string to property Foo::$prop of type int
+diff --git a/Zend/tests/ghsa-rwp7-7vc6-8477_003.phpt b/Zend/tests/ghsa-rwp7-7vc6-8477_003.phpt
+new file mode 100644
+index 00000000..f2808afb
+--- /dev/null
++++ b/Zend/tests/ghsa-rwp7-7vc6-8477_003.phpt
+@@ -0,0 +1,22 @@
++--TEST--
++GHSA-rwp7-7vc6-8477: Use-after-free for ??= due to incorrect live-range calculation
++--FILE--
++<?php
++
++class Foo {
++    public int $prop;
++}
++
++function newFoo() {
++    return new Foo();
++}
++
++try {
++    newFoo()->prop ??= 'foo';
++} catch (Error $e) {
++    echo $e->getMessage();
++}
++
++?>
++--EXPECT--
++Cannot assign string to property Foo::$prop of type int
+diff --git a/Zend/zend_opcode.c b/Zend/zend_opcode.c
+index 15056f23..53339541 100644
+--- a/Zend/zend_opcode.c
++++ b/Zend/zend_opcode.c
+@@ -901,6 +901,14 @@ static void zend_calc_live_ranges(
+ 		opnum--;
+ 		opline--;
+ 
++		/* SEPARATE always redeclares its op1. For the purposes of live-ranges,
++		 * its declaration is irrelevant. Don't terminate the current live-range
++		 * to avoid breaking special handling of COPY_TMP. */
++		if (opline->opcode == ZEND_SEPARATE) {
++			ZEND_ASSERT(opline->op1.var == opline->result.var);
++			continue;
++		}
++
+ 		if ((opline->result_type & (IS_TMP_VAR|IS_VAR)) && !is_fake_def(opline)) {
+ 			uint32_t var_num = EX_VAR_TO_NUM(opline->result.var) - var_offset;
+ 			/* Defs without uses can occur for two reasons: Either because the result is
