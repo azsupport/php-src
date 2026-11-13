@@ -357,6 +357,11 @@ mysqlnd_stmt_prepare_read_eof(MYSQLND_STMT * s TSRMLS_DC)
 			if (stmt->result) {
 				stmt->result->m.free_result_contents(stmt->result TSRMLS_CC);
 				mnd_efree(stmt->result);
+				/* The memset() below resets the statement, so release what it still owns first. */
+				stmt->conn->m->free_reference(stmt->conn TSRMLS_CC);
+				if (stmt->execute_cmd_buffer.buffer) {
+					mnd_pefree(stmt->execute_cmd_buffer.buffer, stmt->persistent);
+				}
 				memset(stmt, 0, sizeof(MYSQLND_STMT_DATA));
 				stmt->state = MYSQLND_STMT_INITTED;
 			}
@@ -1975,8 +1980,9 @@ MYSQLND_METHOD(mysqlnd_stmt, free_result)(MYSQLND_STMT * const s TSRMLS_DC)
 		stmt->state = MYSQLND_STMT_PREPARED;
 	}
 
-	/* Line is free! */
-	CONN_SET_STATE(stmt->conn, CONN_READY);
+	if (CONN_GET_STATE(stmt->conn) != CONN_QUIT_SENT) {
+		CONN_SET_STATE(stmt->conn, CONN_READY);
+	}
 
 	DBG_RETURN(PASS);
 }

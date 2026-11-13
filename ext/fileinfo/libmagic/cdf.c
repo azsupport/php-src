@@ -393,7 +393,7 @@ cdf_read_sat(const cdf_info_t *info, cdf_header_t *h, cdf_sat_t *sat)
 		if (h->h_master_sat[i] == CDF_SECID_FREE)
 			break;
 
-#define CDF_SEC_LIMIT (UINT32_MAX / (4 * ss))
+#define CDF_SEC_LIMIT (UINT32_MAX / (8 * ss))
 	if ((nsatpersec > 0 &&
 	    h->h_num_sectors_in_master_sat > CDF_SEC_LIMIT / nsatpersec) ||
 	    i > CDF_SEC_LIMIT) {
@@ -833,8 +833,9 @@ cdf_read_property_info(const cdf_stream_t *sst, const cdf_header_t *h,
 		    i, inp[i].pi_id, inp[i].pi_type, q - p, offs));
 		if (inp[i].pi_type & CDF_VECTOR) {
 			nelements = CDF_GETUINT32(q, 1);
-			if (nelements == 0) {
-				DPRINTF(("CDF_VECTOR with nelements == 0\n"));
+			if (nelements > CDF_ELEMENT_LIMIT || nelements == 0) {
+				DPRINTF(("CDF_VECTOR with nelements == %"
+				    SIZE_T_FORMAT "u\n", nelements));
 				goto out;
 			}
 			o = 2;
@@ -909,24 +910,29 @@ cdf_read_property_info(const cdf_stream_t *sst, const cdf_header_t *h,
 				*info = inp;
 				inp = *info + nelem;
 			}
-			DPRINTF(("nelements = %" SIZE_T_FORMAT "u\n",
-			    nelements));
 			for (j = 0; j < nelements && i < sh.sh_properties; 
 			    j++, i++) 
 			{
-				uint32_t l = CDF_GETUINT32(q, o);
+				uint32_t l;
+
+				o4 += sizeof(uint32_t);
+				if (q + o >= e || q + o4 >= e)
+					goto out;
+
+				l = CDF_GETUINT32(q, o);
 				inp[i].pi_str.s_len = l;
-				inp[i].pi_str.s_buf = (const char *)
-				    (const void *)(&q[o4 + sizeof(l)]);
+				inp[i].pi_str.s_buf = CAST(const char *,
+				    CAST(const void *, &q[o4]));
+
 				DPRINTF(("l = %d, r = %" SIZE_T_FORMAT
 				    "u, s = %s\n", l,
 				    CDF_ROUND(l, sizeof(l)),
 				    inp[i].pi_str.s_buf));
+
 				if (l & 1)
 					l++;
+
 				o += l >> 1;
-				if (q + o >= e)
-					goto out;
 				o4 = o * sizeof(uint32_t);
 			}
 			i--;
@@ -943,6 +949,7 @@ cdf_read_property_info(const cdf_stream_t *sst, const cdf_header_t *h,
 			break;
 		default:
 		unknown:
+			memset(&inp[i].pi_val, 0, sizeof(inp[i].pi_val));
 			DPRINTF(("Don't know how to deal with %x\n",
 			    inp[i].pi_type));
 			break;
@@ -951,6 +958,9 @@ cdf_read_property_info(const cdf_stream_t *sst, const cdf_header_t *h,
 	return 0;
 out:
 	free(*info);
+	*info = NULL;
+	*count = 0;
+	*maxcount = 0;
 	return -1;
 }
 
