@@ -112,6 +112,7 @@ import argparse
 import datetime
 import email.utils
 import hashlib
+import io
 import json
 import os
 import re
@@ -123,6 +124,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1677,37 +1679,127 @@ def check_launchpad():
 
 
 NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=%s"
+NVD_PAUSE = 6        # seconds between two requests to NVD: 5 in 30 seconds without an API key
+NVD_LAST = [0.0]
+# The CVE List of the CVE Program on GitHub (CVEProject/cvelistV5): the records NVD takes
+# its CVEs from, read when NVD does not answer (16.11.2026: HTTP 503 to every row from the
+# runners of GitHub). Its release at the end of a UTC day has the records changed that day
+# (deltaCves/<id>.json); that of an hour, those changed since the day began.
+CVELIST_DAY = ("https://github.com/CVEProject/cvelistV5/releases/download/"
+               "cve_%s_at_end_of_day/%s_delta_CVEs_at_end_of_day.zip")
+CVELIST_HOUR = ("https://github.com/CVEProject/cvelistV5/releases/download/"
+                "cve_%s_%02d00Z/%s_delta_CVEs_at_%02d00Z.zip")
+CVELIST_DAYS = 120   # the days the CVE List is read back at most
+CVELIST = {}         # UTC day: [(published, id, description, products)] of the records changed that day
+
+
+def nvd_search(word, date):
+    """(published, id, description) of the CVEs of NVD that name word, published after date;
+    RuntimeError when NVD does not answer."""
+    wait = NVD_LAST[0] + NVD_PAUSE - time.time()
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        body = http_bytes(NVD_API % urllib.parse.quote(word), tries=2)
+    finally:
+        NVD_LAST[0] = time.time()
+    if body is None:
+        raise RuntimeError("no answer for %s" % word)
+    data = json.loads(body.decode("utf-8", "replace"))
+    new = []
+    for v in data.get("vulnerabilities", []):
+        c = v.get("cve", {})
+        if c.get("published", "")[:10] > date:
+            desc = next((x["value"] for x in c.get("descriptions", []) if x.get("lang") == "en"), "")
+            new.append((c.get("published", "")[:10], c.get("id", "?"), desc))
+    return new
+
+
+def cvelist_day(day, today):
+    """The published CVE records changed on a UTC day (YYYY-MM-DD), from the release of the
+    CVE List at its end, or, for today and a day whose end release is not out yet, from
+    its latest release of an hour."""
+    if day in CVELIST:
+        return CVELIST[day]
+    body = http_bytes(CVELIST_DAY % (day, day)) if day < today else None
+    if body is None:
+        last = datetime.datetime.now(datetime.timezone.utc).hour if day == today else 23
+        for h in range(last, -1, -1):
+            body = http_bytes(CVELIST_HOUR % (day, h, day, h))
+            if body is not None:
+                break
+    recs = []
+    if body is not None:
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            for n in z.namelist():
+                if not n.endswith(".json"):
+                    continue
+                try:
+                    d = json.loads(z.read(n))
+                except ValueError:
+                    continue
+                meta = d.get("cveMetadata", {})
+                if meta.get("state") != "PUBLISHED":
+                    continue
+                cna = d.get("containers", {}).get("cna", {})
+                desc = next((x.get("value", "") for x in cna.get("descriptions", [])
+                             if x.get("lang", "").startswith("en")), "")
+                products = " ".join("%s %s" % (a.get("vendor", ""), a.get("product", ""))
+                                    for a in cna.get("affected", []) if isinstance(a, dict))
+                recs.append((meta.get("datePublished", "")[:10], meta.get("cveId", "?"),
+                             desc[:1000], products[:300]))
+    CVELIST[day] = recs
+    return recs
+
+
+def cvelist_search(word, date):
+    """(published, id, description) of the CVEs of the CVE List published after date whose
+    description or affected products name word (a whole word, in any case)."""
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    first = datetime.date.fromisoformat(date) + datetime.timedelta(days=1)
+    start = max(first, today - datetime.timedelta(days=CVELIST_DAYS))
+    if start > first:
+        warn("CVE List %s: read from %s, not from %s (at most %d days back)" % (word, start, first, CVELIST_DAYS))
+    rx = re.compile(r"\b%s\b" % re.escape(word), re.I)
+    found = {}
+    d = start
+    while d <= today:
+        for pub, cid, desc, products in cvelist_day(d.isoformat(), today.isoformat()):
+            if pub > date and (rx.search(desc) or rx.search(products)):
+                found[cid] = (pub, cid, desc)
+        d += datetime.timedelta(days=1)
+    return list(found.values())
 
 
 def check_cves():
     """The rows "cve <word> <date> <port>" of upstream.conf: the CVEs of NVD that name
     <word> and were published after <date> (a library with no upstream any more, whose
-    fixes we take from the distributions)."""
+    fixes we take from the distributions); when NVD does not answer, those of the CVE
+    List on GitHub."""
     findings, checked = [], set()
     for r in conf("upstream.conf"):
         if r[0] != "cve" or len(r) < 4:
             continue
         word, date, port = r[1], r[2], r[3]
+        source, link = "NVD", "https://nvd.nist.gov/vuln/detail/%s"
         try:
-            data = json.loads(http(NVD_API % word))
+            new = nvd_search(word, date)
         except Exception as e:  # noqa: BLE001
-            warn("NVD %s: %s" % (word, e))
-            continue
+            warn("NVD %s: %s; the CVE List of GitHub instead" % (word, e))
+            try:
+                new = cvelist_search(word, date)
+            except Exception as e2:  # noqa: BLE001
+                warn("CVE List %s: %s" % (word, e2))
+                continue
+            source, link = "the CVE List (NVD did not answer)", "https://www.cve.org/CVERecord?id=%s"
         checked.add("cve:%s:" % word)
-        new = []
-        for v in data.get("vulnerabilities", []):
-            c = v.get("cve", {})
-            if c.get("published", "")[:10] > date:
-                desc = next((x["value"] for x in c.get("descriptions", []) if x.get("lang") == "en"), "")
-                new.append((c.get("published", "")[:10], c.get("id", "?"), desc))
         if not new:
             continue
         new.sort(reverse=True)
-        lines = ["CVEs of NVD that name `%s`, published after %s (newest first): `%s` of azsupport/ports "
-                 "has this library." % (word, date, port), ""]
+        lines = ["CVEs of %s that name `%s`, published after %s (newest first): `%s` of azsupport/ports "
+                 "has this library." % (source, word, date, port), ""]
         for pub, cid, desc in new:
-            lines.append("- [%s](https://nvd.nist.gov/vuln/detail/%s) %s: %s" % (
-                cid, cid, pub, desc[:400].replace("\n", " ")))
+            lines.append("- [%s](%s) %s: %s" % (cid, link % cid, pub, desc[:400].replace("\n", " ")))
         lines += ["", "After the review: a fix from a distribution (Gentoo, Debian, Fedora) into `files/` of `%s`, or "
                       "the packages that need it out; then set the date of `cve %s` in `freebsd/upstream.conf` to "
                       "the day of the review; the next check closes this issue." % (port, word)]
