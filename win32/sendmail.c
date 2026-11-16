@@ -66,7 +66,7 @@
 												efree(response); \
 											} \
 										}
-#define SMTP_SKIP_SPACE(str)	{ while (isspace(*str)) { str++; } }
+#define SMTP_SKIP_SPACE(str)	{ while (isspace((unsigned char)*(str))) { (str)++; } }
 
 
 #ifndef THREAD_SAFE
@@ -251,7 +251,7 @@ PHPAPI int TSendMail(char *host, int *error, char **error_message,
 			return FAILURE;
 		}
 		for (i = 0; i < strlen(headers_lc); i++) {
-			headers_lc[i] = tolower(headers_lc[i]);
+			headers_lc[i] = tolower((unsigned char)headers_lc[i]);
 		}
 	}
  
@@ -697,7 +697,7 @@ static int PostHeader(char *RPath, char *Subject, char *mailTo, char *xheaders T
 			return OUT_OF_MEMORY;
 		}
 		for (i = 0; i < strlen(headers_lc); i++) {
-			headers_lc[i] = tolower(headers_lc[i]);
+			headers_lc[i] = tolower((unsigned char)headers_lc[i]);
 		}
 	}
 
@@ -816,7 +816,7 @@ static int MailConnect()
 
 	/* Resolve the servers IP */
 	/*
-	if (!isdigit(MailHost[0])||!gethostbyname(MailHost))
+	if (!isdigit((unsigned char)MailHost[0])||!gethostbyname(MailHost))
 	{
 		return (FAILED_TO_RESOLVE_HOST);
 	}

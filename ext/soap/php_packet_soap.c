@@ -387,8 +387,17 @@ int parse_packet_soap(zval *this_ptr, char *buffer, int buffer_size, sdlFunction
 			tmp = *(zval**)tmp;
 			Z_ADDREF_P(tmp);
 			zval_dtor(return_value);
-			*return_value = *tmp;
-			FREE_ZVAL(tmp);
+			if (Z_REFCOUNT_P(tmp) == 1) {
+				*return_value = *tmp;
+				FREE_ZVAL(tmp);
+			} else {
+				/* Still referenced elsewhere: by SOAP_GLOBAL(ref_map), which holds a
+				 * reference to every decoded value until encode_finish()
+				 * (GHSA-85c2-q967-79q5), or by an href inside the result itself. */
+				ZVAL_COPY_VALUE(return_value, tmp);
+				zval_copy_ctor(return_value);
+				zval_ptr_dtor(&tmp);
+			}
 		}
 	}
 
