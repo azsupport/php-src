@@ -428,10 +428,26 @@ static ZEND_MINIT_FUNCTION(zend_accelerator)
 {
 	(void)type; /* keep the compiler happy */
 
+#ifdef COMPILE_DL_OPCACHE
 	REGISTER_INI_ENTRIES();
+#else
+	/* built into PHP: the startup of the zend_extension registers the INI entries */
+	(void)module_number;
+	start_accel_extension();
+#endif
 
 	return SUCCESS;
 }
+
+#ifndef COMPILE_DL_OPCACHE
+void zend_accel_register_ini_entries(void)
+{
+	zend_module_entry *module = zend_hash_str_find_ptr_lc(&module_registry,
+			ACCELERATOR_PRODUCT_NAME, strlen(ACCELERATOR_PRODUCT_NAME));
+
+	zend_register_ini_entries_ex(ini_entries, module->module_number, module->type);
+}
+#endif
 
 void zend_accel_override_file_functions(void)
 {
@@ -575,7 +591,11 @@ void zend_accel_info(ZEND_MODULE_INFO_FUNC_ARGS)
 	DISPLAY_INI_ENTRIES();
 }
 
+#ifdef COMPILE_DL_OPCACHE
 static zend_module_entry accel_module_entry = {
+#else
+zend_module_entry opcache_module_entry = {
+#endif
 	STANDARD_MODULE_HEADER,
 	ACCELERATOR_PRODUCT_NAME,
 	ext_functions,
@@ -590,10 +610,12 @@ static zend_module_entry accel_module_entry = {
 	STANDARD_MODULE_PROPERTIES_EX
 };
 
+#ifdef COMPILE_DL_OPCACHE
 int start_accel_module(void)
 {
 	return zend_startup_module(&accel_module_entry);
 }
+#endif
 
 /* {{{ Get the scripts which are accelerated by ZendAccelerator */
 static int accelerator_get_scripts(zval *return_value)
