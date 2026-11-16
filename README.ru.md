@@ -15,10 +15,10 @@
 | Тарболы релизов | каждое обновление, с уже сгенерированными `configure` и парсерами bison/re2c: на сервере нужны только компилятор C и `make` — как с тарболами с php.net |
 | Один PHP, в который встроено всё | расширения, [встроенные расширения PECL](#встроенные-расширения-pecl), [curl](#встроенный-curl) с его библиотеками, [PCRE](#встроенная-pcre), а при желании и [OPcache](#встроенный-opcache-и-запрет-загрузки-расширений), без загрузки расширений во время работы |
 | Несколько версий рядом | PHP 5.6, 7.4, 8.1, 8.2, 8.3 и 8.4: пакетами репозитория az (ядро `phpXY` и по пакету на модуль или `phpXY-static`, собранный на сервере) все в `/usr/local`, с версией в именах (`bin/php84`, `sbin/php-fpm84` со своим rc.d-скриптом `php_fpm84`, `etc/php84`), или каждая в своём `/usr/local/phpXY`; у каждой свой файл модуля Apache (`libphp84.so`, …, `libphp56.so`) |
-| Скорость | пакеты [azsupport/ports](https://github.com/azsupport/ports) собирают PHP на GCC 16: с ним Zend VM держит свои регистры в глобальных регистровых переменных (у clang их нет): `Zend/bench.php` и `micro_bench.php` на 33–44% быстрее, чем с clang 19 базовой системы, у 7.4 и на 36–38% у 8.3 без OPcache (5–15% с его JIT), и через `libphp.so` mod_php — столько же ([Сравнение скорости сборок](#сравнение-скорости-сборок)) |
+| Скорость | пакеты [azsupport/ports](https://github.com/azsupport/ports) собирают PHP на GCC 16: с ним Zend VM держит свои регистры в глобальных регистровых переменных (у clang их нет): `Zend/bench.php` и `micro_bench.php` на 33–44% быстрее, чем с clang 19 базовой системы, у 7.4 и на 36–38% у 8.3 без OPcache (5–15% с его JIT), и через `libphp.so` mod_php — столько же (по замерам бенчмарка сборок, он хранится приватно) |
 | Скрипты | [`config-check.sh`](tools/config-check.sh) записывает опции configure того PHP, что стоит на сервере; [`az-menu.sh`](tools/az-menu.sh) ставит пакеты az или выбирает, что войдёт в PHP, диалогами — как `make config` портов, — и собирает его пакет |
 | Пакеты | репозиторий pkg [az](#пакеты-репозиторий-az) для FreeBSD 15, собранный из портов FreeBSD в [azsupport/ports](https://github.com/azsupport/ports): `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `mc` и `yt-dlp` вместо пакетов портов (их библиотеки — пакет `az`) и PHP этого форка так, как он в портах (ядро `phpXY`, `mod_phpXY` и по пакету на модуль) |
-| Проверки | [тестовая сборка](#тестовая-сборка-на-freebsd) в виртуальной машине FreeBSD; ежедневная [проверка апстрима](#проверка-апстрима): встроенный код, порты FreeBSD и конец поддержки PHP |
+| Проверки | ежедневная [проверка апстрима](#проверка-апстрима): встроенный код, порты FreeBSD и конец поддержки PHP |
 
 Не связано с PHP Group, Remi Collet и проектом FreeBSD.
 Предоставляется как есть, без гарантий, — [aZsupport.com](https://azsupport.com).
@@ -32,8 +32,6 @@
   - [PHP 8.4](#php-84), [8.3](#php-83), [8.2](#php-82), [8.1](#php-81), [7.4](#php-74), [5.6](#php-56)
   - [az-menu.sh: пакеты и что войдёт в PHP](#az-menush-пакеты-и-что-войдёт-в-php)
   - [Встроенный OPcache и запрет загрузки расширений](#встроенный-opcache-и-запрет-загрузки-расширений)
-  - [Тестовая сборка на FreeBSD](#тестовая-сборка-на-freebsd)
-  - [Сравнение скорости сборок](#сравнение-скорости-сборок)
   - [Встроенные расширения PECL](#встроенные-расширения-pecl)
   - [OpenSSL](#openssl)
   - [Встроенный curl](#встроенный-curl)
@@ -41,7 +39,6 @@
 - [Пакеты: репозиторий az](#пакеты-репозиторий-az)
 - [FFmpeg для видеосайтов](#ffmpeg-для-видеосайтов)
 - [ImageMagick 6 и 7 для видеосайтов](#imagemagick-6-и-7-для-видеосайтов)
-  - [Командные строки сайтов на пакетах](#командные-строки-сайтов-на-пакетах)
 - [Как приходят обновления](#как-приходят-обновления)
   - [Проверка апстрима](#проверка-апстрима)
   - [Патчи совместимости сборки](#патчи-совместимости-сборки)
@@ -610,63 +607,6 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 --disable-extension-loading`. Когда такая сборка установлена, строки `extension=` и
 `zend_extension=opcache.so` в php.ini больше не нужны.
 
-### Тестовая сборка на FreeBSD
-
-| Что | Как |
-|---|---|
-| Workflow | [`.github/workflows/build-test.yml`](.github/workflows/build-test.yml): запуск — на https://github.com/azsupport/php-src/actions/workflows/build-test.yml кнопкой **Run workflow** |
-| Машина | виртуальная машина FreeBSD, по умолчанию 15.1: clang 19, OpenSSL 3.5 из базы, библиотеки из `pkg` |
-| Собирает | тарболы `-latest` с опциями configure наших серверов, встроенным curl (`--with-curl=bundled`) и `--with-openssl-legacy-provider` |
-| Проверяет | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (ошибки разбора, DNS и IPv6, `tls://`, `ssl://` и `https://`, legacy-шифры OpenSSL, `openssl_seal()`, GD с FreeType, XML, сессии, встроенный curl, фикс php2shell при превышении `memory_limit` и другое) и часть тестов PHP |
-| Результат | по каждой версии, на странице запуска |
-| С пакетами az | вход `az`: со статическими библиотеками пакетов `az` и `ImageMagick7` из репозитория az (`az_release` — его релиз, по умолчанию `az-fbsd<major>-amd64-v3`), в раскладке пакетов |
-| На машине с FreeBSD | тот же скрипт, из checkout этой ветки с тарболами в `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` ставит пакеты, `sh tools/build-test.sh --tests 5.6 7.4` собирает и проверяет; наборы опций — в [`tools/build-test.sh`](tools/build-test.sh) |
-
-### Сравнение скорости сборок
-
-| Что | Как |
-|---|---|
-| Workflow | [`.github/workflows/bench.yml`](.github/workflows/bench.yml): запуск — на https://github.com/azsupport/php-src/actions/workflows/bench.yml кнопкой **Run workflow**; входы — версии (по умолчанию `7.4 8.3`) и число прогонов каждого бенчмарка (по умолчанию 5) |
-| Машина | по виртуальной машине FreeBSD 15.1 на версию: все сборки одной версии собираются и запускаются в одной машине, поэтому их цифры сравнимы (цифры двух версий получены на двух машинах) |
-| Исходники | самый новый датированный релиз `freebsd-<версия>-<ГГГГММДД>-<коммит>`, SHA-256 сверяется с `.sha256` релиза |
-| Сборки | только CLI (`--disable-all --enable-cli --disable-cgi --disable-phpdbg --enable-opcache`), у всех одни `CFLAGS` (`-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing -std=gnu17`): `clang19` (cc из базы, точка отсчёта), `clang19-pgo`, `clang23`, `clang23-pgo`, `clang23-pgo-lto` (ThinLTO, линкует lld из llvm23), `gcc16`, `gcc16-pgo`. Компиляторы — из пакетов `llvm23` и `gcc16`, а если их нет — самые новые llvm и gcc репозитория пакетов; отчёт называет их с версиями. С GCC configure находит глобальные регистровые переменные, в которых VM Zend держит свои регистры (у clang их нет) |
-| Обучение PGO | никогда не бенчмарки: `run-tests.php` того же дерева на `Zend/tests`, `ext/standard/tests/strings` и `ext/standard/tests/array`, без OPcache, потом с OPcache (на 8.x с JIT), каждая часть не дольше 150 секунд |
-| Бенчмарки | `Zend/bench.php` и `Zend/micro_bench.php` того же дерева, каждая сборка без OPcache, с OPcache (на 8.x с трассирующим JIT) и с `USE_ZEND_ALLOC_HUGE_PAGES=1` (аллокатор Zend отображает свои куски по 2 МБ с `MAP_ALIGNED_SUPER`); сборки чередуются от прогона к прогону |
-| Через разделяемую libphp | вход `embed`: сборки `clang19`, `gcc16` и `gcc16-nsi` (`-fno-semantic-interposition`), каждое дерево ещё и с `--enable-embed=shared`, так что каждая сборка запускается и как `<сборка>-embed`, через свою `libphp.so` (SAPI embed, из тех же PIC-объектов, что и `libphp.so` mod_php) маленьким драйвером, без OPcache (в SAPI embed он не работает), рядом со своим CLI; отчёт добавляет изменение каждого `-embed` относительно CLI той же сборки и относительно `clang19-embed`. С `-fPIC` GCC считает каждую экспортируемую функцию (`ZEND_API`, `PHPAPI`) заменяемой при загрузке, поэтому собственные вызовы движка к ним идут через PLT и не инлайнятся; `-fno-semantic-interposition` позволяет их связать и инлайнить (CLI — исполняемый файл, его это не касается) |
-| Результат | медиана строк `Total` в секундах и её изменение относительно `clang19` в %, с версиями компиляторов, CPU машины и тем, что прогнало обучение: в логе задачи (шаг Report) и в её summary |
-| На другой машине | `sh tools/bench.sh --local -r 3 8.3 <тарбол>` берёт компиляторы, которые найдёт (и на Linux); подробности — в [`tools/bench.sh`](tools/bench.sh) |
-
-Результаты 09.11.2026 на FreeBSD 15.1 (4 CPU AMD EPYC, медиана 5 прогонов, изменение к
-`clang19`; минус — быстрее; llvm23 23.1.5, gcc16 16.1.0):
-
-| PHP | Сборка | `bench.php` | `bench.php` с OPcache | `micro_bench.php` | `micro_bench.php` с OPcache |
-|---|---|--:|--:|--:|--:|
-| 8.3 ([42582372488](https://github.com/azsupport/php-src/actions/runs/42582372488)) | `clang19` | 0,304 с | 0,042 с (JIT) | 1,431 с | 0,428 с (JIT) |
-| | `clang19-pgo` | −3,0% | 0 | −2,4% | −4,0% |
-| | `clang23-pgo-lto` | +1,0% | 0 | −4,5% | −10,0% |
-| | `gcc16` | −36,2% | −4,8% | −37,5% | −12,6% |
-| | `gcc16-pgo` | −37,5% | −4,8% | −36,8% | −14,7% |
-| 7.4 (тот же прогон) | `clang19` | 0,615 с | 0,420 с | 2,991 с | 2,186 с |
-| | `clang19-pgo` | +2,0% | −1,2% | −1,7% | −4,8% |
-| | `clang23-pgo-lto` | +3,3% | −3,1% | −5,6% | −7,0% |
-| | `gcc16` | −33,5% | −44,3% | −38,8% | −36,5% |
-| | `gcc16-pgo` | −29,9% | −43,8% | −33,9% | −33,5% |
-
-- Выигрыш даёт GCC 16: Zend VM держит свои регистры в глобальных регистровых
-  переменных, которые есть только у GCC. PGO, LTO и clang 23 — в пределах примерно ±5%
-  (разброс прогонов), большие страницы аллокатора Zend — ничего (у FreeBSD и так
-  прозрачные суперстраницы). В 7.4 OPcache только кэширует опкоды для той же VM (JIT
-  нет), поэтому GCC выигрывает и с ним; в 8.3 горячий код компилирует сам JIT.
-- Через `libphp.so`, как PHP работает в mod_php (вход `embed`,
-  [42623798085](https://github.com/azsupport/php-src/actions/runs/42623798085), без
-  OPcache): GCC против clang через их `libphp.so` — у 8.3 −32,4%, с
-  `-fno-semantic-interposition` −34,0%; у 7.4 −38,4% и −37,5%: флаг добавляет до 2,4%
-  у 8.3 и нигде ничего не отнимает.
-- Поэтому PHP-пакеты azsupport/ports собирают ядра, `mod_phpXY` и модули на C с GCC 16 и
-  `-fno-semantic-interposition` (`-static-libgcc`: ни одному файлу не нужна библиотека
-  GCC); модули на C++ (intl, swoole, OpenSwoole), imagick и gmagick остаются на clang
-  базовой системы.
-
 ### Встроенные расширения PECL
 
 Ветки и тарболы несут эти расширения PECL в `ext/`, поэтому они встраиваются в PHP так
@@ -943,7 +883,7 @@ pkg install -r az php84 mod_php84 php84-opcache php84-gd php84-mbstring php84-op
 ## FFmpeg для видеосайтов
 
 Пакет `ffmpeg` из [репозитория az](#пакеты-репозиторий-az) вместо пакета порта:
-`ffmpeg` и `ffprobe` для видеосайтов (the video sites) на FreeBSD 15, только с тем, что сайтам
+`ffmpeg` и `ffprobe` для видеосайтов на FreeBSD 15, только с тем, что сайтам
 нужно: [`multimedia/ffmpeg/files/ffmpeg.conf`](https://github.com/azsupport/ports/blob/main/multimedia/ffmpeg/files/ffmpeg.conf) в azsupport/ports. FFmpeg определяет формат файла по
 содержимому, а не по имени, поэтому любой собранный демультиплексор доступен
 загруженному файлу: плейлист с именем `video.mp4` попадёт в демультиплексор HLS, а тот
@@ -973,7 +913,7 @@ azsupport/ports собирает его (свой порт `multimedia/ffmpeg` �
 `tools/ffmpeg-build.sh`) и проверяет своим
 `tools/ffmpeg-test.sh`: образцы всех контейнеров и кодеков,
 которые принимают сайты (сделаны пакетом `ffmpeg` из FreeBSD), а также H.264 в 10 бит,
-4:2:2 и 4:4:4 и MJPEG с фотоаппарата; конвертация the video sites, которая из каждого должна дать
+4:2:2 и 4:4:4 и MJPEG с фотоаппарата; конвертация сайтов, которая из каждого должна дать
 H.264 в 8 бит 4:2:0; скриншоты, водяной знак, повёрнутое видео с телефона, склейка
 через `-f concat -safe 0 -c copy` в mp4, mov и mkv (и VP9), копия VP9 в MP4, MPEG-TS
 в `.mp4`, переупакованный в MP4 так, как yt-dlp чинит HLS-загрузку, тишина из
@@ -986,7 +926,7 @@ pipe.
 ## ImageMagick 6 и 7 для видеосайтов
 
 Пакеты `ImageMagick6` и `ImageMagick7` из [репозитория az](#пакеты-репозиторий-az)
-вместо пакетов портов, для видеосайтов (the video sites) на FreeBSD 15: статические программы в
+вместо пакетов портов, для видеосайтов на FreeBSD 15: статические программы в
 `/usr/local/bin`, ImageMagick 7 — `magick` и имена-ссылки на него (`convert`,
 `identify`, `mogrify`, `composite`, …), ImageMagick 6 — с 6 на конце (`convert6`,
 `identify6`, `mogrify6`, `composite6`, …), так что их можно поставить одновременно
@@ -1027,19 +967,6 @@ magick -version
 PDF, TIFF, MNG, `text:`, `label:@`, `-comment @`, `@файл`, `inline:`, URL, `/etc`, `../` и стандартный ввод.
 [Проверка апстрима](#проверка-апстрима) следит за релизами ImageMagick 6 и 7 и их
 библиотек и за коммитами в их порты.
-
-### Командные строки сайтов на пакетах
-
-[`tools/site-test.sh`](tools/site-test.sh) гоняет командные строки, которые видеосайты (the video sites 6.4.0)
-дают `ffmpeg`, `ffprobe` и ImageMagick, — вендорского релиза, его патча media-security и
-нашей версии, где они различаются, — на образцах, сделанных пакетами портов
-(`--samples`): проверки загрузки с белыми списками патча и без них, скриншоты и картинки
-через BMP, форматы с водяными знаками, склейки, превью из частей, ролики, плагины
-`movie_from_image` и `audit` и то, что у ffmpeg просит yt-dlp. Каждая строка — `ok`,
-`FAIL`, `gap` (этого нет в сборке, решение за нами) или `bug` (командная строка the video sites
-падает с любой сборкой). Workflow [`site-test.yml`](.github/workflows/site-test.yml) («the video sites
-command lines on the az packages») запускает его во FreeBSD на опубликованном репозитории
-az уровня, ничего не собирая.
 
 ## Как приходят обновления
 

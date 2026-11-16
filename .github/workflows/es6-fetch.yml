@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       parts:
-        description: 'Parts: tarballs esa nvd redhat maven probe search255; none: no part (an empty value gives this default)'
+        description: 'Parts: tarballs esa nvd redhat maven probe; none: no part (an empty value gives this default)'
         required: false
         type: string
         default: 'tarballs esa nvd redhat maven'
@@ -32,11 +32,6 @@ on:
         required: false
         type: string
         default: ''
-      search_engine:
-        description: 'search255: which engine (es6, os217, os219)'
-        required: false
-        type: string
-        default: 'es6'
       probes:
         description: 'probe: only the probes whose name matches this regular expression ("two nodes" for the cluster); empty: all'
         required: false
@@ -65,7 +60,6 @@ jobs:
           URLS: ${{ inputs.urls }}
           GITHIST: ${{ inputs.githist }}
           PROBE_FILTER: ${{ inputs.probes }}
-          SEARCH_ENGINE: ${{ inputs.search_engine }}
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
         run: |
           set -f

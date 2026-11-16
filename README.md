@@ -13,10 +13,10 @@ small, curated set of FreeBSD ports patches and fixes for current FreeBSD.
 | Release tarballs | every update, with `configure` and the bison/re2c parsers pre-generated: a server needs only a C compiler and `make`, exactly like with the tarballs from php.net |
 | One PHP with everything built in | the extensions, the [bundled PECL extensions](#bundled-pecl-extensions), [curl](#bundled-curl) with its libraries, [PCRE](#bundled-pcre), and [OPcache](#built-in-opcache-and-no-extension-loading) too, with no extensions loaded at run time if wanted |
 | Versions side by side | PHP 5.6, 7.4, 8.1, 8.2, 8.3 and 8.4: as the packages of the repository az (the core `phpXY` with one package per module, or `phpXY-static` built on the server) all in `/usr/local`, with the version in their names (`bin/php84`, `sbin/php-fpm84` with its rc.d script `php_fpm84`, `etc/php84`), or each in its own `/usr/local/phpXY`; each with its own Apache module file (`libphp84.so`, ..., `libphp56.so`) |
-| Speed | the packages of [azsupport/ports](https://github.com/azsupport/ports) build PHP with GCC 16, with which the Zend VM keeps its registers in global register variables (clang has none): `Zend/bench.php` and `micro_bench.php` 33–44% faster than with the clang 19 of the base system for 7.4, 36–38% for 8.3 without OPcache (5–15% with its JIT), and through the `libphp.so` of mod_php as much ([Benchmark of the builds](#benchmark-of-the-builds)) |
+| Speed | the packages of [azsupport/ports](https://github.com/azsupport/ports) build PHP with GCC 16, with which the Zend VM keeps its registers in global register variables (clang has none): `Zend/bench.php` and `micro_bench.php` 33–44% faster than with the clang 19 of the base system for 7.4, 36–38% for 8.3 without OPcache (5–15% with its JIT), and through the `libphp.so` of mod_php as much (measured by the benchmark of the builds, kept privately) |
 | Scripts | [`config-check.sh`](tools/config-check.sh) writes the configure options of the PHP a server has; [`az-menu.sh`](tools/az-menu.sh) installs the packages of az, or chooses what goes into PHP with dialogs, as `make config` of the ports, and builds its package |
 | Packages | the repository of pkg [az](#packages-the-repository-az) for FreeBSD 15, built from the FreeBSD ports by [azsupport/ports](https://github.com/azsupport/ports): `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `mc` and `yt-dlp` in the place of the packages of the ports (their libraries are the package `az`), and the PHP of this fork as the ports have it (the core `phpXY`, `mod_phpXY` and one package per module) |
-| Checks | a [build test](#build-test-on-freebsd) in a FreeBSD VM; a daily [upstream check](#upstream-check) of the bundled code, the FreeBSD ports and the end of PHP support |
+| Checks | a daily [upstream check](#upstream-check) of the bundled code, the FreeBSD ports and the end of PHP support |
 
 Not affiliated with the PHP Group, Remi Collet or the FreeBSD Project.
 Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
@@ -30,8 +30,6 @@ Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
   - [PHP 8.4](#php-84), [8.3](#php-83), [8.2](#php-82), [8.1](#php-81), [7.4](#php-74), [5.6](#php-56)
   - [az-menu.sh: the packages, and what goes into PHP](#az-menush-the-packages-and-what-goes-into-php)
   - [Built-in OPcache and no extension loading](#built-in-opcache-and-no-extension-loading)
-  - [Build test on FreeBSD](#build-test-on-freebsd)
-  - [Benchmark of the builds](#benchmark-of-the-builds)
   - [Bundled PECL extensions](#bundled-pecl-extensions)
   - [OpenSSL](#openssl)
   - [Bundled curl](#bundled-curl)
@@ -39,7 +37,6 @@ Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
 - [Packages: the repository az](#packages-the-repository-az)
 - [FFmpeg for the video sites](#ffmpeg-for-the-video-sites)
 - [ImageMagick 6 and 7 for the video sites](#imagemagick-6-and-7-for-the-video-sites)
-  - [The command lines of the sites on the packages](#the-command-lines-of-the-sites-on-the-packages)
 - [How updates happen](#how-updates-happen)
   - [Upstream check](#upstream-check)
   - [Build compatibility patches](#build-compatibility-patches)
@@ -619,63 +616,6 @@ Without the menu, add them to the build: `sh config.installed.sh
 installed, the `extension=` and `zend_extension=opcache.so` lines of php.ini are no
 longer needed.
 
-### Build test on FreeBSD
-
-| What | How |
-|---|---|
-| Workflow | [`.github/workflows/build-test.yml`](.github/workflows/build-test.yml): start it on https://github.com/azsupport/php-src/actions/workflows/build-test.yml with **Run workflow** |
-| Machine | a FreeBSD VM, by default 15.1: clang 19, base OpenSSL 3.5, libraries from `pkg` |
-| Builds | the `-latest` tarballs with the configure options of our servers, the bundled curl (`--with-curl=bundled`) and `--with-openssl-legacy-provider` |
-| Checks | `php -v`, `php -m`, [`tools/build-test-smoke.php`](tools/build-test-smoke.php) (parse errors, DNS and IPv6, `tls://`, `ssl://` and `https://`, the OpenSSL legacy ciphers, `openssl_seal()`, GD with FreeType, XML, sessions, the bundled curl, the php2shell fix when a script goes over `memory_limit` and more) and a part of the PHP test suite |
-| Result | per version, on the run page |
-| With the packages of az | the input `az`: against the static libraries of the packages `az` and `ImageMagick7` of the repository az (`az_release`: its release, by default `az-fbsd<major>-amd64-v3`), in the layout of the packages |
-| On a FreeBSD machine | the same script, from a checkout of this branch with the tarballs in `dist/`: `sh tools/build-test.sh --deps 5.6 7.4` installs the packages, `sh tools/build-test.sh --tests 5.6 7.4` builds and checks; the presets are in [`tools/build-test.sh`](tools/build-test.sh) |
-
-### Benchmark of the builds
-
-| What | How |
-|---|---|
-| Workflow | [`.github/workflows/bench.yml`](.github/workflows/bench.yml): start it on https://github.com/azsupport/php-src/actions/workflows/bench.yml with **Run workflow**; the inputs are the versions (by default `7.4 8.3`) and the runs of each benchmark (by default 5) |
-| Machine | one FreeBSD 15.1 VM per version: all the builds of a version are made and run in the same VM, so that their numbers compare (those of two versions come from two machines) |
-| Source | the newest dated release `freebsd-<version>-<YYYYMMDD>-<commit>`, its SHA-256 checked against the `.sha256` of the release |
-| Builds | the CLI only (`--disable-all --enable-cli --disable-cgi --disable-phpdbg --enable-opcache`), the same `CFLAGS` for all (`-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing -std=gnu17`): `clang19` (the base cc, the baseline), `clang19-pgo`, `clang23`, `clang23-pgo`, `clang23-pgo-lto` (ThinLTO, linked by the lld of llvm23), `gcc16`, `gcc16-pgo`. The compilers come from the packages `llvm23` and `gcc16`, or from the newest llvm and gcc of the package repository when those are not there; the report names them with their versions. With GCC, configure finds the global register variables that the Zend VM keeps its registers in (clang has none) |
-| PGO training | never the benchmarks: the `run-tests.php` of the same tree on `Zend/tests`, `ext/standard/tests/strings` and `ext/standard/tests/array`, without OPcache, then with OPcache (on 8.x with the JIT), each part at most 150 seconds |
-| Benchmarks | `Zend/bench.php` and `Zend/micro_bench.php` of the same tree, every build without OPcache, with OPcache (on 8.x with the tracing JIT) and with `USE_ZEND_ALLOC_HUGE_PAGES=1` (the Zend allocator maps its 2 MB chunks with `MAP_ALIGNED_SUPER`); the builds take turns, run by run |
-| Through a shared libphp | the input `embed`: the builds `clang19`, `gcc16` and `gcc16-nsi` (`-fno-semantic-interposition`), each tree configured with `--enable-embed=shared` too, so that every build runs also as `<build>-embed`, through its own `libphp.so` (the embed SAPI, from the same PIC objects as the `libphp.so` of mod_php) with a driver of a few lines, without OPcache (it does not run in the embed SAPI), next to its CLI; the report adds the change of each `-embed` against the CLI of its build and against `clang19-embed`. With `-fPIC`, GCC takes every exported function (`ZEND_API`, `PHPAPI`) as replaceable at load time, so the engine's own calls to them go through the PLT and are not inlined; `-fno-semantic-interposition` lets it bind and inline them (the CLI, an executable, is not affected) |
-| Result | the median of the `Total` lines in seconds and its change against `clang19` in %, with the compiler versions, the CPU of the VM and what the training ran: in the log of the job (step Report) and in its summary |
-| On another machine | `sh tools/bench.sh --local -r 3 8.3 <tarball>` takes the compilers it finds there (Linux too); the details are in [`tools/bench.sh`](tools/bench.sh) |
-
-The results of 09.11.2026 on FreeBSD 15.1 (4 CPU of AMD EPYC, the median of 5 runs, the
-change against `clang19`; minus is faster; llvm23 23.1.5, gcc16 16.1.0):
-
-| PHP | Build | `bench.php` | `bench.php` with OPcache | `micro_bench.php` | `micro_bench.php` with OPcache |
-|---|---|--:|--:|--:|--:|
-| 8.3 ([42582372488](https://github.com/azsupport/php-src/actions/runs/42582372488)) | `clang19` | 0.304 s | 0.042 s (JIT) | 1.431 s | 0.428 s (JIT) |
-| | `clang19-pgo` | −3.0% | 0 | −2.4% | −4.0% |
-| | `clang23-pgo-lto` | +1.0% | 0 | −4.5% | −10.0% |
-| | `gcc16` | −36.2% | −4.8% | −37.5% | −12.6% |
-| | `gcc16-pgo` | −37.5% | −4.8% | −36.8% | −14.7% |
-| 7.4 (the same run) | `clang19` | 0.615 s | 0.420 s | 2.991 s | 2.186 s |
-| | `clang19-pgo` | +2.0% | −1.2% | −1.7% | −4.8% |
-| | `clang23-pgo-lto` | +3.3% | −3.1% | −5.6% | −7.0% |
-| | `gcc16` | −33.5% | −44.3% | −38.8% | −36.5% |
-| | `gcc16-pgo` | −29.9% | −43.8% | −33.9% | −33.5% |
-
-- GCC 16 is the gain: the Zend VM keeps its registers in global register variables,
-  which only GCC has. PGO, LTO and clang 23 stay within about ±5% (the spread of the
-  runs), the huge pages of the Zend allocator gain nothing (FreeBSD has transparent
-  superpages). In 7.4, OPcache only caches the opcodes for the same VM (no JIT), so
-  GCC gains with it too; in 8.3 the JIT compiles the hot code itself.
-- Through `libphp.so`, as mod_php runs PHP (the input `embed`,
-  [42623798085](https://github.com/azsupport/php-src/actions/runs/42623798085), without
-  OPcache): GCC against clang through their `libphp.so`, 8.3 −32.4%, with
-  `-fno-semantic-interposition` −34.0%; 7.4 −38.4% and −37.5%: the flag adds up to 2.4%
-  for 8.3 and takes nothing anywhere.
-- So the PHP packages of azsupport/ports build the cores, `mod_phpXY` and the modules
-  in C with GCC 16 and `-fno-semantic-interposition` (`-static-libgcc`: no file needs a
-  library of GCC); the C++ modules (intl, swoole, OpenSwoole) and imagick and gmagick
-  stay with the clang of the base system.
-
 ### Bundled PECL extensions
 
 The branches and tarballs carry these PECL extensions in `ext/`, so they are built
@@ -960,7 +900,7 @@ that the README of azsupport/ports names.
 ## FFmpeg for the video sites
 
 The package `ffmpeg` of the [repository az](#packages-the-repository-az), in the
-place of that of the port: `ffmpeg` and `ffprobe` for the video sites (the video sites) on
+place of that of the port: `ffmpeg` and `ffprobe` for the video sites on
 FreeBSD 15, with only what the sites need:
 [`multimedia/ffmpeg/files/ffmpeg.conf`](https://github.com/azsupport/ports/blob/main/multimedia/ffmpeg/files/ffmpeg.conf) of azsupport/ports. FFmpeg takes the format of a file from
 its content, not from its name, so every demuxer of a build is one that an uploaded
@@ -991,7 +931,7 @@ settings. azsupport/ports builds it (its port `multimedia/ffmpeg`, with
 `files/ffmpeg.conf`, and its `tools/ffmpeg-build.sh`) and
 tests it with its `tools/ffmpeg-test.sh`: samples of every
 container and codec the sites take (made with the `ffmpeg` package of FreeBSD), also
-H.264 in 10 bit, 4:2:2 and 4:4:4 and MJPEG of a camera; the conversion of the video sites, which
+H.264 in 10 bit, 4:2:2 and 4:4:4 and MJPEG of a camera; the conversion of the sites, which
 must give 8-bit 4:2:0 H.264 from each; screenshots, a watermark, a rotated phone
 video, joins with `-f concat -safe 0 -c copy` into mp4, mov and mkv (VP9 too), VP9
 copied into MP4, MPEG-TS in an `.mp4` copied into MP4 as yt-dlp fixes an HLS download,
@@ -1004,7 +944,7 @@ FFmpeg, dav1d and libwebp and the commits to their ports.
 
 The packages `ImageMagick6` and `ImageMagick7` of the
 [repository az](#packages-the-repository-az), in the place of those of the ports, for
-the video sites (the video sites) on FreeBSD 15: static programs in `/usr/local/bin`, ImageMagick
+the video sites on FreeBSD 15: static programs in `/usr/local/bin`, ImageMagick
 7 as `magick` and the names linked to it (`convert`, `identify`, `mogrify`,
 `composite`, ...), ImageMagick 6 with 6 at the end (`convert6`, `identify6`,
 `mogrify6`, `composite6`, ...), so that both can be installed at once (the packages
@@ -1046,20 +986,6 @@ animations, the BMP intermediate, a watermark, text, CMYK; refused: SVG, MVG, MS
 PostScript, PDF, TIFF, MNG, `text:`, `label:@`, `-comment @`, `@file`, `inline:`, URLs, `/etc`,
 `../` and standard input. The [upstream check](#upstream-check) follows the releases of ImageMagick 6
 and 7 and of their libraries and the commits to their ports.
-
-### The command lines of the sites on the packages
-
-[`tools/site-test.sh`](tools/site-test.sh) runs the command lines the video sites (the video sites 6.4.0)
-give to `ffmpeg`, `ffprobe` and ImageMagick, those of the vendor's release, of its
-media-security patch and of our version where they differ, on samples made with the
-packages of the ports (`--samples`): the checks of an upload with and without the
-whitelists of the patch, the screenshots and pictures through BMP, the formats with
-watermarks, joins, previews from parts, rolls, the plugins `movie_from_image` and
-`audit`, and what yt-dlp asks ffmpeg for. Each line is `ok`, `FAIL`, `gap` (the build
-does not have it, a decision to take) or `bug` (the command line of the video sites fails with any
-build). The workflow [`site-test.yml`](.github/workflows/site-test.yml) ("the video sites command
-lines on the az packages") runs it in FreeBSD on the published repository az of a
-level, without building anything.
 
 ## How updates happen
 
