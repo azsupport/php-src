@@ -241,6 +241,7 @@ pecl_option() {   # configure option (markdown) of a bundled extension
         gmagick) echo '`--with-gmagick=/usr/local` (package `GraphicsMagick`; not together with imagick)' ;;
         mcrypt) echo '`--with-mcrypt=/usr/local` (package `libmcrypt`)' ;;
         ssh2) echo '`--with-ssh2=/usr/local` (package `libssh2`)' ;;
+        gearman) echo '`--with-gearman=/usr/local` (package `gearmand` or `gearmand-openssl` of azsupport/ports)' ;;
         *) echo "\`--enable-$1\`" ;;
     esac
 }

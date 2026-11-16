@@ -187,7 +187,7 @@ of the bug (`fpm_scoreboard_copy()`) came with 8.0.
 | 1 | **Apply curated FreeBSD ports patches** | the patches of `lang/phpXY` in the [FreeBSD ports collection](https://github.com/freebsd/freebsd-ports) that matter here ([below](#freebsd-ports-patches-applied-and-not-applied)), as files with a description and origin line in [`freebsd/patches/`](freebsd/patches). It also removes the upstream `.github/` directory, so that php-src's own CI does not run in this fork (release tarballs never contain it anyway) |
 | 2 | **Apply build compatibility patches** | in every branch the file name of the Apache module (`libphpXY.so`), in 5.6 and 7.4 also the changes that make an old branch build and work on current FreeBSD: [Build compatibility patches](#build-compatibility-patches) |
 | 3 | **Backport security fixes** | only while there is one (now 5.6, 7.4, 8.1 and 8.2): [Interim backports](#interim-backports) |
-| 4 | **Bundle PECL extensions** | redis, memcached, memcache, igbinary, imagick, gmagick, swoole, OpenSwoole, excimer, mcrypt and ssh2 in `ext/`, built only when enabled: [Bundled PECL extensions](#bundled-pecl-extensions) |
+| 4 | **Bundle PECL extensions** | redis, memcached, memcache, igbinary, imagick, gmagick, swoole, OpenSwoole, excimer, mcrypt, ssh2 and gearman in `ext/`, built only when enabled: [Bundled PECL extensions](#bundled-pecl-extensions) |
 | 5 | **Bundle curl** | curl in `ext/curl/libcurl` and its libraries in `ext/curl/deps`, built into PHP with `--with-curl=bundled`: [Bundled curl](#bundled-curl) |
 | 6 | **Bundle PCRE** | the newest PCRE2 (5.6: PCRE 8.45) instead of the one upstream bundles: [Bundled PCRE](#bundled-pcre) |
 | 7 | **Add the build options of this fork** | the built-in OPcache and no extension loading, off unless given to configure: [Built-in OPcache and no extension loading](#built-in-opcache-and-no-extension-loading) |
@@ -695,6 +695,7 @@ changes unless their option is given:
 | excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
 | mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | in PHP 5.6 itself |
 | ssh2 | 1.6.0 | 1.6.0 | 1.4.1 | 0.13 |
+| gearman | 2.2.1 | 2.2.1 | 2.2.1 | 1.1.2 |
 
 How to turn them on:
 
@@ -711,6 +712,7 @@ How to turn them on:
 | [excimer](https://pecl.php.net/package/excimer) (7.4+) | `--enable-excimer` | |
 | [mcrypt](https://pecl.php.net/package/mcrypt) (7.4+) | `--with-mcrypt=/usr/local` | `libmcrypt` |
 | [ssh2](https://pecl.php.net/package/ssh2) | `--with-ssh2=/usr/local`: `ssh2_connect()`, SCP, `ssh2.sftp://` | `libssh2` |
+| [gearman](https://pecl.php.net/package/gearman) | `--with-gearman=/usr/local`: `GearmanClient`, `GearmanWorker` on libgearman | `gearmand` or `gearmand-openssl` of [azsupport/ports](https://github.com/azsupport/ports) (FreeBSD has no gearmand since 2024) |
 
 The versions are the newest stable PECL releases for each PHP version, with these
 exceptions:
