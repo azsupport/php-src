@@ -1,4 +1,4 @@
-Description: Build inside php-src as ext/gmagick (bundled by this fork): configure stops when --with-imagick is given too. GraphicsMagick and ImageMagick have the same MagickWand function names, so built into one PHP, gmagick and imagick would call each other's library.
+Description: Build inside php-src as ext/gmagick (bundled by this fork): configure stops when --with-imagick is given too. GraphicsMagick and ImageMagick have the same MagickWand function names, so built into one PHP, gmagick and imagick would call each other's library. Also the generated arginfo of thresholdimage() and negateimage(): the default of $channel is Gmagick::CHANNEL_DEFAULT, not the undefined global constant CHANNEL_DEFAULT (ReflectionParameter::getDefaultValue() threw "Undefined constant"; the stub was corrected upstream in 0f96aa3, its arginfo was not).
 Origin: azsupport
 
 --- a/config.m4
@@ -16,3 +16,24 @@ Origin: azsupport
  if test $PHP_GMAGICK != "no"; then
  
  		AC_MSG_CHECKING(GraphicsMagick configuration program)
+diff --git a/gmagick_arginfo.h b/gmagick_arginfo.h
+--- a/gmagick_arginfo.h
++++ b/gmagick_arginfo.h
+@@ -128,7 +128,7 @@ ZEND_END_ARG_INFO()
+ 
+ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_Gmagick_thresholdimage, 0, 1, _IS_BOOL, 0)
+ 	ZEND_ARG_TYPE_INFO(0, threshold, IS_DOUBLE, 0)
+-	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, channel, IS_LONG, 0, "CHANNEL_DEFAULT")
++	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, channel, IS_LONG, 0, "Gmagick::CHANNEL_DEFAULT")
+ ZEND_END_ARG_INFO()
+ 
+ #define arginfo_class_Gmagick_charcoalimage arginfo_class_Gmagick_blurimage
+@@ -730,7 +730,7 @@ ZEND_END_ARG_INFO()
+ 
+ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_Gmagick_negateimage, 0, 1, _IS_BOOL, 0)
+ 	ZEND_ARG_TYPE_INFO(0, gray, _IS_BOOL, 0)
+-	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, channel, IS_LONG, 0, "CHANNEL_DEFAULT")
++	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, channel, IS_LONG, 0, "Gmagick::CHANNEL_DEFAULT")
+ ZEND_END_ARG_INFO()
+ 
+ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_Gmagick_sharpenimage, 0, 2, _IS_BOOL, 0)
