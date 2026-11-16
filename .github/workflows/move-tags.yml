@@ -1,0 +1,51 @@
+name: Move a release tag
+
+# Moves the tag of a release of the tools of this fork (az-menu) to another commit of
+# master, with GITHUB_TOKEN (a tag cannot be pushed from Claude's sessions). Made after
+# the rewrite of the history of master of 16.11.2026: the release, its files and its
+# notes stay; only the commit the tag names changes. The tags of the PHP releases
+# (freebsd-*) and of upstream (php-*) are never moved here; a commit that is not in
+# master is refused.
+# Started by hand: Actions, "Move a release tag", "Run workflow"; or
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/move-tags.yml/dispatches \
+#     -f ref=master -f 'inputs[tag]=az-menu' -f 'inputs[sha]=<full SHA in master>'
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag of a release of the tools (az-menu)'
+        required: true
+      sha:
+        description: 'The commit of master it is to name (full SHA)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    steps:
+      # master only (its own history, small); not the branches of PHP
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+
+      - name: Move the tag
+        env:
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ inputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$TAG" in freebsd-*|php-*|"") echo "::error::not a tag of the tools: $TAG"; exit 1 ;; esac
+          case "$SHA" in *[!0-9a-f]*|"") echo "::error::not a full SHA: $SHA"; exit 1 ;; esac
+          [ "${#SHA}" = 40 ] || { echo "::error::not a full SHA: $SHA"; exit 1; }
+          gh release view "$TAG" > /dev/null || { echo "::error::no release $TAG"; exit 1; }
+          git fetch -q --unshallow origin master
+          git fetch -q origin "+refs/tags/$TAG:refs/tags/$TAG" || true
+          git merge-base --is-ancestor "$SHA" origin/master || { echo "::error::$SHA is not a commit of master"; exit 1; }
+          old="$(git rev-parse "refs/tags/$TAG^{commit}" 2>/dev/null || echo none)"
+          git push --force origin "$SHA:refs/tags/$TAG"
+          echo "$TAG: $old -> $SHA" | tee -a "$GITHUB_STEP_SUMMARY"
