@@ -1458,6 +1458,17 @@ int php_openssl_setup_crypto(php_stream *stream,
 	sslsock->is_client = cparam->inputs.method & STREAM_CRYPTO_IS_CLIENT;
 	method_flags = ((cparam->inputs.method >> 1) << 1);
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	/* tls:// and STREAM_CRYPTO_METHOD_TLS_* mean TLS 1.0 only in PHP 5.6 (the
+	 * value of STREAM_CRYPTO_METHOD_TLSv1_0_*), and OpenSSL 3 refuses TLS 1.0 at
+	 * its default security level, so they could not connect at all. Accept TLS
+	 * 1.0 to 1.3 instead, as tls:// does in PHP 7.2 and later; TLS 1.0 itself
+	 * still works where openssl.cnf lowers the security level. */
+	if (method_flags == STREAM_CRYPTO_METHOD_TLSv1_0) {
+		method_flags = STREAM_CRYPTO_METHOD_TLSv1_0 | STREAM_CRYPTO_METHOD_TLSv1_1 | STREAM_CRYPTO_METHOD_TLSv1_2;
+	}
+#endif
+
 	/* Should we use a specific crypto method or is generic SSLv23 okay? */
 	if ((method_flags & (method_flags-1)) == 0) {
 		ssl_ctx_options = SSL_OP_ALL;

@@ -535,7 +535,7 @@ static void php_wddx_serialize_object(wddx_packet *packet, zval *obj)
 				continue;
 			}
 
-			if (zend_hash_get_current_key_ex(objhash, &key, &key_len, &idx, 0, NULL) == HASH_KEY_IS_STRING) {
+			if (zend_hash_get_current_key_ex(objhash, (char **)&key, &key_len, &idx, 0, NULL) == HASH_KEY_IS_STRING) {
 				const char *class_name, *prop_name;
 
 				zend_unmangle_property_name(key, key_len-1, &class_name, &prop_name);
