@@ -630,7 +630,7 @@ changes unless their option is given:
 | igbinary | 3.2.16 | 3.2.16 | 3.2.16 | 2.0.8 |
 | imagick | 3.8.1 | 3.8.1 | 3.8.1 | 3.8.1 |
 | gmagick | 2.0.6RC1 | 2.0.6RC1 | 2.0.6RC1 | 1.1.7RC3 |
-| swoole | 6.2.5 | 6.1.12 | 4.8.13 | — |
+| swoole | 6.2.6 | 6.1.13 | 4.8.13 | — |
 | OpenSwoole | 4.12.1 | 4.12.1 | 4.12.1 | — |
 | excimer | 1.2.7 | 1.2.7 | 1.2.7 | — |
 | mcrypt | 1.0.9 | 1.0.9 | 1.0.9 | in PHP 5.6 itself |
