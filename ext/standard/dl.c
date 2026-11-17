@@ -106,6 +106,27 @@ PHPAPI void *php_load_shlib(const char *path, char **errp)
 }
 /* }}} */
 
+#ifdef PHP_NO_EXTENSION_LOADING
+/* Is the extension a line names (mysqli, mysqli.so, /path/mysqli.so) built in? */
+static bool php_builtin_extension(const char *filename)
+{
+	const char *base = strrchr(filename, '/');
+	char name[128];
+	size_t len;
+
+	base = base ? base + 1 : filename;
+	len = strlen(base);
+	if (len > 3 && strcmp(base + len - 3, ".so") == 0) {
+		len -= 3;
+	}
+	if (len == 0 || len >= sizeof(name)) {
+		return false;
+	}
+	zend_str_tolower_copy(name, base, len);
+	return zend_hash_str_exists(&module_registry, name, len);
+}
+#endif
+
 /* {{{ php_load_extension */
 PHPAPI int php_load_extension(const char *filename, int type, int start_now)
 {
@@ -128,6 +149,16 @@ PHPAPI int php_load_extension(const char *filename, int type, int start_now)
 	} else {
 		error_type = E_CORE_WARNING;
 	}
+
+#ifdef PHP_NO_EXTENSION_LOADING
+	/* --disable-extension-loading (azsupport/php-src): every extension is built
+	 * in; a line for one that is (extension=mysqli) is skipped */
+	if (php_builtin_extension(filename)) {
+		return SUCCESS;
+	}
+	php_error_docref(NULL, error_type, "Cannot load %s: this PHP loads no extensions at run time (--disable-extension-loading), the extension must be built in", filename);
+	return FAILURE;
+#endif
 
 	/* Check if passed filename contains directory separators */
 	if (strchr(filename, '/') != NULL || strchr(filename, DEFAULT_SLASH) != NULL) {
@@ -307,7 +338,9 @@ PHPAPI void php_dl(const char *file, int type, zval *return_value, int start_now
 
 PHP_MINFO_FUNCTION(dl)
 {
-#if defined(HAVE_LIBDL)
+#if defined(PHP_NO_EXTENSION_LOADING)
+#define PHP_DL_SUPPORT_STATUS "disabled (--disable-extension-loading)"
+#elif defined(HAVE_LIBDL)
 #define PHP_DL_SUPPORT_STATUS "enabled"
 #else
 #define PHP_DL_SUPPORT_STATUS "unavailable"
