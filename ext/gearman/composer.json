@@ -1,0 +1,19 @@
+{
+    "name": "pecl/gearman",
+    "type": "php-ext",
+    "description": "PHP wrapper to libgearman",
+    "license": "PHP-3.01",
+    "require": {
+        "php": ">=7.2.0"
+    },
+    "php-ext": {
+        "extension-name": "gearman",
+        "configure-options": [
+            {
+                "name": "with-gearman",
+                "description": "Path to libgearman installation",
+                "needs-value": true
+            }
+        ]
+    }
+}
