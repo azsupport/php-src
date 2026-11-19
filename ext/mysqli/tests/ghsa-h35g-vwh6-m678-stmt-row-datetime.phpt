@@ -1,0 +1,55 @@
+--TEST--
+GHSA-h35g-vwh6-m678 (mysqlnd leaks partial content of the heap - stmt row datetime buffer over-read)
+--SKIPIF--
+<?php if (!extension_loaded('mysqli')) die('skip mysqli not available'); ?>
+--FILE--
+<?php
+require_once 'fake_server.inc';
+
+$port = 33305;
+$servername = "127.0.0.1";
+$username = "root";
+$password = "";
+
+$process = run_fake_server_in_background('stmt_response_row_over_read_datetime', $port);
+$process->wait();
+
+$conn = new mysqli($servername, $username, $password, "", $port);
+
+echo "[*] Preparing statement on the fake server...\n";
+$stmt = $conn->prepare("SELECT strval, dtival FROM data");
+
+$stmt->execute();
+$result = $stmt->get_result();
+
+// Fetch and display the results
+if ($result->num_rows > 0) {
+    while ($row = $result->fetch_assoc()) {
+        var_dump($row["dtival"]);
+    }
+}
+$stmt->close();
+$conn->close();
+
+$process->terminate(true);
+
+print "done!";
+?>
+--EXPECTF--
+[*] Server started
+[*] Connection established
+[*] Sending - Server Greeting: 580000000a352e352e352d31302e352e31382d4d6172696144420003000000473e3f6047257c6700fef7080200ff81150000000000000f0000006c6b55463f49335f686c6431006d7973716c5f6e61746976655f70617373776f7264
+[*] Received: %s
+[*] Sending - Server OK: 0700000200000002000000
+[*] Preparing statement on the fake server...
+[*] Received: %s
+[*] Sending - Stmt prepare data dtival: 0c0000010001000000020000000000003200000203646566087068705f74657374046461746104646174610673747276616c0673747276616c0ce000c8000000fd01100000003200000303646566087068705f74657374046461746104646174610664746976616c0664746976616c0c3f00130000000c811000000005000004fe00000200
+[*] Received: %s
+[*] Sending - Malicious Stmt Response for data dtival [Extract heap through buffer over-read]: 01000001023200000203646566087068705f74657374046461746104646174610673747276616c0673747276616c0ce000c8000000fd01100000003200000303646566087068705f74657374046461746104646174610664746976616c0664746976616c0c3f00130000000c811000000005000004fe000022000f0000050000067465737407de070c100d000105000006fe00002200
+
+Warning: mysqli_result::fetch_assoc(): Malformed server packet. Field length pointing after the end of packet in %s on line %d
+
+Warning: mysqli_result::fetch_assoc(): Error while reading a row in %s on line %d
+[*] Received: %s
+[*] Server finished
+done!

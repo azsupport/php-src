@@ -86,6 +86,12 @@ zend_class_entry *php_session_id_iface_entry;
 		return FAILURE;	\
 	}
 
+#define SESSION_CHECK_UPLOAD_PROGRESS_STATE \
+	if (PS(rfc1867_enabled) && stage == ZEND_INI_STAGE_RUNTIME) { \
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On");	\
+		return FAILURE;	\
+	}
+
 static void php_session_send_cookie(TSRMLS_D);
 
 /* Dispatched by RINIT and by php_session_destroy */
@@ -570,6 +576,7 @@ static void php_session_save_current_state(TSRMLS_D) /* {{{ */
 static PHP_INI_MH(OnUpdateSaveHandler) /* {{{ */
 {
 	ps_module *tmp;
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 
 	tmp = _php_find_ps_module(new_value TSRMLS_CC);
@@ -600,6 +607,7 @@ static PHP_INI_MH(OnUpdateSaveHandler) /* {{{ */
 static PHP_INI_MH(OnUpdateSerializer) /* {{{ */
 {
 	const ps_serializer *tmp;
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 
 	tmp = _php_find_ps_serializer(new_value TSRMLS_CC);
@@ -641,6 +649,7 @@ static PHP_INI_MH(OnUpdateTransSid) /* {{{ */
 
 static PHP_INI_MH(OnUpdateSaveDir) /* {{{ */
 {
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	/* Only do the safemode/open_basedir check at runtime */
 	if (stage == PHP_INI_STAGE_RUNTIME || stage == PHP_INI_STAGE_HTACCESS) {
 		char *p;
@@ -672,6 +681,7 @@ static PHP_INI_MH(OnUpdateSaveDir) /* {{{ */
 
 static PHP_INI_MH(OnUpdateName) /* {{{ */
 {
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	/* Numeric session.name won't work at all */
 	if ((!new_value_length || is_numeric_string(new_value, new_value_length, NULL, NULL, 0))) {
 		int err_type;
@@ -699,6 +709,7 @@ static PHP_INI_MH(OnUpdateHashFunc) /* {{{ */
 	long val;
 	char *endptr = NULL;
 
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 #if defined(HAVE_HASH_EXT) && !defined(COMPILE_DL_HASH)
 	PS(hash_ops) = NULL;
 #endif
@@ -820,7 +831,7 @@ PHP_INI_BEGIN()
 
 	/* Upload progress */
 	STD_PHP_INI_BOOLEAN("session.upload_progress.enabled",
-	                                                "1",     ZEND_INI_PERDIR, OnUpdateBool,        rfc1867_enabled, php_ps_globals, ps_globals)
+	                                                "0",     ZEND_INI_PERDIR, OnUpdateBool,        rfc1867_enabled, php_ps_globals, ps_globals)
 	STD_PHP_INI_BOOLEAN("session.upload_progress.cleanup",
 	                                                "1",     ZEND_INI_PERDIR, OnUpdateBool,        rfc1867_cleanup, php_ps_globals, ps_globals)
 	STD_PHP_INI_ENTRY("session.upload_progress.prefix",
@@ -2438,6 +2449,7 @@ static PHP_GINIT_FUNCTION(ps) /* {{{ */
 	ps_globals->mod = NULL;
 	ps_globals->serializer = NULL;
 	ps_globals->mod_data = NULL;
+	ps_globals->rfc1867_enabled = 0;
 	ps_globals->session_status = php_session_none;
 	ps_globals->default_mod = NULL;
 	ps_globals->mod_user_implemented = 0;
@@ -2669,7 +2681,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
 	if (php_session_rfc1867_orig_callback) {
 		retval = php_session_rfc1867_orig_callback(event, event_data, extra TSRMLS_CC);
 	}
-	if (!PS(rfc1867_enabled)) {
+	if (!PS(rfc1867_enabled) || 1) { /* CVE-2026-109619: session upload progress disabled */
 		return retval;
 	}
 

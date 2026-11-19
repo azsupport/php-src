@@ -704,15 +704,7 @@ PHPAPI void php_log_err(char *log_message TSRMLS_DC)
 			char *error_time_str;
 
 			time(&error_time);
-#ifdef ZTS
-			if (!php_during_module_startup()) {
-				error_time_str = php_format_date("d-M-Y H:i:s e", 13, error_time, 1 TSRMLS_CC);
-			} else {
-				error_time_str = php_format_date("d-M-Y H:i:s e", 13, error_time, 0 TSRMLS_CC);
-			}
-#else
-			error_time_str = php_format_date("d-M-Y H:i:s e", 13, error_time, 1 TSRMLS_CC);
-#endif
+			error_time_str = php_format_date("d-M-Y H:i:s e", 13, error_time, PG(modules_activated) && EG(active) TSRMLS_CC);
 			len = spprintf(&tmp, 0, "[%s] %s%s", error_time_str, log_message, PHP_EOL);
 #ifdef PHP_WIN32
 			php_flock(fd, 2);
@@ -1785,6 +1777,8 @@ void php_request_shutdown_for_hook(void *dummy)
 		for (i = 0; i < NUM_TRACK_VARS; i++) {
 			if (PG(http_globals)[i]) {
 				zval_ptr_dtor(&PG(http_globals)[i]);
+				/* May be accessed before php_request_startup() */
+				PG(http_globals)[i] = NULL;
 			}
 		}
 	} zend_end_try();
@@ -1881,6 +1875,8 @@ void php_request_shutdown(void *dummy)
 		for (i=0; i<NUM_TRACK_VARS; i++) {
 			if (PG(http_globals)[i]) {
 				zval_ptr_dtor(&PG(http_globals)[i]);
+				/* May be accessed before php_request_startup() */
+				PG(http_globals)[i] = NULL;
 			}
 		}
 	} zend_end_try();
@@ -1927,6 +1923,9 @@ void php_request_shutdown(void *dummy)
 	zend_try {
 		zend_unset_timeout(TSRMLS_C);
 	} zend_end_try();
+
+	/* May be accessed before php_request_startup() */
+	PG(modules_activated) = 0;
 
 #ifdef PHP_WIN32
 	if (PG(com_initialized)) {

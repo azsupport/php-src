@@ -510,6 +510,10 @@ static int fcgi_read_request(fcgi_request *req)
 	int len, padding;
 	unsigned char buf[FCGI_MAX_LENGTH+8];
 
+	if (req->in_len != 0) {
+		return 0;
+	}
+
 	req->keep = 0;
 	req->closed = 0;
 	req->in_len = 0;
@@ -762,6 +766,8 @@ void fcgi_close(fcgi_request *req, int force, int destroy)
 		close(req->fd);
 #endif
 		req->fd = -1;
+		/* a partially read STDIN record does not outlive its connection */
+		req->in_len = 0;
 		fpm_request_finished();
 	}
 }
@@ -786,7 +792,7 @@ static int fcgi_is_allowed() {
 	if (client_sa.sa.sa_family == AF_INET6) {
 		for (i=0 ; allowed_clients[i].sa.sa_family ; i++) {
 			if (allowed_clients[i].sa.sa_family == AF_INET6
-				&& !memcmp(&client_sa.sa_inet6.sin6_addr, &allowed_clients[i].sa_inet6.sin6_addr, 12)) {
+				&& !memcmp(&client_sa.sa_inet6.sin6_addr, &allowed_clients[i].sa_inet6.sin6_addr, sizeof(client_sa.sa_inet6.sin6_addr))) {
 				return 1;
 			}
 #ifdef IN6_IS_ADDR_V4MAPPED

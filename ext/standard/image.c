@@ -423,6 +423,25 @@ static int php_skip_variable(php_stream * stream TSRMLS_DC)
 }
 /* }}} */
 
+/* GH-20584 (GHSA-3237-qqm7-mfv7): read all of an APP segment, also from a stream
+ * that returns it in chunks (php://filter); a short read is an error, so that no
+ * uninitialized bytes of the buffer end up in the imageinfo array. */
+static size_t php_read_stream_all_chunks(php_stream *stream, char *buffer, size_t length TSRMLS_DC)
+{
+	size_t read_total = 0;
+
+	do {
+		size_t read_now = php_stream_read(stream, buffer, length - read_total);
+		read_total += read_now;
+		if (read_now < stream->chunk_size && read_total != length) {
+			return 0;
+		}
+		buffer += read_now;
+	} while (read_total < length);
+
+	return read_total;
+}
+
 /* {{{ php_read_APP
  */
 static int php_read_APP(php_stream * stream, unsigned int marker, zval *info TSRMLS_DC)
@@ -440,7 +459,7 @@ static int php_read_APP(php_stream * stream, unsigned int marker, zval *info TSR
 
 	buffer = emalloc(length);
 
-	if (php_stream_read(stream, buffer, (long) length) <= 0) {
+	if (php_read_stream_all_chunks(stream, (char *) buffer, (size_t) length TSRMLS_CC) != length) {
 		efree(buffer);
 		return 0;
 	}

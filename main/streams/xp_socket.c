@@ -546,10 +546,19 @@ static inline char *parse_ip_address_ex(const char *str, size_t str_len, int *po
 {
 	char *colon;
 	char *host = NULL;
-
 #ifdef HAVE_IPV6
 	char *p;
+#endif
 
+	/* GHSA-3cr5-j632-f35r (CVE-2025-1220): a name with a NUL byte would be cut there */
+	if (memchr(str, '\0', str_len)) {
+		if (get_err) {
+			spprintf(err, 0, "The hostname must not contain null bytes");
+		}
+		return NULL;
+	}
+
+#ifdef HAVE_IPV6
 	if (*(str) == '[' && str_len > 1) {
 		/* IPV6 notation to specify raw address with port (i.e. [fe80::1]:80) */
 		p = memchr(str + 1, ']', str_len - 2);
