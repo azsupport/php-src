@@ -1,0 +1,233 @@
+Description: GHSA-658j-r8rw-q6mx (CVE-2026-115560, the PHP security release of 19.11.2026): the session settings not to be changed at run time while session.upload_progress.enabled is on (an Error, as PHP 8.2 and later), the part of the fix Remi Collet's backport leaves out ("Default change only"; his commit of the default off and the reset in GINIT is upstream of this branch), with its test
+Origin: php-src commit 3f70f66611583bca4ec18385f7f407e2808fa61f (Arnaud Le Blanc, 09.11.2026, PHP 8.2.36): its SESSION_CHECK_UPLOAD_PROGRESS_STATE and the INI handlers it guards; on the decision of aZ, 19.11.2026
+
+diff --git a/ext/session/session.c b/ext/session/session.c
+index 2f590b686..e491dd562 100644
+--- a/ext/session/session.c
++++ b/ext/session/session.c
+@@ -94,6 +94,12 @@ zend_class_entry *php_session_update_timestamp_iface_entry;
+ 		return FAILURE;													\
+ 	}
+ 
++#define SESSION_CHECK_UPLOAD_PROGRESS_STATE \
++	if (PS(rfc1867_enabled) && stage == ZEND_INI_STAGE_RUNTIME) { \
++		zend_throw_error(NULL, "Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On");	\
++		return FAILURE;													\
++	}
++
+ #define SESSION_FORBIDDEN_CHARS "=,;.[ \t\r\n\013\014"
+ 
+ #define APPLY_TRANS_SID (PS(use_trans_sid) && !PS(use_only_cookies))
+@@ -540,6 +546,7 @@ static PHP_INI_MH(OnUpdateSaveHandler) /* {{{ */
+ 	const ps_module *tmp;
+ 	int err_type = E_ERROR;
+ 
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 
+@@ -575,6 +582,7 @@ static PHP_INI_MH(OnUpdateSerializer) /* {{{ */
+ {
+ 	const ps_serializer *tmp;
+ 
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 
+@@ -619,6 +627,7 @@ static PHP_INI_MH(OnUpdateTransSid) /* {{{ */
+ 
+ static PHP_INI_MH(OnUpdateSaveDir) /* {{{ */
+ {
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 
+@@ -653,6 +662,7 @@ static PHP_INI_MH(OnUpdateSaveDir) /* {{{ */
+ 
+ static PHP_INI_MH(OnUpdateName) /* {{{ */
+ {
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 
+@@ -680,6 +690,7 @@ static PHP_INI_MH(OnUpdateName) /* {{{ */
+ 
+ static PHP_INI_MH(OnUpdateCookieLifetime) /* {{{ */
+ {
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 	if (atol(ZSTR_VAL(new_value)) < 0) {
+@@ -693,6 +704,7 @@ static PHP_INI_MH(OnUpdateCookieLifetime) /* {{{ */
+ 
+ static PHP_INI_MH(OnUpdateSessionLong) /* {{{ */
+ {
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 	return OnUpdateLong(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
+@@ -702,6 +714,7 @@ static PHP_INI_MH(OnUpdateSessionLong) /* {{{ */
+ 
+ static PHP_INI_MH(OnUpdateSessionString) /* {{{ */
+ {
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 	return OnUpdateString(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
+@@ -711,6 +724,7 @@ static PHP_INI_MH(OnUpdateSessionString) /* {{{ */
+ 
+ static PHP_INI_MH(OnUpdateSessionBool) /* {{{ */
+ {
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	return OnUpdateBool(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
+@@ -723,6 +737,7 @@ static PHP_INI_MH(OnUpdateSidLength) /* {{{ */
+ 	zend_long val;
+ 	char *endptr = NULL;
+ 
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	val = ZEND_STRTOL(ZSTR_VAL(new_value), &endptr, 10);
+@@ -743,6 +758,7 @@ static PHP_INI_MH(OnUpdateSidBits) /* {{{ */
+ 	zend_long val;
+ 	char *endptr = NULL;
+ 
++	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
+ 	SESSION_CHECK_OUTPUT_STATE;
+ 	SESSION_CHECK_ACTIVE_STATE;
+ 	val = ZEND_STRTOL(ZSTR_VAL(new_value), &endptr, 10);
+diff --git a/ext/session/tests/session_ini_set_upload_progress_enabled.phpt b/ext/session/tests/session_ini_set_upload_progress_enabled.phpt
+new file mode 100644
+index 000000000..15429299a
+--- /dev/null
++++ b/ext/session/tests/session_ini_set_upload_progress_enabled.phpt
+@@ -0,0 +1,127 @@
++--TEST--
++ini_set() for session.* is not allowed when session.upload_progress.enabled is On
++--EXTENSIONS--
++session
++--SKIPIF--
++<?php include('skipif.inc'); ?>
++--INI--
++session.upload_progress.enabled=1
++session.save_path=
++session.name=NOTPHPSESSID
++session.save_handler=files
++session.serialize_handler=php_serialize
++session.cookie_lifetime=42
++session.gc_probability=2
++session.cookie_path=/startup
++session.cookie_secure=1
++session.sid_length=40
++session.sid_bits_per_character=5
++--FILE--
++<?php
++/* The INI section above is applied at the startup stage, so these values must
++ * have been applied even though session.upload_progress.enabled is On. */
++echo "*** Settings applied at startup ***\n";
++foreach ([
++    "session.name",
++    "session.serialize_handler",
++    "session.cookie_lifetime",
++    "session.gc_probability",
++    "session.cookie_path",
++    "session.cookie_secure",
++    "session.sid_length",
++    "session.sid_bits_per_character",
++] as $name) {
++    printf("%s=%s\n", $name, var_export(ini_get($name), true));
++}
++
++echo "\n*** ini_set() is rejected at runtime ***\n";
++
++function try_ini_set($name, $value) {
++    try {
++        var_dump(ini_set($name, $value));
++    } catch (\Throwable $e) {
++        echo $e::class, ": ", $e->getMessage(), "\n";
++    }
++}
++
++/* One entry per ini modify handler guarded by the check. */
++try_ini_set("session.save_path", "/tmp");
++try_ini_set("session.name", "PHPSESSID");
++try_ini_set("session.save_handler", "user");
++try_ini_set("session.serialize_handler", "php");
++try_ini_set("session.cookie_lifetime", "1");
++try_ini_set("session.gc_probability", "1");
++try_ini_set("session.cookie_path", "/runtime");
++try_ini_set("session.cookie_secure", "0");
++try_ini_set("session.sid_length", "32");
++try_ini_set("session.sid_bits_per_character", "4");
++
++echo "\n*** ini_restore() is rejected at runtime ***\n";
++try {
++    var_dump(ini_restore("session.name"));
++} catch (\Throwable $e) {
++    echo $e::class, ": ", $e->getMessage(), "\n";
++}
++var_dump(ini_get("session.name"));
++
++echo "\n*** Values are unchanged ***\n";
++foreach ([
++    "session.name",
++    "session.serialize_handler",
++    "session.cookie_lifetime",
++    "session.gc_probability",
++    "session.cookie_path",
++    "session.cookie_secure",
++    "session.sid_length",
++    "session.sid_bits_per_character",
++] as $name) {
++    printf("%s=%s\n", $name, var_export(ini_get($name), true));
++}
++
++echo "\n*** Non-session ini settings are unaffected ***\n";
++var_dump(ini_set("precision", "10"));
++var_dump(ini_get("precision"));
++
++echo "Done\n";
++?>
++--EXPECT--
++*** Settings applied at startup ***
++session.name='NOTPHPSESSID'
++session.serialize_handler='php_serialize'
++session.cookie_lifetime='42'
++session.gc_probability='2'
++session.cookie_path='/startup'
++session.cookie_secure='1'
++session.sid_length='40'
++session.sid_bits_per_character='5'
++
++*** ini_set() is rejected at runtime ***
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++
++*** ini_restore() is rejected at runtime ***
++Error: Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On
++string(12) "NOTPHPSESSID"
++
++*** Values are unchanged ***
++session.name='NOTPHPSESSID'
++session.serialize_handler='php_serialize'
++session.cookie_lifetime='42'
++session.gc_probability='2'
++session.cookie_path='/startup'
++session.cookie_secure='1'
++session.sid_length='40'
++session.sid_bits_per_character='5'
++
++*** Non-session ini settings are unaffected ***
++string(2) "14"
++string(2) "10"
++Done

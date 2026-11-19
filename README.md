@@ -157,7 +157,13 @@ none of them. So `freebsd/5.6` carries our ports of the twelve fixes of PHP 8.2.
 `backport-zz-ghsa-*.patch`: `zz`, so that they come after the other backports, whose
 code some of them change. They are the code adapted to 5.6 (the `Description:` line
 says how), without the tests, which need PHP 8; each is skipped by itself if Remi's
-5.6 branch gets the same change.
+5.6 branch gets the same change. One part of GHSA-658j-r8rw-q6mx Remi leaves out of 7.4
+and 8.1 ("Default change only"): the Error when a session setting is changed at run
+time while `session.upload_progress.enabled` is on, as PHP 8.2 and later have it.
+`freebsd/7.4` and `freebsd/8.1` add it on top of his backport,
+[7.4](freebsd/patches/7.4/backport-zz-ghsa-658j-r8rw-q6mx-runtime.patch) and
+[8.1](freebsd/patches/8.1/backport-zz-ghsa-658j-r8rw-q6mx-runtime.patch) (with its
+test).
 
 | Advisory | Fixes | Patches |
 |---|---|---|
