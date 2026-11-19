@@ -120,15 +120,23 @@ say() { printf '%s\n' "$*" >> "$rep"; }
 note() { printf '%s remi-fetch: %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 failed=0
 
-# the index: cgit pages of 50 repositories (?ofs=N) until a page adds none
+# the index: cgit pages of 50 repositories (?ofs=N) until a page adds none; a page the
+# server resets is tried again (any error, 5 times), then left out and the next one
+# read (19.11.2026: the pages ofs=100 and ofs=150 reset, the rpms/php repositories past
+# them were never seen), three such pages in a row end the index
 : > "$w/all"
 ofs=0
+bad=0
 while [ $ofs -lt 20000 ]; do
-    if ! curl -fsSL --retry 3 -m 60 "$base_url/?ofs=$ofs" -o "$w/page" 2>"$w/err"; then
+    if ! curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -m 60 "$base_url/?ofs=$ofs" -o "$w/page" 2>"$w/err"; then
         say "- index page ofs=$ofs: $(tail -n 1 "$w/err")"
         [ $ofs -eq 0 ] && failed=1
-        break
+        bad=$((bad + 1))
+        [ $bad -lt 3 ] || break
+        ofs=$((ofs + 50))
+        continue
     fi
+    bad=0
     # links of the repositories: href='/cgit/<path>/' (no query strings)
     tr '"' "'" < "$w/page" | grep -o "href='/cgit/[^'?]*/'" | sed "s#^href='/cgit/##; s#/'\$##" |
         grep -v -E '^(about|$)' > "$w/links"
