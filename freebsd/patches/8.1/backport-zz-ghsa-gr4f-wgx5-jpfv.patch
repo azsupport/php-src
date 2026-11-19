@@ -1,0 +1,24 @@
+Description: GHSA-gr4f-wgx5-jpfv (CVE-2026-129496, the PHP security release of 19.11.2026): DATEG(tzcache) use-after-free; for 8.1: main/main.c only; the warn_on_startup setting of zend_test and the tests not taken
+Origin: php-src commit f986c5ca37c0fdc50595d8291a9920a1df23bf38 (Ilija Tovilo, 15.11.2026, PHP 8.2.36)
+
+diff --git a/main/main.c b/main/main.c
+index b9994ccf9..1b4b963f4 100644
+--- a/main/main.c
++++ b/main/main.c
+@@ -822,15 +822,7 @@ PHPAPI ZEND_COLD void php_log_err_with_severity(const char *log_message, int sys
+ 			zend_string *error_time_str;
+ 
+ 			time(&error_time);
+-#ifdef ZTS
+-			if (!php_during_module_startup()) {
+-				error_time_str = php_format_date("d-M-Y H:i:s e", 13, error_time, 1);
+-			} else {
+-				error_time_str = php_format_date("d-M-Y H:i:s e", 13, error_time, 0);
+-			}
+-#else
+-			error_time_str = php_format_date("d-M-Y H:i:s e", 13, error_time, 1);
+-#endif
++			error_time_str = php_format_date("d-M-Y H:i:s e", 13, error_time, PG(modules_activated) && EG(active));
+ 			len = spprintf(&tmp, 0, "[%s] %s%s", ZSTR_VAL(error_time_str), log_message, PHP_EOL);
+ #ifdef PHP_WIN32
+ 			php_flock(fd, LOCK_EX);

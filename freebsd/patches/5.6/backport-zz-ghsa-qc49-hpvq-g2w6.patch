@@ -1,0 +1,65 @@
+Description: GHSA-qc49-hpvq-g2w6 (CVE-2026-129289, the PHP security release of 19.11.2026): Drain unread request bodies; for 5.6: main/SAPI.c, and the FastCGI code of both copies of 5.6 (sapi/cgi/fastcgi.c, sapi/fpm/fpm/fastcgi.c); its tests not taken
+Origin: php-src commit 28014fd092c7acdafb9c074e735f099893a5ef66 (Jakub Zelenka, 29.10.2026, PHP 8.2.36)
+
+diff --git a/main/SAPI.c b/main/SAPI.c
+index fa4ea4a50..1b2accbab 100644
+--- a/main/SAPI.c
++++ b/main/SAPI.c
+@@ -515,7 +515,8 @@ SAPI_API void sapi_deactivate(TSRMLS_D)
+ 	zend_llist_destroy(&SG(sapi_headers).headers);
+ 	if (SG(request_info).request_body) {
+ 		SG(request_info).request_body = NULL;
+-	} else if (SG(server_context)) {
++	}
++	if (SG(server_context)) {
+ 		if (!SG(post_read)) {
+ 			/* make sure we've consumed all request input data */
+ 			char dummy[SAPI_POST_BLOCK_SIZE];
+diff --git a/sapi/cgi/fastcgi.c b/sapi/cgi/fastcgi.c
+index 5502c99b0..dd26bc3f7 100644
+--- a/sapi/cgi/fastcgi.c
++++ b/sapi/cgi/fastcgi.c
+@@ -885,6 +885,10 @@ static int fcgi_read_request(fcgi_request *req)
+ 	int len, padding;
+ 	unsigned char buf[FCGI_MAX_LENGTH+8];
+ 
++	if (req->in_len != 0) {
++		return 0;
++	}
++
+ 	req->keep = 0;
+ 	req->closed = 0;
+ 	req->in_len = 0;
+@@ -1140,6 +1144,8 @@ static inline void fcgi_close(fcgi_request *req, int force, int destroy)
+ 		req->nodelay = 0;
+ #endif
+ 		req->fd = -1;
++		/* a partially read STDIN record does not outlive its connection */
++		req->in_len = 0;
+ 	}
+ }
+ 
+diff --git a/sapi/fpm/fpm/fastcgi.c b/sapi/fpm/fpm/fastcgi.c
+index 6ac568bff..d8f9552ae 100644
+--- a/sapi/fpm/fpm/fastcgi.c
++++ b/sapi/fpm/fpm/fastcgi.c
+@@ -510,6 +510,10 @@ static int fcgi_read_request(fcgi_request *req)
+ 	int len, padding;
+ 	unsigned char buf[FCGI_MAX_LENGTH+8];
+ 
++	if (req->in_len != 0) {
++		return 0;
++	}
++
+ 	req->keep = 0;
+ 	req->closed = 0;
+ 	req->in_len = 0;
+@@ -762,6 +766,8 @@ void fcgi_close(fcgi_request *req, int force, int destroy)
+ 		close(req->fd);
+ #endif
+ 		req->fd = -1;
++		/* a partially read STDIN record does not outlive its connection */
++		req->in_len = 0;
+ 		fpm_request_finished();
+ 	}
+ }

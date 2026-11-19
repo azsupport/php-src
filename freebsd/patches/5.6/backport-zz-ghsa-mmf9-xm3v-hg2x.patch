@@ -1,0 +1,94 @@
+Description: GHSA-mmf9-xm3v-hg2x (CVE-2026-127960, the PHP security release of 19.11.2026): quadratic folded header concatenation; for 5.6: the folded line appended in place to the last header line, in a buffer that grows by doubling (the folding code of 5.6 is ours, on char * without smart_str)
+Origin: php-src commit a303f697268d42f6671c9d4c479ff90bbf301db1 (Jakub Zelenka, 06.10.2026, PHP 8.2.36)
+
+diff --git a/ext/standard/http_fopen_wrapper.c b/ext/standard/http_fopen_wrapper.c
+index 3d4b48ec4..35debd1d6 100644
+--- a/ext/standard/http_fopen_wrapper.c
++++ b/ext/standard/http_fopen_wrapper.c
+@@ -226,7 +226,7 @@ static zend_bool php_stream_http_response_header_trim(char *http_header_line, si
+  * line is done (header_info->error: the response is invalid). */
+ static char *php_stream_http_response_headers_parse(php_stream_wrapper *wrapper,
+ 		php_stream *stream, php_stream_context *context, int options,
+-		char *last_header_line, size_t *last_header_line_length,
++		char *last_header_line, size_t *last_header_line_length, size_t *last_header_line_size,
+ 		char *header_line, size_t *header_line_length, int response_code,
+ 		zval *response_header, php_stream_http_response_header_info *header_info TSRMLS_DC)
+ {
+@@ -248,21 +248,33 @@ static char *php_stream_http_response_headers_parse(php_stream_wrapper *wrapper,
+ 		if (*header_line == ' ' || *header_line == '\t') {
+ 			char *folded = header_line;
+ 			size_t folded_length = *header_line_length;
+-			char *extended;
++			size_t needed;
+ 
+ 			while (*folded == ' ' || *folded == '\t') {
+ 				folded++;
+ 				folded_length--;
+ 			}
+-			/* the last line, a space and the folded line */
+-			extended = safe_emalloc(*last_header_line_length, 1, folded_length + 2);
+-			memcpy(extended, last_header_line, *last_header_line_length);
+-			extended[*last_header_line_length] = ' ';
+-			memcpy(extended + *last_header_line_length + 1, folded, folded_length);
++			/* the last line, a space and the folded line, appended in place: the buffer
++			 * grows by doubling (GHSA-mmf9-xm3v-hg2x: a copy of the whole value at every
++			 * folding line made a header of many of them quadratic) */
++			needed = *last_header_line_length + folded_length + 2;
++			if (needed < folded_length) {
++				zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation");
++			}
++			if (needed > *last_header_line_size) {
++				size_t size = *last_header_line_size ? *last_header_line_size : needed;
++
++				while (size < needed) {
++					size = size > ((size_t) -1) / 2 ? needed : size * 2;
++				}
++				last_header_line = erealloc(last_header_line, size);
++				*last_header_line_size = size;
++			}
++			last_header_line[*last_header_line_length] = ' ';
++			memcpy(last_header_line + *last_header_line_length + 1, folded, folded_length);
+ 			*last_header_line_length += 1 + folded_length;
+-			extended[*last_header_line_length] = '\0';
+-			efree(last_header_line);
+-			return extended;
++			last_header_line[*last_header_line_length] = '\0';
++			return last_header_line;
+ 		}
+ 	}
+ 
+@@ -413,6 +425,7 @@ php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper,
+ 	php_stream_http_response_header_info header_info;
+ 	char *last_header_line = NULL;
+ 	size_t last_header_line_length = 0;
++	size_t last_header_line_size = 0;
+ 	int response_code;
+ 
+ 	tmp_line[0] = '\0';
+@@ -1057,7 +1070,8 @@ finish:
+ 			if (last_header_line != NULL) {
+ 				/* parse the last header line */
+ 				last_header_line = php_stream_http_response_headers_parse(wrapper, stream, context, options,
+-						last_header_line, &last_header_line_length, http_header_line, &http_header_line_length,
++						last_header_line, &last_header_line_length, &last_header_line_size,
++						http_header_line, &http_header_line_length,
+ 						response_code, response_header, &header_info TSRMLS_CC);
+ 				if (last_header_line == NULL) {
+ 					if (header_info.error) {
+@@ -1088,6 +1102,7 @@ finish:
+ 			/* the current line is parsed in the next round */
+ 			last_header_line = estrndup(http_header_line, http_header_line_length);
+ 			last_header_line_length = http_header_line_length;
++			last_header_line_size = http_header_line_length + 1;
+ 		} else {
+ 			break;
+ 		}
+@@ -1096,7 +1111,7 @@ finish:
+ 	/* when the stream ended early, the last line is still processed, as before */
+ 	if (last_header_line != NULL) {
+ 		php_stream_http_response_headers_parse(wrapper, stream, context, options,
+-				last_header_line, &last_header_line_length, NULL, NULL,
++				last_header_line, &last_header_line_length, &last_header_line_size, NULL, NULL,
+ 				response_code, response_header, &header_info TSRMLS_CC);
+ 		last_header_line = NULL;
+ 	}

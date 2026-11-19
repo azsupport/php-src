@@ -1,0 +1,41 @@
+Description: GHSA-qc49-hpvq-g2w6 (CVE-2026-129289, the PHP security release of 19.11.2026): Drain unread request bodies
+Origin: php-src commit 28014fd092c7acdafb9c074e735f099893a5ef66 (Jakub Zelenka, 29.10.2026, PHP 8.2.36)
+
+diff --git a/main/SAPI.c b/main/SAPI.c
+index a3755033d..3bc958222 100644
+--- a/main/SAPI.c
++++ b/main/SAPI.c
+@@ -496,7 +496,8 @@ SAPI_API void sapi_deactivate(void)
+ 	zend_llist_destroy(&SG(sapi_headers).headers);
+ 	if (SG(request_info).request_body) {
+ 		SG(request_info).request_body = NULL;
+-	} else if (SG(server_context)) {
++	}
++	if (SG(server_context)) {
+ 		if (!SG(post_read)) {
+ 			/* make sure we've consumed all request input data */
+ 			char dummy[SAPI_POST_BLOCK_SIZE];
+diff --git a/main/fastcgi.c b/main/fastcgi.c
+index 03c4aaf05..23235bf46 100644
+--- a/main/fastcgi.c
++++ b/main/fastcgi.c
+@@ -1049,6 +1049,10 @@ static int fcgi_read_request(fcgi_request *req)
+ 	int len, padding;
+ 	unsigned char buf[FCGI_MAX_LENGTH+8];
+ 
++	if (UNEXPECTED(req->in_len != 0)) {
++		return 0;
++	}
++
+ 	req->keep = 0;
+ 	req->ended = 0;
+ 	req->in_len = 0;
+@@ -1312,6 +1316,8 @@ void fcgi_close(fcgi_request *req, int force, int destroy)
+ 		req->nodelay = 0;
+ #endif
+ 		req->fd = -1;
++		/* a partially read STDIN record does not outlive its connection */
++		req->in_len = 0;
+ 
+ 		req->hook.on_close();
+ 	}

@@ -148,6 +148,34 @@ Not affected, nothing to port: GHSA-p3x9-6h7p-cgfc (CVE-2025-1219: 5.6 takes no
 charset from the Content-Type of a libxml stream) and GHSA-h96m-rvf9-jgm2
 (CVE-2025-14178: `array_merge()` of 5.6 does not add up the sizes beforehand).
 
+**The PHP security release of 19.11.2026 in 5.6, 7.4 and 8.1.** Remi Collet's
+branches have none of its fixes yet (19.11.2026), so `freebsd/5.6`, `freebsd/7.4` and
+`freebsd/8.1` carry our ports of the twelve fixes of PHP 8.2.36 (the commits of
+php-src named in the `Origin:` line of each patch), in `backport-zz-ghsa-*.patch`:
+`zz`, so that they come after the other backports, whose code some of them change.
+8.1 takes the commits as they are, with their tests; 7.4 and 5.6 the code adapted
+(the `Description:` line says how), without the tests, which need PHP 8. Each is
+skipped by itself once Remi's branch has the same change.
+
+| Advisory | Fixes | Patches |
+|---|---|---|
+| GHSA-5j3f-64r7-f564 (CVE-2026-129538) | CGI: an underflow of PATH_INFO in `init_request_info()` | [5.6](freebsd/patches/5.6/backport-zz-ghsa-5j3f-64r7-f564.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-5j3f-64r7-f564.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-5j3f-64r7-f564.patch) |
+| GHSA-gr4f-wgx5-jpfv (CVE-2026-129496) | the error log: a use after free of the time zone cache outside of a request | [5.6](freebsd/patches/5.6/backport-zz-ghsa-gr4f-wgx5-jpfv.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-gr4f-wgx5-jpfv.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-gr4f-wgx5-jpfv.patch) |
+| GHSA-qc49-hpvq-g2w6 (CVE-2026-129289) | FastCGI: an unread request body taken for the next request (smuggling) | [5.6](freebsd/patches/5.6/backport-zz-ghsa-qc49-hpvq-g2w6.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-qc49-hpvq-g2w6.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-qc49-hpvq-g2w6.patch) |
+| GHSA-3mg3-cr28-46gc (CVE-2026-129292) | FPM: the method, the user and the script unescaped on the status page (XSS) | [5.6](freebsd/patches/5.6/backport-zz-ghsa-3mg3-cr28-46gc.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-3mg3-cr28-46gc.patch) |
+| GHSA-jm4m-qfqx-967m (CVE-2026-129291) | FPM: a stdio pipe of a worker closed twice | [5.6](freebsd/patches/5.6/backport-zz-ghsa-jm4m-qfqx-967m.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-jm4m-qfqx-967m.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-jm4m-qfqx-967m.patch) |
+| GHSA-68fq-fh7h-f8gr (CVE-2026-128090) | phar: a keyless signature accepted where a `.pubkey` asks for OpenSSL | [5.6](freebsd/patches/5.6/backport-zz-ghsa-68fq-fh7h-f8gr.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-68fq-fh7h-f8gr.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-68fq-fh7h-f8gr.patch) |
+| GHSA-fm2m-fjf5-v3cp (CVE-2026-126714) | session files: a write cut short left a mix of two sessions | [5.6](freebsd/patches/5.6/backport-zz-ghsa-fm2m-fjf5-v3cp.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-fm2m-fjf5-v3cp.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-fm2m-fjf5-v3cp.patch) |
+| GHSA-658j-r8rw-q6mx (CVE-2026-115560) | session upload progress: off by default, the session settings not to be changed at run time while it is on | [5.6](freebsd/patches/5.6/backport-zz-ghsa-658j-r8rw-q6mx.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-658j-r8rw-q6mx.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-658j-r8rw-q6mx.patch) |
+| GHSA-q23r-hr55-xmpg (CVE-2026-15353) | SOAP: an out-of-bounds read on an empty `arraySize` | [5.6](freebsd/patches/5.6/backport-zz-ghsa-q23r-hr55-xmpg.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-q23r-hr55-xmpg.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-q23r-hr55-xmpg.patch) |
+| GHSA-4646-p932-gw34 (CVE-2026-129506) | SOAP: the DTD freed while its entities were still in use | [5.6](freebsd/patches/5.6/backport-zz-ghsa-4646-p932-gw34.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-4646-p932-gw34.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-4646-p932-gw34.patch) |
+| GHSA-f6gg-rchx-xw8j (CVE-2026-128064) | `HTTPS://` and `FTPS://` in capitals went in plain text | [5.6](freebsd/patches/5.6/backport-zz-ghsa-f6gg-rchx-xw8j.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-f6gg-rchx-xw8j.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-f6gg-rchx-xw8j.patch) |
+| GHSA-mmf9-xm3v-hg2x (CVE-2026-127960) | HTTP: a header of many folded lines was joined in quadratic time | [5.6](freebsd/patches/5.6/backport-zz-ghsa-mmf9-xm3v-hg2x.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-mmf9-xm3v-hg2x.patch), [8.1](freebsd/patches/8.1/backport-zz-ghsa-mmf9-xm3v-hg2x.patch) |
+
+What changes for scripts: `session.upload_progress.enabled` is off by default (on
+only where a php.ini turns it on), and while it is on, `ini_set()` of the session
+settings fails; `HTTPS://` and `FTPS://` in capitals are TLS, as in lower case.
+
 **The fixes the distributions carry (13.11.2026).** From a review of the patches of
 Debian, Ondřej Surý, Ubuntu, Fedora and Red Hat, openSUSE and SUSE, Gentoo, pkgsrc,
 Alpine, MacPorts and Remi Collet's RPMs against these branches: what they carry and

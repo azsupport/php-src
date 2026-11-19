@@ -1,0 +1,20 @@
+Description: GHSA-fm2m-fjf5-v3cp (CVE-2026-126714, the PHP security release of 19.11.2026): RCE via corrupted session file
+Origin: php-src commit 41c0941ae27d1033129e0e09ce3af034ffee86ba (Ilija Tovilo, 11.11.2026, PHP 8.2.36)
+
+diff --git a/ext/session/mod_files.c b/ext/session/mod_files.c
+index cb8138e60..b9f5427e9 100644
+--- a/ext/session/mod_files.c
++++ b/ext/session/mod_files.c
+@@ -240,9 +240,9 @@ static int ps_files_write(ps_files *data, zend_string *key, zend_string *val)
+ 		return FAILURE;
+ 	}
+ 
+-	/* Truncate file if the amount of new data is smaller than the existing data set. */
+-	if (ZSTR_LEN(val) < data->st_size) {
+-		php_ignore_value(ftruncate(data->fd, 0));
++	if (ftruncate(data->fd, 0) != 0) {
++		php_error_docref(NULL, E_WARNING, "ftruncate() failed: %s (%d)", strerror(errno), errno);
++		return FAILURE;
+ 	}
+ 
+ #if defined(HAVE_PWRITE)
