@@ -1,0 +1,49 @@
+Description: phar of 5.6 with openssl a shared module: Phar::setSignatureAlgorithm(Phar::OPENSSL) of a zip-based phar now and then left the archive signed as before (SHA-1), with no error. phar_call_openssl_signverify() read the result of openssl_sign() after efree() of its zval, so whatever the allocator wrote over it decided whether the signature failed; and phar_zip_flush() dropped the error of phar_zip_applysignature(), so the failed flush kept the file of the flush before and reported nothing. The result is read before the zval is freed (in PHP 7.0 and later it is on the stack), and the zip flush gives the error of the signature to its caller, as PHP 8 does (php-src master, ext/phar/zip.c; PHP 7.4 still drops it)
+Origin: ours, from the GHSA-68fq-fh7h-f8gr check of a zip-based phar in the tests of the packages of azsupport/ports (run 44798851154, 20.11.2026: the archive signed with OpenSSL came out signed with SHA-1)
+
+diff --git a/ext/phar/util.c b/ext/phar/util.c
+--- a/ext/phar/util.c
++++ b/ext/phar/util.c
+@@ -1531,9 +1531,14 @@
+ 			}
+ 			efree(retval_ptr);
+ 			return FAILURE;
+-		case IS_BOOL:
++		case IS_BOOL: {
++			/* the result of openssl_sign() is read before its zval is freed: read
++			 * after efree(), it was what the allocator wrote over it, now and then
++			 * 0, and the signature failed */
++			zend_bool signed_ok = Z_BVAL_P(retval_ptr);
++
+ 			efree(retval_ptr);
+-			if (Z_BVAL_P(retval_ptr)) {
++			if (signed_ok) {
+ 				*signature = estrndup(Z_STRVAL_P(zsig), Z_STRLEN_P(zsig));
+ 				*signature_len = Z_STRLEN_P(zsig);
+ 				zval_dtor(zsig);
+@@ -1543,6 +1548,7 @@
+ 			zval_dtor(zsig);
+ 			efree(zsig);
+ 			return FAILURE;
++		}
+ 	}
+ }
+ /* }}} */
+diff --git a/ext/phar/zip.c b/ext/phar/zip.c
+--- a/ext/phar/zip.c
++++ b/ext/phar/zip.c
+@@ -1420,6 +1420,14 @@
+ 	}
+ 
+ 	if (FAILURE == phar_zip_applysignature(phar, &pass, &main_metadata_str TSRMLS_CC)) {
++		/* the error of the signature to the caller: without it the flush failed
++		 * silently, and the file kept the archive of the flush before */
++		if (error) {
++			spprintf(error, 4096, "phar zip flush of \"%s\" failed: %s", phar->fname, temperr ? temperr : "unable to write the signature");
++		}
++		if (temperr) {
++			efree(temperr);
++		}
+ 		goto temperror;
+ 	}
+ 
