@@ -20,7 +20,17 @@ beyond its version lines, or that move the port away. For curl and the libraries
 of freebsd/curl-deps.conf also the distinfo of their port: a release file there
 that differs from the bundled one (the port took a new release, the public
 suffix list a new date) - not while the bundle is ahead of the port (a release
-taken before its port for a security fix).
+taken before its port for a security fix). A "port" line with the 5th column
+"version" names a port of azsupport/ports that is a copy of the official one at its
+version (www/apache24, devel/git): the official port at a newer version than ours
+opens an issue too (the commits of a new release change only the version lines and
+distinfo, which the check of the patches passes over).
+
+Releases of upstreams that no port or bundle follows for us (aZ, 20.11.2026: a new
+line of Manticore Search, which has no FreeBSD port, came out unnoticed): the
+"release" lines of freebsd/upstream.conf, the tags of a git repository or the names
+of a download listing; an issue for a newer final release of the line of ours, and,
+for the newest row of an upstream, one for a newer line.
 
 The rule (04.11.2026): a new release is taken when its FreeBSD port has it;
 before the port only when it fixes a vulnerability that touches us, or a bug we
@@ -99,8 +109,8 @@ Usage: python3 tools/upstream-check.py [--dry-run] [--repo OWNER/NAME]
                                        [--only CHECK,...]
   --dry-run   print the findings, do not read or change issues
   --only      only these checks (releases, bundles, ports, eol, trees, github,
-              defaults, debian, launchpad, cves, distgit, slackware, remi, arch,
-              suse); the issues of the others stay as they are
+              upstreams, defaults, debian, launchpad, cves, distgit, slackware,
+              remi, arch, suse); the issues of the others stay as they are
   --repo      repository of the issues (default: $GITHUB_REPOSITORY)
   --workdir   where the git clones go (default: a temporary directory)
   --days      freebsd-ports history to fetch (default 180); a reviewed revision
@@ -864,6 +874,7 @@ def check_ports(workdir, days):
         warn("freebsd-ports: %s" % e)
         return [], set()
     findings, checked = [], set()
+    copies = port_copies()
     for port, rev, kept in ports_followed():
         exists = ok(["git", "cat-file", "-e", "main:" + port], cwd=git)
         if not exists and port.startswith("lang/"):
@@ -895,6 +906,12 @@ def check_ports(workdir, days):
                     moved = line.split("|")
         if commits or not exists:
             findings.append(port_finding(git, port, rev, kept, commits, moved, base))
+        if exists and port in copies:
+            f = check_port_version(git, port, copies.pop(port))
+            if f is not None:
+                checked.add("portver:%s:" % port)
+                if f:
+                    findings.append(f)
     more, chk = check_distinfo(git)
     more2, chk2 = check_takes(git)
     return findings + more + more2, checked | chk | chk2
@@ -1321,6 +1338,109 @@ def check_github():
         findings.append({"key": "github:%s:%s" % (src, base), "kind": "ports",
                          "title": "%s %s: %d commit%s after %s" % (repo, branch, n, "" if n == 1 else "s", base[:12]),
                          "body": "\n".join(lines)})
+    return findings, checked
+
+
+def release_line(v, depth):
+    """The first <depth> numbers of a version: its line."""
+    return ".".join(v.split(".")[:depth])
+
+
+def check_release_rows():
+    """The rows "release <name> <version> <source> <pattern> <ours>" of upstream.conf: the
+    final releases of an upstream no FreeBSD port or bundle follows for a port of ours
+    (Manticore Search has no FreeBSD port; it fixes no older line, a release is a tag of
+    its master), from the tags of its git repository or the names of a download listing
+    (a source ending in "/"), as deps_versions() reads them. <pattern>: a regular
+    expression the whole tag or file name matches, its group 1 the version; "-": the tag
+    itself (v1.2.3 too); a pattern of one line alone keeps a row to it. <version>: ours,
+    "<line>:<version>" when its line is more than its first number (1.31:1.31.9), "*:" for
+    an upstream whose every release is of one line (yt-dlp, a date). <ours>: the ports,
+    separated by commas. An issue for a newer release of the line of ours, and, for the
+    row of the newest version of a name, one for a newer line (a row of an older line,
+    kept on purpose, asks for its own line alone)."""
+    findings, checked = [], set()
+    rows = []
+    for r in conf("upstream.conf"):
+        if r[0] != "release" or len(r) < 6:
+            continue
+        name, ver, source, pattern, what = r[1], r[2], r[3], r[4], r[5]
+        line, _, version = ver.rpartition(":")
+        if not line:
+            line = version.split(".")[0]
+        if not vkey(version):
+            warn("release %s: %s is not a version" % (name, version))
+            continue
+        rows.append((name, line, version, source, None if pattern == "-" else pattern, what.split(",")))
+    newest = {}
+    for name, _line, version, *_rest in rows:
+        if name not in newest or vkey(version) > vkey(newest[name]):
+            newest[name] = version
+    cache = {}
+    for name, line, version, source, pattern, what in rows:
+        if (source, pattern) not in cache:
+            try:
+                cache[(source, pattern)] = deps_versions(source, pattern, None)
+            except Exception as e:  # noqa: BLE001 - the source is down: leave its issues alone
+                warn("release %s: no releases from %s: %s" % (name, source, e))
+                cache[(source, pattern)] = None
+        found = cache[(source, pattern)]
+        if found is None:
+            continue
+        if not found:
+            warn("release %s: nothing in %s matches %s" % (name, source, pattern or "a version tag"))
+            continue
+        depth = 4 if line == "*" else len(line.split("."))
+        mine = ", ".join(ours(w) for w in what)
+        checked.add("release:row:%s:%s:" % (name, line))
+        base = None
+        if not source.endswith("/") and "github.com/" in source:
+            base = re.sub(r"\.git$", "", source.rstrip("/"))
+
+        def link(v):
+            if base:
+                return "[`%s`](%s/releases/tag/%s)" % (found[v], base, found[v])
+            return "`%s`" % found[v]
+
+        def compare(v):
+            if base and version in found:
+                return " ([changes since %s](%s/compare/%s...%s))" % (version, base, found[version], found[v])
+            return ""
+
+        later = sorted((v for v in found if (line == "*" or release_line(v, depth) == line)
+                        and vkey(v) > vkey(version)), key=vkey, reverse=True)
+        if later:
+            v = later[0]
+            lines = ["Releases %sof **%s** after ours (%s, %s), newest first, of %s:" % (
+                "" if line == "*" else "of the line %s " % line, name, version, mine, source), ""]
+            lines += ["- %s%s" % (link(x), compare(x) if x == v else "") for x in later]
+            lines += ["", "After the review: the port%s to %s (distinfo, patches, what the dependencies are "
+                          "now), then the version of `release %s` in `freebsd/upstream.conf`; the next check "
+                          "closes this issue." % ("s" if len(what) > 1 else "", v, name)]
+            findings.append({"key": "release:row:%s:%s:%s" % (name, line, v), "kind": "release",
+                             "title": "%s %s is out (ours: %s)" % (name, v, version),
+                             "body": "\n".join(lines)})
+        if version != newest[name] or line == "*":
+            continue
+        checked.add("release:line:%s:" % name)
+        lines_up = {}
+        for v in found:
+            if vkey(v) > vkey(version) and release_line(v, depth) != line \
+                    and vkey(release_line(v, depth)) > vkey(line):
+                lines_up.setdefault(release_line(v, depth), []).append(v)
+        if lines_up:
+            top = max(lines_up, key=vkey)
+            vs = sorted(lines_up[top], key=vkey, reverse=True)
+            body = ["**%s**: the line %s is out (%s), ours is %s (%s), of %s:" % (
+                name, top, ", ".join(link(x) for x in vs[:5]), version, mine, source), ""]
+            if len(lines_up) > 1:
+                body += ["Lines after ours: %s." % ", ".join(sorted(lines_up, key=vkey)), ""]
+            body += ["After the review (aZ decides when ours moves to a new line): a port of the line %s, or the "
+                     "line of ours kept, then the version of `release %s` in `freebsd/upstream.conf`; the next "
+                     "check closes this issue." % (top, name)]
+            findings.append({"key": "release:line:%s:%s" % (name, top), "kind": "release",
+                             "title": "%s: the line %s is out (%s; ours: %s)" % (name, top, vs[0], version),
+                             "body": "\n".join(body)})
     return findings, checked
 
 
@@ -2298,6 +2418,73 @@ def port_version(git, port):
     return m.group(1) if m else None
 
 
+def make_version(read, port, depth=0):
+    """The version of a port: DISTVERSION or PORTVERSION of its Makefile with the variables
+    that it and its Makefile.version set put in (www/node24: NODEJS_PORTVERSION; the JDK
+    numbers of java/openjdk21), the numbers it starts with (21.0.9 of 21.0.9+10-1); a slave
+    port without one: that of its MASTERDIR. None when it is not known there (a version of
+    Mk/: lang/ruby34, py-sqlite3). read(path) is the text of a file of the tree, "" when
+    there is none."""
+    text = read(port + "/Makefile")
+    if not text:
+        return None
+    text += "\n" + read(port + "/Makefile.version")
+    var = {}
+    for m in re.finditer(r"^([A-Z][A-Z0-9_]*)[ \t]*[?:]?=[ \t]*([^#\n]*?)[ \t]*(?:#.*)?$", text, re.M):
+        var.setdefault(m.group(1), m.group(2))
+    v = var.get("DISTVERSION") or var.get("PORTVERSION")
+    if not v:
+        m = re.search(r"^MASTERDIR[ \t]*[?:]?=[ \t]*\$\{\.CURDIR\}/\.\./(\.\./)?([\w.+-]+(?:/[\w.+-]+)?)/?[ \t]*$",
+                      text, re.M)
+        if not m or depth > 2:
+            return None
+        master = m.group(2) if m.group(1) else "%s/%s" % (port.split("/")[0], m.group(2))
+        return make_version(read, master, depth + 1)
+    for _ in range(5):
+        v = re.sub(r"\$\{([A-Z][A-Z0-9_]*)\}", lambda x: var.get(x.group(1), x.group(0)), v)
+    m = re.match(r"(\d+(?:\.\d+){0,3})(?![.\d$\w])", v)
+    return m.group(1) if m else None
+
+
+def port_copies():
+    """{official port: port of ours} of the "port" rows with the 5th column "version": a port of
+    azsupport/ports that is a copy of the official one at its version."""
+    return {r[1]: r[3] for r in conf("upstream.conf") if r[0] == "port" and len(r) > 4 and r[4] == "version"}
+
+
+def check_port_version(git, port, mine):
+    """A version of the official port newer than that of the port of ours that copies it:
+    the finding, {} when there is none, None when the versions are not known."""
+    def official(path):
+        return run(["git", "show", "main:" + path], cwd=git, check=False) or ""
+
+    def ours_file(path):
+        p = os.path.join(PORTS_DIR, path)
+        if not os.path.isfile(p):
+            return ""
+        with open(p, encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+    if not os.path.isdir(PORTS_DIR):
+        return None
+    pv, ov = make_version(official, port), make_version(ours_file, mine)
+    if not pv or not ov or not vkey(pv) or not vkey(ov):
+        warn("%s: no versions to compare (official %s, %s of ours %s)" % (port, pv, mine, ov))
+        return None
+    if vkey(pv) <= vkey(ov):
+        return {}
+    return {
+        "key": "portver:%s:%s" % (port, pv),
+        "kind": "ports",
+        "title": "FreeBSD ports: %s is at %s (ours: %s)" % (port, pv, ov),
+        "body": "freebsd-ports `%s` (main) has version %s; `%s` of azsupport/ports, a copy of it at its "
+                "version (the row `port %s` of `freebsd/upstream.conf`, its column \"version\"), has %s.\n\n"
+                "After the review: `%s` to %s as the official port has it (its distinfo, its patches, what "
+                "changed in its Makefile: [the history of the port](%s/commits/main/%s)); the next check closes "
+                "this issue." % (port, pv, mine, port, ov, mine, pv, PORTS_URL, port),
+    }
+
+
 def check_distinfo(git):
     """A release file in the distinfo of the port that the bundle has not (not when
     the bundle is ahead of the port: brotli 1.2.1 before archivers/brotli took it)."""
@@ -2510,7 +2697,7 @@ def main():
     ap.add_argument("--days", type=int, default=180)
     ap.add_argument("--only", default="",
                     help="only these checks, separated by commas (%s)" % ", ".join(
-                        ("releases", "bundles", "ports", "eol", "trees", "github", "defaults", "debian",
+                        ("releases", "bundles", "ports", "eol", "trees", "github", "upstreams", "defaults", "debian",
                          "launchpad", "cves", "distgit", "slackware", "remi", "arch", "suse")))
     ap.add_argument("--ports", default=PORTS_DIR,
                     help="a checkout of azsupport/ports, for the conf files of the bundles (default: ports/ here)")
@@ -2540,6 +2727,7 @@ def main():
         ("eol", check_php_eol),
         ("trees", lambda: check_trees(workdir)),
         ("github", check_github),
+        ("upstreams", check_release_rows),
         ("defaults", check_defaults),
         ("debian", check_debian),
         ("launchpad", check_launchpad),
