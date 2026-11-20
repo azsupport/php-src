@@ -28,6 +28,15 @@
  * The following code is adopted from the PostgreSQL's ps_status(.h/.c).
  */
 
+#ifdef PHP_WIN32
+#include "config.w32.h"
+#include <windows.h>
+#include <process.h>
+#else
+#include "php_config.h"
+extern char** environ;
+#endif
+
 #include "ps_title.h"
 #include <stdio.h>
 
@@ -37,15 +46,6 @@
 
 #include <string.h>
 #include <stdlib.h>
-
-#ifdef PHP_WIN32
-#include "config.w32.h"
-#include <windows.h>
-#include <process.h>
-#else
-#include "php_config.h"
-extern char** environ;
-#endif
 
 #ifdef HAVE_SYS_PSTAT_H
 #include <sys/pstat.h> /* for HP-UX */
