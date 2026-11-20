@@ -483,7 +483,14 @@ def check_takes(git):
     for cfile, bundle, _prefix, _workflow, steps in BUNDLES:
         kt = "take:" if bundle == "phpdeps" else "take:%s:" % bundle
         ports = deps_ports(cfile)
-        for row in deps_rows("take", cfile):
+        rows = deps_rows("take", cfile)
+        # A library whose take line went: nothing to find for it any more, so that
+        # the issue of that line closes.
+        taken = {r[0] for r in rows}
+        for name in ports:
+            if name not in taken:
+                checked.add("%s%s:" % (kt, name))
+        for row in rows:
             name, ver = row[0], row[1]
             port = ports.get(name)
             if not port or port == "bundle":
