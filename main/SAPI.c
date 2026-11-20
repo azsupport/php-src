@@ -212,7 +212,7 @@ static void sapi_read_post_data(TSRMLS_D)
 				*p = 0;
 				break;
 			default:
-				*p = tolower(*p);
+				*p = tolower((unsigned char)*p);
 				break;
 		}
 	}
@@ -515,7 +515,8 @@ SAPI_API void sapi_deactivate(TSRMLS_D)
 	zend_llist_destroy(&SG(sapi_headers).headers);
 	if (SG(request_info).request_body) {
 		SG(request_info).request_body = NULL;
-	} else if (SG(server_context)) {
+	}
+	if (SG(server_context)) {
 		if (!SG(post_read)) {
 			/* make sure we've consumed all request input data */
 			char dummy[SAPI_POST_BLOCK_SIZE];
@@ -528,18 +529,23 @@ SAPI_API void sapi_deactivate(TSRMLS_D)
 	}
 	if (SG(request_info).auth_user) {
 		efree(SG(request_info).auth_user);
+		SG(request_info).auth_user = NULL;
 	}
 	if (SG(request_info).auth_password) {
 		efree(SG(request_info).auth_password);
+		SG(request_info).auth_password = NULL;
 	}
 	if (SG(request_info).auth_digest) {
 		efree(SG(request_info).auth_digest);
+		SG(request_info).auth_digest = NULL;
 	}
 	if (SG(request_info).content_type_dup) {
 		efree(SG(request_info).content_type_dup);
+		SG(request_info).content_type_dup = NULL;
 	}
 	if (SG(request_info).current_user) {
 		efree(SG(request_info).current_user);
+		SG(request_info).current_user = NULL;
 	}
 	if (sapi_module.deactivate) {
 		sapi_module.deactivate(TSRMLS_C);
@@ -557,6 +563,7 @@ SAPI_API void sapi_deactivate(TSRMLS_D)
 	SG(callback_run) = 0;
 	if (SG(callback_func)) {
 		zval_ptr_dtor(&SG(callback_func));
+		SG(callback_func) = NULL;
 	}
 	SG(request_info).headers_read = 0;
 	SG(global_request_time) = 0;
@@ -727,10 +734,10 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg TSRMLS_DC)
 	header_line = estrndup(header_line, header_line_len);
 
 	/* cut off trailing spaces, linefeeds and carriage-returns */
-	if (header_line_len && isspace(header_line[header_line_len-1])) {
+	if (header_line_len && isspace((unsigned char)header_line[header_line_len - 1])) {
 		do {
 			header_line_len--;
-		} while(header_line_len && isspace(header_line[header_line_len-1]));
+		} while(header_line_len && isspace((unsigned char)header_line[header_line_len - 1]));
 		header_line[header_line_len]='\0';
 	}
 

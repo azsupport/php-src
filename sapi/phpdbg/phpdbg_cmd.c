@@ -785,9 +785,9 @@ readline:
 #endif
 	}
 
-	if (buffer && isspace(*buffer)) {
+	if (buffer && isspace((unsigned char)*buffer)) {
 		char *trimmed = buffer;
-		while (isspace(*trimmed))
+		while (isspace((unsigned char)*trimmed))
 			trimmed++;
 
 		trimmed = estrdup(trimmed);

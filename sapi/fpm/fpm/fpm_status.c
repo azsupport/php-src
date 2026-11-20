@@ -16,6 +16,7 @@
 #include "fpm_conf.h"
 #include "fpm_php.h"
 #include <ext/standard/html.h>
+#include <ext/standard/php_smart_str.h>
 
 static char *fpm_status_uri = NULL;
 static char *fpm_status_ping_uri = NULL;
@@ -46,13 +47,107 @@ int fpm_status_init_child(struct fpm_worker_pool_s *wp) /* {{{ */
 }
 /* }}} */
 
+/* a field for the JSON page as php_json_encode_string() of PHP 8.2.36 writes it with
+ * PHP_JSON_INVALID_UTF8_IGNORE, without its quotes: " \ / and the control characters
+ * escaped, every character past ASCII as \uXXXX (UTF-16), the bytes that are not
+ * UTF-8 left out; the json of 5.6 is a module of its own, which FPM cannot call */
+static char *fpm_status_json_escape(const char *str)
+{
+	static const char digits[] = "0123456789abcdef";
+	size_t len = strlen(str), pos = 0;
+	smart_str buf = {0};
+
+	while (pos < len) {
+		int status;
+		unsigned int us = php_next_utf8_char((const unsigned char *) str, len, &pos, &status);
+
+		if (status != SUCCESS) {
+			continue;
+		}
+		switch (us) {
+			case '"':
+				smart_str_appendl(&buf, "\\\"", 2);
+				break;
+			case '\\':
+				smart_str_appendl(&buf, "\\\\", 2);
+				break;
+			case '/':
+				smart_str_appendl(&buf, "\\/", 2);
+				break;
+			case '\b':
+				smart_str_appendl(&buf, "\\b", 2);
+				break;
+			case '\f':
+				smart_str_appendl(&buf, "\\f", 2);
+				break;
+			case '\n':
+				smart_str_appendl(&buf, "\\n", 2);
+				break;
+			case '\r':
+				smart_str_appendl(&buf, "\\r", 2);
+				break;
+			case '\t':
+				smart_str_appendl(&buf, "\\t", 2);
+				break;
+			default:
+				if (us >= 0x20 && us < 0x80) {
+					smart_str_appendc(&buf, (char) us);
+				} else {
+					unsigned int units[2];
+					int n = 1, i;
+
+					units[0] = us;
+					if (us >= 0x10000) {
+						us -= 0x10000;
+						units[0] = 0xd800 | (us >> 10);
+						units[1] = 0xdc00 | (us & 0x3ff);
+						n = 2;
+					}
+					for (i = 0; i < n; i++) {
+						smart_str_appendl(&buf, "\\u", 2);
+						smart_str_appendc(&buf, digits[(units[i] >> 12) & 0xf]);
+						smart_str_appendc(&buf, digits[(units[i] >> 8) & 0xf]);
+						smart_str_appendc(&buf, digits[(units[i] >> 4) & 0xf]);
+						smart_str_appendc(&buf, digits[units[i] & 0xf]);
+					}
+				}
+				break;
+		}
+	}
+	smart_str_0(&buf);
+	return buf.c ? buf.c : estrdup("");
+}
+
+/* a field of the full status: escaped for the HTML and XML pages and for the JSON
+ * page, NULL when empty (GHSA-3mg3-cr28-46gc, as fpm_status_escape() of PHP 8.2.36);
+ * *escaped: whether the result is a new string to free */
+static char *fpm_status_escape(char *str, int encode, int encode_json, int *escaped TSRMLS_DC)
+{
+	size_t len;
+
+	*escaped = 0;
+	if (str[0] == '\0') {
+		return NULL;
+	}
+	if (encode) {
+		*escaped = 1;
+		return php_escape_html_entities_ex((unsigned char *) str, strlen(str), &len, 1,
+				ENT_DISALLOWED | ENT_HTML_DOC_XML1 | ENT_COMPAT, NULL, 1 TSRMLS_CC);
+	}
+	if (encode_json) {
+		*escaped = 1;
+		return fpm_status_json_escape(str);
+	}
+	return str;
+}
+
 int fpm_status_handle_request(TSRMLS_D) /* {{{ */
 {
 	struct fpm_scoreboard_s scoreboard, *scoreboard_p;
 	struct fpm_scoreboard_proc_s proc;
 	char *buffer, *time_format, time_buffer[64];
 	time_t now_epoch;
-	int full, encode;
+	int full, encode, encode_json;
 	char *short_syntax, *short_post;
 	char *full_pre, *full_syntax, *full_post, *full_separator;
 
@@ -130,6 +225,7 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
 		short_syntax = short_post = NULL;
 		full_separator = full_pre = full_syntax = full_post = NULL;
 		encode = 0;
+		encode_json = 0;
 
 		/* HTML */
 		if (fpm_php_get_string_from_table("_GET", "html" TSRMLS_CC)) {
@@ -262,6 +358,7 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
 		} else if (fpm_php_get_string_from_table("_GET", "json" TSRMLS_CC)) {
 			sapi_add_header_ex(ZEND_STRL("Content-Type: application/json"), 1, 1 TSRMLS_CC);
 			time_format = "%s";
+			encode_json = 1;
 
 			short_syntax =
 				"{"
@@ -384,8 +481,9 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
 		/* no need to test the var 'full' */
 		if (full_syntax) {
 			int i, first;
-			size_t len, len_uri;
-			char *query_string, *request_uri_string;
+			int esc_method, esc_uri, esc_query, esc_user, esc_script;
+			char *request_method_string, *request_uri_string, *query_string;
+			char *auth_user_string, *script_filename_string;
 			struct timeval duration, now;
 #ifdef HAVE_FPM_LQ
 			float cpu;
@@ -412,24 +510,11 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
 					}
 				}
 
-				request_uri_string = NULL;
-				len_uri = 0;
-				if (proc.request_uri[0] != '\0') {
-					if (!encode) {
-						request_uri_string = proc.request_uri;
-					} else {
-						request_uri_string = php_escape_html_entities_ex((unsigned char *)proc.request_uri, strlen(proc.request_uri), &len_uri, 1, ENT_DISALLOWED | ENT_HTML_DOC_XML1 | ENT_COMPAT, NULL, 1 TSRMLS_CC);
-					}
-				}
-				query_string = NULL;
-				len = 0;
-				if (proc.query_string[0] != '\0') {
-					if (!encode) {
-						query_string = proc.query_string;
-					} else {
-						query_string = php_escape_html_entities_ex((unsigned char *)proc.query_string, strlen(proc.query_string), &len, 1, ENT_DISALLOWED | ENT_HTML_DOC_XML1 | ENT_COMPAT, NULL, 1 TSRMLS_CC);
-					}
-				}
+				request_method_string = fpm_status_escape(proc.request_method, encode, encode_json, &esc_method TSRMLS_CC);
+				request_uri_string = fpm_status_escape(proc.request_uri, encode, encode_json, &esc_uri TSRMLS_CC);
+				query_string = fpm_status_escape(proc.query_string, encode, encode_json, &esc_query TSRMLS_CC);
+				auth_user_string = fpm_status_escape(proc.auth_user, encode, encode_json, &esc_user TSRMLS_CC);
+				script_filename_string = fpm_status_escape(proc.script_filename, encode, encode_json, &esc_script TSRMLS_CC);
 
 #ifdef HAVE_FPM_LQ
 				/* prevent NaN */
@@ -453,13 +538,13 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
 					now_epoch - proc.start_epoch,
 					proc.requests,
 					duration.tv_sec * 1000000UL + duration.tv_usec,
-					proc.request_method[0] != '\0' ? proc.request_method : "-",
+					request_method_string ? request_method_string : "-",
 					request_uri_string ? request_uri_string: "-",
 					query_string ? "?" : "",
 					query_string ? query_string : "",
 					proc.content_length,
-					proc.auth_user[0] != '\0' ? proc.auth_user : "-",
-					proc.script_filename[0] != '\0' ? proc.script_filename : "-",
+					auth_user_string ? auth_user_string : "-",
+					script_filename_string ? script_filename_string : "-",
 #ifdef HAVE_FPM_LQ
 					proc.request_stage == FPM_REQUEST_ACCEPTING ? cpu : 0.,
 #endif
@@ -467,11 +552,20 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
 				PUTS(buffer);
 				efree(buffer);
 
-				if (len > 0 && query_string) {
+				if (esc_method && request_method_string) {
+					efree(request_method_string);
+				}
+				if (esc_uri && request_uri_string) {
+					efree(request_uri_string);
+				}
+				if (esc_query && query_string) {
 					efree(query_string);
 				}
-				if (len_uri > 0 && request_uri_string) {
-					efree(request_uri_string);
+				if (esc_user && auth_user_string) {
+					efree(auth_user_string);
+				}
+				if (esc_script && script_filename_string) {
+					efree(script_filename_string);
 				}
 			}
 
