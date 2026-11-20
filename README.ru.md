@@ -889,9 +889,11 @@ php-src несёт старую PCRE с известными ошибками б
 На сервере от root `az-menu.sh --repo` записывает репозиторий под уровень его
 процессора и обновляет его каталог: x86-64-v3 (релиз `az-fbsd15-amd64-v3` из
 azsupport/ports), если `cc -march=native` знает у процессора AVX2, BMI2, FMA, F16C,
-LZCNT и MOVBE, иначе x86-64-v2 (`az-fbsd15-amd64-v2`), с открытым ключом; он пишет,
-какой уровень взял и почему, и SHA-256 ключа. Дальше пакеты ставятся через
-`pkg install -r az` или через меню `sh az-menu.sh`:
+LZCNT и MOVBE, иначе x86-64-v2 (`az-fbsd15-amd64-v2`); x86-64-v4
+(`az-fbsd15-amd64-v4`) — если ещё и AVX512F, AVX512BW, AVX512CD, AVX512DQ и AVX512VL и
+этот релиз есть (собирается только по запросу и пока не опубликован, так что до тех пор
+x86-64-v3), с открытым ключом; он пишет, какой уровень взял и почему, и SHA-256 ключа.
+Дальше пакеты ставятся через `pkg install -r az` или через меню `sh az-menu.sh`:
 
 ```sh
 fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
@@ -1091,7 +1093,7 @@ push.
 | 8.1, 8.2 | `compat-c99.patch` ([8.1](freebsd/patches/8.1/compat-c99.patch), [8.2](freebsd/patches/8.2/compat-c99.patch)) | проверка GNU libiconv в `ext/iconv`, где `printf` без `<stdio.h>`: gcc 14+ молча её проваливал, и модуль писал `ICONV_IMPL "unknown"`; как в php-src 8.3 |
 | 7.4, 8.1 | `compat-curl-openssl3.patch` ([7.4](freebsd/patches/7.4/compat-curl-openssl3.patch), [8.1](freebsd/patches/8.1/compat-curl-openssl3.patch)) | libcurl с OpenSSL 3 принимался за старый OpenSSL (`HAVE_CURL_OLD_OPENSSL`, `curl.so` зря линковался с libssl и libcrypto): тестовая программа php-src 8.3 (b222c020bf, GH-13262), с `<stdio.h>`; в 8.2 она есть с 8.2.36 (dc5acdb — бэкпорт GH-13262 с `PHP_SETUP_OPENSSL`) |
 | 7.4 | [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch) | OpenSSL 3: legacy-провайдер, `OPENSSL_SSLV23_PADDING`, открытый ключ CSR |
-| 7.4, 8.1, 8.2, 8.3 | `compat-freebsd-ifunc.patch` ([7.4](freebsd/patches/7.4/compat-freebsd-ifunc.patch), [8.1](freebsd/patches/8.1/compat-freebsd-ifunc.patch), [8.2](freebsd/patches/8.2/compat-freebsd-ifunc.patch), [8.3](freebsd/patches/8.3/compat-freebsd-ifunc.patch)) | кусок `ifunc` из патча `configure.ac` порта `lang/php83` (в портах 7.4, 8.1 и 8.2 такого куска нет; форк берёт его и для них, aZ 09.11.2026): configure проверяет атрибуты функций `ifunc` и `target` и на FreeBSD, где апстрим их пропускает, так что PHP выбирает свой SIMD-код под процессор при запуске (раньше с `-march=x86-64-v3` у crc32 в 8.1–8.3 не было PCLMUL, а у base64 в 8.3 — AVX-512; с `x86-64-v2` у base64 не было ещё и AVX2, а в 8.3 и у mbstring; SIMD-код 7.4 весь входит в `x86-64-v3`, так что у 7.4 меняется только сборка v2). 8.4 делает эти проверки на FreeBSD 12+ сам; в 5.6 такого кода нет |
+| 7.4, 8.1, 8.2, 8.3 | `compat-freebsd-ifunc.patch` ([7.4](freebsd/patches/7.4/compat-freebsd-ifunc.patch), [8.1](freebsd/patches/8.1/compat-freebsd-ifunc.patch), [8.2](freebsd/patches/8.2/compat-freebsd-ifunc.patch), [8.3](freebsd/patches/8.3/compat-freebsd-ifunc.patch)) | кусок `ifunc` из патча `configure.ac` порта `lang/php83` (в портах 7.4, 8.1 и 8.2 такого куска нет; форк берёт его и для них, aZ 09.11.2026): configure проверяет атрибуты функций `ifunc` и `target` и на FreeBSD, где апстрим их пропускает, так что PHP выбирает свой SIMD-код под процессор при запуске (раньше с `-march=x86-64-v3` у crc32 в 8.1–8.3 не было PCLMUL, а у base64 в 8.3 — AVX-512; с `x86-64-v4` так же: PCLMUL нет ни в одном уровне, а AVX-512-вариант base64 8.3 собирает только с атрибутом `target`; с `x86-64-v2` у base64 не было ещё и AVX2, а в 8.3 и у mbstring; SIMD-код 7.4 весь входит в `x86-64-v3`, так что у 7.4 меняется только сборка v2). 8.4 делает эти проверки на FreeBSD 12+ сам; в 5.6 такого кода нет |
 
 ### Опции сборки
 

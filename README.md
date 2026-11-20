@@ -903,9 +903,11 @@ Until then this fork built them itself (the workflows `az.yml` and `az-php.yml`)
 On a server, as root, `az-menu.sh --repo` writes the repository for the level of its
 CPU and updates its catalog: x86-64-v3 (the release `az-fbsd15-amd64-v3` of
 azsupport/ports) when `cc -march=native` has AVX2, BMI2, FMA, F16C, LZCNT and MOVBE,
-else x86-64-v2 (`az-fbsd15-amd64-v2`), with the public key; it says the level it took
-and why, and the SHA-256 of the key. The packages then go in with `pkg install -r az`,
-or through the menu of `sh az-menu.sh`:
+else x86-64-v2 (`az-fbsd15-amd64-v2`); x86-64-v4 (`az-fbsd15-amd64-v4`) when it also
+has AVX512F, AVX512BW, AVX512CD, AVX512DQ and AVX512VL and that release is there (it is
+built only on request and not published yet, so x86-64-v3 until then), with the public
+key; it says the level it took and why, and the SHA-256 of the key. The packages then
+go in with `pkg install -r az`, or through the menu of `sh az-menu.sh`:
 
 ```sh
 fetch https://github.com/azsupport/php-src/releases/download/az-menu/az-menu.sh
@@ -1109,7 +1111,7 @@ gets reviewed.
 | 8.1, 8.2 | `compat-c99.patch` ([8.1](freebsd/patches/8.1/compat-c99.patch), [8.2](freebsd/patches/8.2/compat-c99.patch)) | the GNU libiconv check of `ext/iconv`, whose `printf` had no `<stdio.h>`: gcc 14+ failed it silently and the module said `ICONV_IMPL "unknown"`; as in php-src 8.3 |
 | 7.4, 8.1 | `compat-curl-openssl3.patch` ([7.4](freebsd/patches/7.4/compat-curl-openssl3.patch), [8.1](freebsd/patches/8.1/compat-curl-openssl3.patch)) | a libcurl with OpenSSL 3 was taken for an old OpenSSL (`HAVE_CURL_OLD_OPENSSL`, `curl.so` linked with libssl and libcrypto for nothing): the check program of php-src 8.3 (b222c020bf, GH-13262), with `<stdio.h>`; 8.2 has it from 8.2.36 (dc5acdb, the backport of GH-13262 with `PHP_SETUP_OPENSSL`) |
 | 7.4 | [`compat-openssl3.patch`](freebsd/patches/7.4/compat-openssl3.patch) | OpenSSL 3: legacy provider, `OPENSSL_SSLV23_PADDING`, CSR public key |
-| 7.4, 8.1, 8.2, 8.3 | `compat-freebsd-ifunc.patch` ([7.4](freebsd/patches/7.4/compat-freebsd-ifunc.patch), [8.1](freebsd/patches/8.1/compat-freebsd-ifunc.patch), [8.2](freebsd/patches/8.2/compat-freebsd-ifunc.patch), [8.3](freebsd/patches/8.3/compat-freebsd-ifunc.patch)) | the `ifunc` hunk of the `configure.ac` patch of the port `lang/php83` (the ports of 7.4, 8.1 and 8.2 have no such hunk; the fork takes it for them too, aZ 09.11.2026): configure checks the `ifunc` and `target` function attributes on FreeBSD too, which upstream skips there, so PHP picks its SIMD code by the CPU at run time (before, with `-march=x86-64-v3` crc32 had no PCLMUL in 8.1–8.3, and base64 no AVX-512 in 8.3; with `x86-64-v2` base64 also had no AVX2, and in 8.3 mbstring neither; the SIMD code of 7.4 is all in `x86-64-v3`, so only its v2 build changes). 8.4 runs these checks upstream on FreeBSD 12+; 5.6 has no such code |
+| 7.4, 8.1, 8.2, 8.3 | `compat-freebsd-ifunc.patch` ([7.4](freebsd/patches/7.4/compat-freebsd-ifunc.patch), [8.1](freebsd/patches/8.1/compat-freebsd-ifunc.patch), [8.2](freebsd/patches/8.2/compat-freebsd-ifunc.patch), [8.3](freebsd/patches/8.3/compat-freebsd-ifunc.patch)) | the `ifunc` hunk of the `configure.ac` patch of the port `lang/php83` (the ports of 7.4, 8.1 and 8.2 have no such hunk; the fork takes it for them too, aZ 09.11.2026): configure checks the `ifunc` and `target` function attributes on FreeBSD too, which upstream skips there, so PHP picks its SIMD code by the CPU at run time (before, with `-march=x86-64-v3` crc32 had no PCLMUL in 8.1–8.3, and base64 no AVX-512 in 8.3; with `x86-64-v4` the same, as PCLMUL is in no level and 8.3 builds its AVX-512 base64 only with the `target` attribute; with `x86-64-v2` base64 also had no AVX2, and in 8.3 mbstring neither; the SIMD code of 7.4 is all in `x86-64-v3`, so only its v2 build changes). 8.4 runs these checks upstream on FreeBSD 12+; 5.6 has no such code |
 
 ### Build options
 
