@@ -1,8 +1,8 @@
-Description: GHSA-v8xr-gpvj-cx9g (CVE-2025-1217), GHSA-pcmh-g36c-qc44 (CVE-2025-1734), GHSA-52jp-hrpf-2jff (CVE-2025-1861) and GHSA-hgf5-96fm-v528 (CVE-2025-1736) for PHP 5.6: the http:// stream wrapper reads the response headers as PHP 7.4 and later do: a folded header (a line that starts with a space or a tab) is joined to the header before it, a header line without a colon, with a space in the header name, starting with a CR or folded before the first header fails the request, a Location header is followed with up to 8182 bytes (5.6 cut it at 1024 bytes) and fails the request when longer, and an Authorization or Proxy-Authorization header of the user is seen only at the start of a header line, so that the one made from the user:password of the URL is no longer left out when the name appears inside another header; with the bounds fixes of GH-23467 (CVE-2026-93682) and GH-23521 for a relative Location. An empty Location header is not followed, as before in 5.6 (7.4 and later go to /).
-Origin: port of php-src commits bf4a8df2b397 (31.12.2024), 0b965cf85f51 (19.01.2025), 134f821622e2 (14.02.2025) and 5418040dcaac (04.03.2025, all Jakub Zelenka), f4897028a4bb (24.08.2026, Ilia Alshanetsky) and bd7e19b216c2 (31.08.2026, Jordi Kroon) of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports), with their tests and bug47021.phpt and bug75535.phpt of that branch (5.6 had neither), and ext/standard/tests/http/ServerClientTestCase.inc of that branch without the type declarations PHP 5 does not have; the ghsa-hgf5 tests read the request up to its empty line, as 5.6 sends it in several writes; http_empty_location_no_redirect.phpt is ours
+Description: GHSA-v8xr-gpvj-cx9g (CVE-2025-1217), GHSA-pcmh-g36c-qc44 (CVE-2025-1734) and GHSA-52jp-hrpf-2jff (CVE-2025-1861) for PHP 5.6: the http:// stream wrapper reads the response headers as PHP 7.4 and later do: a folded header (a line that starts with a space or a tab) is joined to the header before it, a header line without a colon, with a space in the header name, starting with a CR or folded before the first header fails the request, a Location header is followed with up to 8182 bytes (5.6 cut it at 1024 bytes) and fails the request when longer; with the bounds fixes of GH-23467 (CVE-2026-93682) and GH-23521 for a relative Location, merged with Remi's own (an empty path becomes /). An empty Location header is not followed, as before in 5.6 (7.4 and later go to /). GHSA-hgf5-96fm-v528 (CVE-2025-1736), the user's Authorization or Proxy-Authorization header seen only at the start of a header line, is in Remi's branch (c0bc944, 14.02.2025): its check_has_header() gets the bound of ours, no read before the start of the header bag
+Origin: port of php-src commits bf4a8df2b397 (31.12.2024), 0b965cf85f51 (19.01.2025), 134f821622e2 (14.02.2025) and 5418040dcaac (04.03.2025, all Jakub Zelenka), f4897028a4bb (24.08.2026, Ilia Alshanetsky) and bd7e19b216c2 (31.08.2026, Jordi Kroon) of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports), with their tests and bug47021.phpt and bug75535.phpt of that branch (5.6 had neither), and ext/standard/tests/http/ServerClientTestCase.inc of that branch without the type declarations PHP 5 does not have; the ghsa-hgf5 tests read the request up to its empty line, as 5.6 sends it in several writes; http_empty_location_no_redirect.phpt is ours; on Remi's 5.6 branch f98c3c2b (17.11.2026)
 
 diff --git a/ext/standard/http_fopen_wrapper.c b/ext/standard/http_fopen_wrapper.c
-index e0e902408..22610330b 100644
+index 3f09965b..5763686e 100644
 --- a/ext/standard/http_fopen_wrapper.c
 +++ b/ext/standard/http_fopen_wrapper.c
 @@ -73,6 +73,7 @@
@@ -13,26 +13,20 @@ index e0e902408..22610330b 100644
  #define PHP_URL_REDIRECT_MAX		20
  #define HTTP_HEADER_USER_AGENT		1
  #define HTTP_HEADER_HOST			2
-@@ -156,6 +157,231 @@ static inline void strip_header(char *header_bag, char *lc_header_bag,
- 	}
+@@ -155,7 +156,8 @@ static inline void strip_header(char *header_bag, char *lc_header_bag,
+ static zend_bool check_has_header(const char *headers, const char *header) {
+ 	const char *s = headers;
+ 	while ((s = strstr(s, header))) {
+-		if (s == headers || (*(s-1) == '\n' && *(s-2) == '\r')) {
++		/* not before the start of the bag: a header at its second byte after a LF */
++		if (s == headers || (s - headers >= 2 && *(s-1) == '\n' && *(s-2) == '\r')) {
+ 			return 1;
+ 		}
+ 		s++;
+@@ -163,6 +165,215 @@ static zend_bool check_has_header(const char *headers, const char *header) {
+ 	return 0;
  }
  
-+/* GHSA-hgf5-96fm-v528 (CVE-2025-1736): a header the user gives counts only at the
-+ * start of the bag or after CRLF, and every occurrence is looked at, not only the
-+ * first one */
-+static int check_has_header(const char *headers, const char *header)
-+{
-+	const char *s = headers;
-+
-+	while ((s = strstr(s, header))) {
-+		if (s == headers || (s - headers >= 2 && *(s-1) == '\n' && *(s-2) == '\r')) {
-+			return 1;
-+		}
-+		s++;
-+	}
-+	return 0;
-+}
-+
 +/* The response headers, read as php-src reads them since GHSA-v8xr-gpvj-cx9g
 + * (CVE-2025-1217: folded headers), GHSA-pcmh-g36c-qc44 (CVE-2025-1734: a line
 + * without a colon or a name with white space makes the response invalid) and
@@ -245,7 +239,7 @@ index e0e902408..22610330b 100644
  php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper, 
  		const char *path, const char *mode, int options, char **opened_path, 
  		php_stream_context *context, int redirect_max, int flags STREAMS_DC TSRMLS_DC) /* {{{ */
-@@ -169,13 +395,11 @@ php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper,
+@@ -176,13 +387,11 @@ php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper,
  	char *ua_str = NULL;
  	zval **ua_zval = NULL, **tmpzval = NULL, *ssl_proxy_peer_name = NULL;
  	int scratch_len = 0;
@@ -260,7 +254,7 @@ index e0e902408..22610330b 100644
  	int eol_detect = 0;
  	char *transport_string, *errstr = NULL;
  	int transport_len, have_header = 0, request_fulluri = 0, ignore_errors = 0;
-@@ -186,11 +410,13 @@ php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper,
+@@ -193,11 +402,13 @@ php_stream *php_stream_url_wrap_http_ex(php_stream_wrapper *wrapper,
  	int header_init = ((flags & HTTP_WRAPPER_HEADER_INIT) != 0);
  	int redirected = ((flags & HTTP_WRAPPER_REDIRECTED) != 0);
  	int redirect_keep_method = ((flags & HTTP_WRAPPER_KEEP_METHOD) != 0);
@@ -276,61 +270,7 @@ index e0e902408..22610330b 100644
  
  	if (redirect_max < 1) {
  		php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "Redirection limit reached, aborting");
-@@ -536,45 +762,30 @@ finish:
- 				user_headers = NULL;
- 			}
- 
--			if ((s = strstr(tmp, "user-agent:")) &&
--			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
--			                 *(s-1) == '\t' || *(s-1) == ' ')) {
-+			if (check_has_header(tmp, "user-agent:")) {
- 				 have_header |= HTTP_HEADER_USER_AGENT;
- 			}
--			if ((s = strstr(tmp, "host:")) &&
--			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
--			                 *(s-1) == '\t' || *(s-1) == ' ')) {
-+			if (check_has_header(tmp, "host:")) {
- 				 have_header |= HTTP_HEADER_HOST;
- 			}
--			if ((s = strstr(tmp, "from:")) &&
--			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
--			                 *(s-1) == '\t' || *(s-1) == ' ')) {
-+			if (check_has_header(tmp, "from:")) {
- 				 have_header |= HTTP_HEADER_FROM;
- 				}
--			if ((s = strstr(tmp, "authorization:")) &&
--			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
--			                 *(s-1) == '\t' || *(s-1) == ' ')) {
-+			if (check_has_header(tmp, "authorization:")) {
- 				 have_header |= HTTP_HEADER_AUTH;
- 			}
--			if ((s = strstr(tmp, "content-length:")) &&
--			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
--			                 *(s-1) == '\t' || *(s-1) == ' ')) {
-+			if (check_has_header(tmp, "content-length:")) {
- 				 have_header |= HTTP_HEADER_CONTENT_LENGTH;
- 			}
--			if ((s = strstr(tmp, "content-type:")) &&
--			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
--			                 *(s-1) == '\t' || *(s-1) == ' ')) {
-+			if (check_has_header(tmp, "content-type:")) {
- 				 have_header |= HTTP_HEADER_TYPE;
- 			}
--			if ((s = strstr(tmp, "connection:")) &&
--			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' || 
--			                 *(s-1) == '\t' || *(s-1) == ' ')) {
-+			if (check_has_header(tmp, "connection:")) {
- 				 have_header |= HTTP_HEADER_CONNECTION;
- 			}
- 			/* remove Proxy-Authorization header */
- 			if (use_proxy && use_ssl && (s = strstr(tmp, "proxy-authorization:")) &&
--			    (s == tmp || *(s-1) == '\r' || *(s-1) == '\n' ||
--			                 *(s-1) == '\t' || *(s-1) == ' ')) {
-+			    (s == tmp || *(s-1) == '\n')) {
- 				char *p = s + sizeof("proxy-authorization:") - 1;
- 
- 				while (s > tmp && (*(s-1) == ' ' || *(s-1) == '\t')) s--;
-@@ -725,8 +936,6 @@ finish:
+@@ -718,8 +929,6 @@ finish:
  		php_stream_write(stream, "\r\n", sizeof("\r\n")-1);
  	}
  
@@ -339,7 +279,7 @@ index e0e902408..22610330b 100644
  	if (!EG(active_symbol_table)) {
  		zend_rebuild_symbol_table(TSRMLS_C);
  	}
-@@ -821,111 +1030,109 @@ finish:
+@@ -814,108 +1023,106 @@ finish:
  	}
  
  	/* read past HTTP headers */
@@ -505,9 +445,6 @@ index e0e902408..22610330b 100644
 -			char new_path[HTTP_HEADER_BLOCK_SIZE];
 -			char loc_path[HTTP_HEADER_BLOCK_SIZE];
 +			char *new_path = NULL;
- 			php_url *new_resource;
- 			int default_port, new_flags;
- 			zend_bool same_origin;
  
 -			*new_path='\0';
 -			if (strlen(location)<8 || (strncasecmp(location, "http://", sizeof("http://")-1) &&
@@ -528,7 +465,7 @@ index e0e902408..22610330b 100644
  						char *s = strrchr(resource->path, '/');
  						if (!s) {
  							s = resource->path;
-@@ -938,28 +1145,32 @@ finish:
+@@ -928,31 +1135,34 @@ finish:
  						}
  						s[1] = '\0';
  						if (resource->path && *(resource->path) == '/' && *(resource->path + 1) == '\0') {
@@ -561,14 +498,17 @@ index e0e902408..22610330b 100644
 +				header_info.location = NULL;
  			}
  
- 			/* check for invalid redirection URLs */
- 			if ((new_resource = php_url_parse(new_path)) == NULL) {
+ 			php_url *new_resource = php_url_parse(new_path);
+ 			if (new_resource == NULL) {
  				php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "Invalid redirect URL! %s", new_path);
 +				efree(new_path);
  				goto out;
  			}
- 
-@@ -983,6 +1194,7 @@ finish:
+-
+ 			int default_port = use_ssl ? 443 : 80;
+ 			zend_bool same_origin = resource->scheme && new_resource->scheme
+ 				&& !strcasecmp(resource->scheme, new_resource->scheme)
+@@ -973,6 +1183,7 @@ finish:
  		while (s < e) { \
  			if (iscntrl(*s)) { \
  				php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "Invalid redirect URL! %s", new_path); \
@@ -576,7 +516,7 @@ index e0e902408..22610330b 100644
  				goto out; \
  			} \
  			s++; \
-@@ -1006,6 +1218,7 @@ finish:
+@@ -996,6 +1207,7 @@ finish:
  				new_flags |= HTTP_WRAPPER_KEEP_METHOD;
  			}
  			stream = php_stream_url_wrap_http_ex(wrapper, new_path, mode, options, opened_path, context, --redirect_max, new_flags STREAMS_CC TSRMLS_CC);
@@ -584,7 +524,7 @@ index e0e902408..22610330b 100644
  		} else {
  			php_stream_wrapper_log_error(wrapper, options TSRMLS_CC, "HTTP request failed! %s", tmp_line);
  		}
-@@ -1019,6 +1232,14 @@ out:
+@@ -1009,6 +1221,14 @@ out:
  		efree(http_header_line);
  	}
  
@@ -599,7 +539,7 @@ index e0e902408..22610330b 100644
  	if (scratch) {
  		efree(scratch);
  	}
-@@ -1035,7 +1256,7 @@ out:
+@@ -1025,7 +1245,7 @@ out:
  				Z_DELREF_P(response_header);
  			}
  		}
@@ -608,7 +548,7 @@ index e0e902408..22610330b 100644
  
  		/* Restore original chunk size now that we're done with headers */
  		if (options & STREAM_WILL_CAST)
-@@ -1051,15 +1272,15 @@ out:
+@@ -1041,15 +1261,15 @@ out:
  		/* restore mode */
  		strlcpy(stream->mode, mode, sizeof(stream->mode));
  
@@ -628,214 +568,9 @@ index e0e902408..22610330b 100644
  		}
  	}
  
-diff --git a/ext/standard/tests/http/ServerClientTestCase.inc b/ext/standard/tests/http/ServerClientTestCase.inc
-new file mode 100644
-index 000000000..375f80869
---- /dev/null
-+++ b/ext/standard/tests/http/ServerClientTestCase.inc
-@@ -0,0 +1,199 @@
-+<?php
-+
-+const WORKER_ARGV_VALUE = 'RUN_WORKER';
-+
-+const WORKER_DEFAULT_NAME = 'server';
-+
-+function phpt_notify($worker = WORKER_DEFAULT_NAME, $message = "")
-+{
-+    ServerClientTestCase::getInstance()->notify($worker, $message);
-+}
-+
-+function phpt_wait($worker = WORKER_DEFAULT_NAME, $timeout = null)
-+{
-+    return ServerClientTestCase::getInstance()->wait($worker, $timeout);
-+}
-+
-+function phpt_notify_server_start($server)
-+{
-+    ServerClientTestCase::getInstance()->notify_server_start($server);
-+}
-+
-+function phpt_has_sslv3() {
-+    static $result = null;
-+    if (!is_null($result)) {
-+        return $result;
-+    }
-+    $server = @stream_socket_server('sslv3://127.0.0.1:10013');
-+    if ($result = !!$server) {
-+        fclose($server);
-+    }
-+    return $result;
-+}
-+
-+/**
-+ * This is a singleton to let the wait/notify functions work
-+ * I know it's horrible, but it's a means to an end
-+ */
-+class ServerClientTestCase
-+{
-+    private $isWorker = false;
-+
-+    private $workerHandle = [];
-+
-+    private $workerStdIn = [];
-+
-+    private $workerStdOut = [];
-+
-+    private static $instance;
-+
-+    public static function getInstance($isWorker = false)
-+    {
-+        if (!isset(self::$instance)) {
-+            self::$instance = new self($isWorker);
-+        }
-+
-+        return self::$instance;
-+    }
-+
-+    public function __construct($isWorker = false)
-+    {
-+        if (!isset(self::$instance)) {
-+            self::$instance = $this;
-+        }
-+
-+        $this->isWorker = $isWorker;
-+    }
-+
-+    private function spawnWorkerProcess($worker, $code)
-+    {
-+        if (defined("PHP_WINDOWS_VERSION_MAJOR")) {
-+            $ini = php_ini_loaded_file();
-+            $cmd = sprintf(
-+                '%s %s "%s" %s',
-+                PHP_BINARY, $ini ? "-n -c $ini" : "",
-+                __FILE__,
-+                WORKER_ARGV_VALUE
-+            );
-+        } else {
-+            $cmd = sprintf(
-+                '%s "%s" %s %s',
-+                PHP_BINARY,
-+                __FILE__,
-+                WORKER_ARGV_VALUE,
-+                $worker
-+            );
-+        }
-+        $this->workerHandle[$worker] = proc_open(
-+            $cmd,
-+            [['pipe', 'r'], ['pipe', 'w'], STDERR],
-+            $pipes
-+        );
-+        $this->workerStdIn[$worker] = $pipes[0];
-+        $this->workerStdOut[$worker] = $pipes[1];
-+
-+        fwrite($this->workerStdIn[$worker], $code . "\n---\n");
-+    }
-+
-+    private function cleanupWorkerProcess($worker)
-+    {
-+        fclose($this->workerStdIn[$worker]);
-+        fclose($this->workerStdOut[$worker]);
-+        proc_close($this->workerHandle[$worker]);
-+    }
-+
-+    private function stripPhpTagsFromCode($code)
-+    {
-+        return preg_replace('/^\s*<\?(?:php)?|\?>\s*$/i', '', $code);
-+    }
-+
-+    public function runWorker()
-+    {
-+        $code = '';
-+
-+        while (1) {
-+            $line = fgets(STDIN);
-+
-+            if (trim($line) === "---") {
-+                break;
-+            }
-+
-+            $code .= $line;
-+        }
-+
-+        eval($code);
-+    }
-+
-+    /**
-+     * Run client and all workers
-+     *
-+     * @param string       $clientCode The client PHP code
-+     * @param string|array $workerCode
-+     * @param bool         $ephemeral Select whether automatic port selection and automatic awaiting is used
-+     * @return void
-+     * @throws Exception
-+     */
-+    public function run($clientCode, $workerCode, $ephemeral = true)
-+    {
-+        if (!is_array($workerCode)) {
-+            $workerCode = [WORKER_DEFAULT_NAME => $workerCode];
-+        }
-+        reset($workerCode);
-+        $code = current($workerCode);
-+        $worker = key($workerCode);
-+        while ($worker != null) {
-+            $this->spawnWorkerProcess($worker, $this->stripPhpTagsFromCode($code));
-+            $code = next($workerCode);
-+            if ($ephemeral) {
-+                $addr = trim($this->wait($worker));
-+                if (empty($addr)) {
-+                    throw new \Exception("Failed server start");
-+                }
-+                if ($code === false) {
-+                    $clientCode = preg_replace('/{{\s*ADDR\s*}}/', $addr, $clientCode);
-+                } else {
-+                    $code = preg_replace('/{{\s*ADDR\s*}}/', $addr, $code);
-+                }
-+            }
-+            $worker = key($workerCode);
-+        }
-+
-+        eval($this->stripPhpTagsFromCode($clientCode));
-+        foreach ($workerCode as $worker => $code) {
-+            $this->cleanupWorkerProcess($worker);
-+        }
-+    }
-+
-+    public function wait($worker, $timeout = null)
-+    {
-+        $handle = $this->isWorker ? STDIN : $this->workerStdOut[$worker];
-+        if ($timeout === null) {
-+            return fgets($handle);
-+        }
-+
-+        stream_set_blocking($handle, false);
-+        $read = [$handle];
-+        $result = stream_select($read, $write, $except, $timeout);
-+        if (!$result) {
-+            return null;
-+        }
-+
-+        $result = fgets($handle);
-+        stream_set_blocking($handle, true);
-+        return $result;
-+    }
-+
-+    public function notify($worker, $message = "")
-+    {
-+        fwrite($this->isWorker ? STDOUT : $this->workerStdIn[$worker], "$message\n");
-+    }
-+
-+    public function notify_server_start($server)
-+    {
-+        echo stream_socket_get_name($server, false) . "\n";
-+    }
-+}
-+
-+if (isset($argv[1]) && $argv[1] === WORKER_ARGV_VALUE) {
-+    ServerClientTestCase::getInstance(true)->runWorker();
-+}
 diff --git a/ext/standard/tests/http/bug47021.phpt b/ext/standard/tests/http/bug47021.phpt
 new file mode 100644
-index 000000000..a287b714c
+index 00000000..a287b714
 --- /dev/null
 +++ b/ext/standard/tests/http/bug47021.phpt
 @@ -0,0 +1,96 @@
@@ -937,7 +672,7 @@ index 000000000..a287b714c
 +Warning: file_get_contents(http://%s:%d): failed to open stream: HTTP invalid response format (no colon in header line)! in %s
 diff --git a/ext/standard/tests/http/bug75535.phpt b/ext/standard/tests/http/bug75535.phpt
 new file mode 100644
-index 000000000..e3757ba4f
+index 00000000..e3757ba4
 --- /dev/null
 +++ b/ext/standard/tests/http/bug75535.phpt
 @@ -0,0 +1,29 @@
@@ -972,7 +707,7 @@ index 000000000..e3757ba4f
 +==DONE==
 diff --git a/ext/standard/tests/http/ghsa-52jp-hrpf-2jff-001.phpt b/ext/standard/tests/http/ghsa-52jp-hrpf-2jff-001.phpt
 new file mode 100644
-index 000000000..3475a03be
+index 00000000..3475a03b
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-52jp-hrpf-2jff-001.phpt
 @@ -0,0 +1,58 @@
@@ -1036,7 +771,7 @@ index 000000000..3475a03be
 +}
 diff --git a/ext/standard/tests/http/ghsa-52jp-hrpf-2jff-002.phpt b/ext/standard/tests/http/ghsa-52jp-hrpf-2jff-002.phpt
 new file mode 100644
-index 000000000..706a85f41
+index 00000000..706a85f4
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-52jp-hrpf-2jff-002.phpt
 @@ -0,0 +1,55 @@
@@ -1095,227 +830,9 @@ index 000000000..706a85f41
 +  [1]=>
 +  string(24) "Content-Type: text/html;"
 +}
-diff --git a/ext/standard/tests/http/ghsa-hgf5-96fm-v528-001.phpt b/ext/standard/tests/http/ghsa-hgf5-96fm-v528-001.phpt
-new file mode 100644
-index 000000000..0ec338ab2
---- /dev/null
-+++ b/ext/standard/tests/http/ghsa-hgf5-96fm-v528-001.phpt
-@@ -0,0 +1,68 @@
-+--TEST--
-+GHSA-hgf5-96fm-v528: Stream HTTP wrapper header check might omit basic auth header (incorrect inside pos)
-+--FILE--
-+<?php
-+$serverCode = <<<'CODE'
-+   $ctxt = stream_context_create([
-+        "socket" => [
-+            "tcp_nodelay" => true
-+        ]
-+    ]);
-+
-+    $server = stream_socket_server(
-+        "tcp://127.0.0.1:0", $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, $ctxt);
-+    phpt_notify_server_start($server);
-+
-+    $conn = stream_socket_accept($server);
-+
-+    phpt_notify(WORKER_DEFAULT_NAME, "server-accepted");
-+
-+    $result = '';
-+    while (strpos($result, "\r\n\r\n") === false && !feof($conn)) {
-+        $result .= fread($conn, 1024);
-+    }
-+    $encoded_result = base64_encode($result);
-+
-+    fwrite($conn, "HTTP/1.0 200 Ok\r\nContent-Type: text/html; charset=utf-8\r\n\r\n$encoded_result\r\n");
-+
-+CODE;
-+
-+$clientCode = <<<'CODE'
-+    $opts = [
-+        "http" => [
-+            "method" => "GET",
-+            "header" => "Cookie: foo=bar\nauthorization:x\r\n"
-+        ]
-+    ];
-+    $ctx = stream_context_create($opts);
-+    var_dump(explode("\r\n", base64_decode(file_get_contents("http://user:pwd@{{ ADDR }}", false, $ctx))));
-+    var_dump($http_response_header);
-+CODE;
-+
-+include sprintf("%s/ServerClientTestCase.inc", __DIR__);
-+ServerClientTestCase::getInstance()->run($clientCode, $serverCode);
-+?>
-+--EXPECTF--
-+array(7) {
-+  [0]=>
-+  string(14) "GET / HTTP/1.%d"
-+  [1]=>
-+  string(33) "Authorization: Basic dXNlcjpwd2Q="
-+  [2]=>
-+  string(21) "Host: 127.0.0.1:%d"
-+  [3]=>
-+  string(17) "Connection: close"
-+  [4]=>
-+  string(31) "Cookie: foo=bar
-+authorization:x"
-+  [5]=>
-+  string(0) ""
-+  [6]=>
-+  string(0) ""
-+}
-+array(2) {
-+  [0]=>
-+  string(15) "HTTP/1.0 200 Ok"
-+  [1]=>
-+  string(38) "Content-Type: text/html; charset=utf-8"
-+}
-diff --git a/ext/standard/tests/http/ghsa-hgf5-96fm-v528-002.phpt b/ext/standard/tests/http/ghsa-hgf5-96fm-v528-002.phpt
-new file mode 100644
-index 000000000..45bb0b14d
---- /dev/null
-+++ b/ext/standard/tests/http/ghsa-hgf5-96fm-v528-002.phpt
-@@ -0,0 +1,65 @@
-+--TEST--
-+GHSA-hgf5-96fm-v528: Header parser of http stream wrapper does not handle folded headers (correct start pos)
-+--FILE--
-+<?php
-+$serverCode = <<<'CODE'
-+   $ctxt = stream_context_create([
-+        "socket" => [
-+            "tcp_nodelay" => true
-+        ]
-+    ]);
-+
-+    $server = stream_socket_server(
-+        "tcp://127.0.0.1:0", $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, $ctxt);
-+    phpt_notify_server_start($server);
-+
-+    $conn = stream_socket_accept($server);
-+
-+    phpt_notify(WORKER_DEFAULT_NAME, "server-accepted");
-+
-+    $result = '';
-+    while (strpos($result, "\r\n\r\n") === false && !feof($conn)) {
-+        $result .= fread($conn, 1024);
-+    }
-+    $encoded_result = base64_encode($result);
-+
-+    fwrite($conn, "HTTP/1.0 200 Ok\r\nContent-Type: text/html; charset=utf-8\r\n\r\n$encoded_result\r\n");
-+
-+CODE;
-+
-+$clientCode = <<<'CODE'
-+    $opts = [
-+        "http" => [
-+            "method" => "GET",
-+            "header" => "Authorization: Bearer x\r\n"
-+        ]
-+    ];
-+    $ctx = stream_context_create($opts);
-+    var_dump(explode("\r\n", base64_decode(file_get_contents("http://user:pwd@{{ ADDR }}", false, $ctx))));
-+    var_dump($http_response_header);
-+CODE;
-+
-+include sprintf("%s/ServerClientTestCase.inc", __DIR__);
-+ServerClientTestCase::getInstance()->run($clientCode, $serverCode);
-+?>
-+--EXPECTF--
-+array(6) {
-+  [0]=>
-+  string(14) "GET / HTTP/1.%d"
-+  [1]=>
-+  string(21) "Host: 127.0.0.1:%d"
-+  [2]=>
-+  string(17) "Connection: close"
-+  [3]=>
-+  string(23) "Authorization: Bearer x"
-+  [4]=>
-+  string(0) ""
-+  [5]=>
-+  string(0) ""
-+}
-+array(2) {
-+  [0]=>
-+  string(15) "HTTP/1.0 200 Ok"
-+  [1]=>
-+  string(38) "Content-Type: text/html; charset=utf-8"
-+}
-diff --git a/ext/standard/tests/http/ghsa-hgf5-96fm-v528-003.phpt b/ext/standard/tests/http/ghsa-hgf5-96fm-v528-003.phpt
-new file mode 100644
-index 000000000..5ab91b2a8
---- /dev/null
-+++ b/ext/standard/tests/http/ghsa-hgf5-96fm-v528-003.phpt
-@@ -0,0 +1,67 @@
-+--TEST--
-+GHSA-hgf5-96fm-v528: Header parser of http stream wrapper does not handle folded headers (correct middle pos)
-+--FILE--
-+<?php
-+$serverCode = <<<'CODE'
-+   $ctxt = stream_context_create([
-+        "socket" => [
-+            "tcp_nodelay" => true
-+        ]
-+    ]);
-+
-+    $server = stream_socket_server(
-+        "tcp://127.0.0.1:0", $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, $ctxt);
-+    phpt_notify_server_start($server);
-+
-+    $conn = stream_socket_accept($server);
-+
-+    phpt_notify(WORKER_DEFAULT_NAME, "server-accepted");
-+
-+    $result = '';
-+    while (strpos($result, "\r\n\r\n") === false && !feof($conn)) {
-+        $result .= fread($conn, 1024);
-+    }
-+    $encoded_result = base64_encode($result);
-+
-+    fwrite($conn, "HTTP/1.0 200 Ok\r\nContent-Type: text/html; charset=utf-8\r\n\r\n$encoded_result\r\n");
-+
-+CODE;
-+
-+$clientCode = <<<'CODE'
-+    $opts = [
-+        "http" => [
-+            "method" => "GET",
-+            "header" => "Cookie: x=y\r\nAuthorization: Bearer x\r\n"
-+        ]
-+    ];
-+    $ctx = stream_context_create($opts);
-+    var_dump(explode("\r\n", base64_decode(file_get_contents("http://user:pwd@{{ ADDR }}", false, $ctx))));
-+    var_dump($http_response_header);
-+CODE;
-+
-+include sprintf("%s/ServerClientTestCase.inc", __DIR__);
-+ServerClientTestCase::getInstance()->run($clientCode, $serverCode);
-+?>
-+--EXPECTF--
-+array(7) {
-+  [0]=>
-+  string(14) "GET / HTTP/1.%d"
-+  [1]=>
-+  string(21) "Host: 127.0.0.1:%d"
-+  [2]=>
-+  string(17) "Connection: close"
-+  [3]=>
-+  string(11) "Cookie: x=y"
-+  [4]=>
-+  string(23) "Authorization: Bearer x"
-+  [5]=>
-+  string(0) ""
-+  [6]=>
-+  string(0) ""
-+}
-+array(2) {
-+  [0]=>
-+  string(15) "HTTP/1.0 200 Ok"
-+  [1]=>
-+  string(38) "Content-Type: text/html; charset=utf-8"
-+}
 diff --git a/ext/standard/tests/http/ghsa-pcmh-g36c-qc44-001.phpt b/ext/standard/tests/http/ghsa-pcmh-g36c-qc44-001.phpt
 new file mode 100644
-index 000000000..f491acfae
+index 00000000..f491acfa
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-pcmh-g36c-qc44-001.phpt
 @@ -0,0 +1,51 @@
@@ -1372,7 +889,7 @@ index 000000000..f491acfae
 +}
 diff --git a/ext/standard/tests/http/ghsa-pcmh-g36c-qc44-002.phpt b/ext/standard/tests/http/ghsa-pcmh-g36c-qc44-002.phpt
 new file mode 100644
-index 000000000..4320b17b9
+index 00000000..4320b17b
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-pcmh-g36c-qc44-002.phpt
 @@ -0,0 +1,51 @@
@@ -1429,7 +946,7 @@ index 000000000..4320b17b9
 +}
 diff --git a/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-001.phpt b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-001.phpt
 new file mode 100644
-index 000000000..3f1cc79bd
+index 00000000..3f1cc79b
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-001.phpt
 @@ -0,0 +1,49 @@
@@ -1484,7 +1001,7 @@ index 000000000..3f1cc79bd
 +}
 diff --git a/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-002.phpt b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-002.phpt
 new file mode 100644
-index 000000000..c7c13877f
+index 00000000..c7c13877
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-002.phpt
 @@ -0,0 +1,51 @@
@@ -1541,7 +1058,7 @@ index 000000000..c7c13877f
 +}
 diff --git a/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-003.phpt b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-003.phpt
 new file mode 100644
-index 000000000..c67663b65
+index 00000000..c67663b6
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-003.phpt
 @@ -0,0 +1,49 @@
@@ -1596,7 +1113,7 @@ index 000000000..c67663b65
 +}
 diff --git a/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-004.phpt b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-004.phpt
 new file mode 100644
-index 000000000..7a59e2688
+index 00000000..7a59e268
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-004.phpt
 @@ -0,0 +1,48 @@
@@ -1650,7 +1167,7 @@ index 000000000..7a59e2688
 +}
 diff --git a/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-005.phpt b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-005.phpt
 new file mode 100644
-index 000000000..f097762ef
+index 00000000..f097762e
 --- /dev/null
 +++ b/ext/standard/tests/http/ghsa-v8xr-gpvj-cx9g-005.phpt
 @@ -0,0 +1,48 @@
@@ -1704,7 +1221,7 @@ index 000000000..f097762ef
 +}
 diff --git a/ext/standard/tests/http/http_empty_location_no_redirect.phpt b/ext/standard/tests/http/http_empty_location_no_redirect.phpt
 new file mode 100644
-index 000000000..e4e4d6ac8
+index 00000000..e4e4d6ac
 --- /dev/null
 +++ b/ext/standard/tests/http/http_empty_location_no_redirect.phpt
 @@ -0,0 +1,41 @@
@@ -1751,7 +1268,7 @@ index 000000000..e4e4d6ac8
 +string(9) "Location:"
 diff --git a/ext/standard/tests/http/http_single_char_location_redirect.phpt b/ext/standard/tests/http/http_single_char_location_redirect.phpt
 new file mode 100644
-index 000000000..7888bae6e
+index 00000000..7888bae6
 --- /dev/null
 +++ b/ext/standard/tests/http/http_single_char_location_redirect.phpt
 @@ -0,0 +1,39 @@

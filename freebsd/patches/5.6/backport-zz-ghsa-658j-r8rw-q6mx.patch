@@ -1,8 +1,8 @@
-Description: GHSA-658j-r8rw-q6mx (CVE-2026-115560, the PHP security release of 19.11.2026): session.upload_progress.enabled is off by default; for 5.6: the default off, rfc1867_enabled reset in GINIT, the guard (a warning and FAILURE, as the other checks of 5.6) in the INI handlers of 5.6 that set the save handler, the serializer, the save path, the name and the hash function, and in OnUpdateSessionLong, OnUpdateSessionString and OnUpdateSessionBool, wrappers of the standard handlers that the long, string and boolean settings of the session take here as in PHP 7.2 and later (gc_*, cookie_*, use_cookies, use_only_cookies, use_strict_mode, referer_check, entropy_*, cache_*, hash_bits_per_character), as the fix guards those; session.auto_start (PHP_INI_PERDIR), use_trans_sid and upload_progress.* not, as there; its tests not taken
+Description: GHSA-658j-r8rw-q6mx (CVE-2026-115560, the PHP security release of 19.11.2026): session.upload_progress.enabled is off by default; for 5.6: the default off, rfc1867_enabled reset in GINIT, the guard (a warning and FAILURE, as the other checks of 5.6) in the INI handlers of 5.6 that set the save handler, the serializer, the save path, the name and the hash function, and in OnUpdateSessionLong, OnUpdateSessionString and OnUpdateSessionBool, wrappers of the standard handlers that the long, string and boolean settings of the session take here as in PHP 7.2 and later (gc_*, cookie_*, use_cookies, use_only_cookies, use_strict_mode, referer_check, entropy_*, cache_*, hash_bits_per_character), as the fix guards those; session.auto_start (PHP_INI_PERDIR), use_trans_sid and upload_progress.* not, as there; its tests not taken The default off and the reset of rfc1867_enabled in GINIT are in Remi's branch (f98c3c2b, 17.11.2026); this patch adds the guard.
 Origin: php-src commit 3f70f66611583bca4ec18385f7f407e2808fa61f (Arnaud Le Blanc, 09.11.2026, PHP 8.2.36)
 
 diff --git a/ext/session/session.c b/ext/session/session.c
-index 0d1e8a2ee5..1aff3696ad 100644
+index ff573243..8482aa8c 100644
 --- a/ext/session/session.c
 +++ b/ext/session/session.c
 @@ -86,6 +86,12 @@ zend_class_entry *php_session_id_iface_entry;
@@ -89,7 +89,7 @@ index 0d1e8a2ee5..1aff3696ad 100644
  /* {{{ PHP_INI
   */
  PHP_INI_BEGIN()
-@@ -789,38 +824,38 @@ PHP_INI_BEGIN()
+@@ -789,34 +824,34 @@ PHP_INI_BEGIN()
  	STD_PHP_INI_ENTRY("session.name",               "PHPSESSID", PHP_INI_ALL, OnUpdateName, session_name,       php_ps_globals,    ps_globals)
  	PHP_INI_ENTRY("session.save_handler",           "files",     PHP_INI_ALL, OnUpdateSaveHandler)
  	STD_PHP_INI_BOOLEAN("session.auto_start",       "0",         PHP_INI_PERDIR, OnUpdateBool,   auto_start,         php_ps_globals,    ps_globals)
@@ -145,16 +145,3 @@ index 0d1e8a2ee5..1aff3696ad 100644
  
  	/* Upload progress */
  	STD_PHP_INI_BOOLEAN("session.upload_progress.enabled",
--	                                                "1",     ZEND_INI_PERDIR, OnUpdateBool,        rfc1867_enabled, php_ps_globals, ps_globals)
-+	                                                "0",     ZEND_INI_PERDIR, OnUpdateBool,        rfc1867_enabled, php_ps_globals, ps_globals)
- 	STD_PHP_INI_BOOLEAN("session.upload_progress.cleanup",
- 	                                                "1",     ZEND_INI_PERDIR, OnUpdateBool,        rfc1867_cleanup, php_ps_globals, ps_globals)
- 	STD_PHP_INI_ENTRY("session.upload_progress.prefix",
-@@ -2438,6 +2473,7 @@ static PHP_GINIT_FUNCTION(ps) /* {{{ */
- 	ps_globals->mod = NULL;
- 	ps_globals->serializer = NULL;
- 	ps_globals->mod_data = NULL;
-+	ps_globals->rfc1867_enabled = 0;
- 	ps_globals->session_status = php_session_none;
- 	ps_globals->default_mod = NULL;
- 	ps_globals->mod_user_implemented = 0;

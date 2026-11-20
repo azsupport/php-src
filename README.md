@@ -65,7 +65,7 @@ The tarball links lead to the releases `freebsd-<version>-latest`.
 |---|---|---|
 | `freebsd/8.2`, `freebsd/8.3`, `freebsd/8.4` | the official fixed releases 8.2.35, 8.3.36 and 8.4.27 | the complete fix |
 | `freebsd/7.4`, `freebsd/8.1` | the commit "Avoid state corruption via bailout" (Arnaud Le Blanc) from Remi Collet's branches, the minimal source backport that the PHP security team provided for 7.4, 8.0 and 8.1 | smaller than the complete fix of 8.2+ (for example, it disables session upload progress in the code): keep the configuration mitigations from the announcement |
-| `freebsd/5.6` | a port of that same commit to the PHP 5 engine (below) | not reviewed upstream: keep the configuration mitigations from the announcement |
+| `freebsd/5.6` | a port of that same commit to the PHP 5 engine, in Remi Collet's branch since 17.11.2026 (below) | not reviewed upstream: keep the configuration mitigations from the announcement |
 
 The port for 5.6:
 
@@ -77,32 +77,29 @@ The port for 5.6:
 | Session upload progress | off in the code |
 | Memory exhaustion | the worker exits at once, as with the official fix: shutdown functions do not run and buffered output is lost; the error goes to stderr (the php-fpm or Apache error log) |
 
-The port is in two parts:
+Remi Collet's 5.6 branch has had this port since 17.11.2026 ([f98c3c2b](https://github.com/remicollet/php-src-security/tree/f98c3c2b5ffca6bed55e6d514307facdcfc35f78)), with the
+singleton arrays of `$_GET`, `$_POST` and `$_COOKIE` and the reset of `SG(callback_func)`
+that our second patch added on top of [pull request #32](https://github.com/remicollet/php-src-security/pull/32);
+`freebsd/5.6` dropped its own two patches for it (`backport-php2shell-1.patch`,
+`backport-php2shell-2-extra.patch`) on 20.11.2026.
 
-| Part | Patch |
-|---|---|
-| 1 | [`backport-php2shell-1.patch`](freebsd/patches/5.6/backport-php2shell-1.patch): the code proposed to Remi Collet's branch in [pull request #32](https://github.com/remicollet/php-src-security/pull/32), the same code as our own port, as it is, so that the sync skips it once his branch has it |
-| 2 | [`backport-php2shell-2-extra.patch`](freebsd/patches/5.6/backport-php2shell-2-extra.patch): what the official fix and the other 5.6 ports known to us (Ondřej Surý's php5.6 5.6.40-104, patch 0261, and [vperetti](https://github.com/vperetti/php-cve-2026-109618-109619-backports)'s) have and that pull request has not: the smallest arrays for `$_GET`, `$_POST`, `$_COOKIE`, the earlier reset of the exception after the objects are freed, and the reset of the header callback |
-
-**The fixes of July to October 2026 in 5.6.** Remi Collet's 5.6 branch has had no
-update since 02.07.2026, while his 7.4 branch got the fixes of the PHP releases of
-July to October 2026. `freebsd/5.6` carries our ports of them, one patch per area in
+**The fixes of July to October 2026 in 5.6.** Remi Collet's 5.6 branch got most of
+them on 17.11.2026 ([NEWS of f98c3c2b](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS)): pgsql (GHSA-7qpv-r5mr-78m4), phar tar
+(GHSA-vc5h-9ppw-p5f3, GHSA-j3wh-g957-2m85), the convert.* filters (GHSA-88hq-2827-7pg6),
+FPM `listen.allowed_clients` (GHSA-62xp-839h-2637), OpenSSL peer names (GHSA-vvx9-73fr-5jjx,
+GHSA-xr7j-rvgx-xq5p), SOAP (GHSA-rgrp-mwpx-f6rm, GHSA-cj93-vc83-wgqv), filter
+(GHSA-ch8v-r6jh-4vvr), credentials on redirects (GHSA-fpwc-w8rq-cr92) and the mysqlnd
+hardening of 2024 (GHSA-h35g-vwh6-m678). `freebsd/5.6` dropped its ports of those on
+20.11.2026 and carries only what his branch lacks, one patch per area in
 [`freebsd/patches/5.6/`](freebsd/patches/5.6) (`backport-*.patch`, the upstream
 commits in each `Origin:` line), with their tests:
 
 | Area (patch) | Fixes |
 |---|---|
 | [GD: GIF](freebsd/patches/5.6/backport-gd-gif-lzw.patch) | CVE-2026-9672: GIF LZW decoder of the bundled libgd |
-| [pgsql](freebsd/patches/5.6/backport-pgsql-quotes.patch) | GHSA-7qpv-r5mr-78m4 (CVE-2026-17543): SQL injection through `pg_insert()` and co. (`E'...'` quoting) |
-| [phar: tar](freebsd/patches/5.6/backport-phar-tar.patch) | GHSA-vc5h-9ppw-p5f3 (CVE-2026-7260): loops of symbolic links in tar archives; GHSA-j3wh-g957-2m85: tar entry injection |
 | [DatePeriod](freebsd/patches/5.6/backport-date-period.patch) | double `DatePeriod::__construct()` (leak), arguments not initialized by their constructor |
-| [convert.* filters](freebsd/patches/5.6/backport-convert-filters.patch) | GHSA-88hq-2827-7pg6: heap over-read in the convert.* stream filters |
-| [FPM](freebsd/patches/5.6/backport-fpm-allowed-clients.patch) | GHSA-62xp-839h-2637: `listen.allowed_clients` compared 96 of 128 bits of IPv6 addresses |
-| [OpenSSL](freebsd/patches/5.6/backport-openssl-peer-name.patch) | GHSA-vvx9-73fr-5jjx: no CN fallback with a DNS, URI or SRV name in the certificate; GHSA-xr7j-rvgx-xq5p: over-read in the wildcard match |
-| [HTTP redirects](freebsd/patches/5.6/backport-http-redirects.patch) | GHSA-fpwc-w8rq-cr92: credentials kept on redirects to another origin; GH-11274: 307/308 keep POST |
-| [SOAP](freebsd/patches/5.6/backport-soap.patch) | GHSA-rgrp-mwpx-f6rm: unbounded recursion in ext/soap; GHSA-cj93-vc83-wgqv: chunk sizes of the SOAP HTTP client |
-| [filter](freebsd/patches/5.6/backport-filter-encoded.patch) | GHSA-ch8v-r6jh-4vvr: `FILTER_SANITIZE_ENCODED` left 0xFF as it is |
-| [mysqlnd](freebsd/patches/5.6/backport-mysqlnd-overread.patch) | GHSA-h35g-vwh6-m678 (CVE-2024-8929) and the partial fix of GHSA-r6x9-5r99-36j7: a hostile MySQL server leaking heap bytes through packet over-reads in mysqlnd |
+| [HTTP redirects](freebsd/patches/5.6/backport-http-redirects.patch) | GH-11274: 307/308 keep POST, on the GHSA-fpwc-w8rq-cr92 fix of Remi's branch |
+| [mysqlnd](freebsd/patches/5.6/backport-mysqlnd-overread.patch) | the partial fix of GHSA-r6x9-5r99-36j7, on the GHSA-h35g-vwh6-m678 (CVE-2024-8929) fix of Remi's branch: a hostile MySQL server leaking heap bytes through packet over-reads in mysqlnd |
 
 Not ported:
 
@@ -110,28 +107,27 @@ Not ported:
 |---|---|
 | GHSA-9f67-6fw4-hpfp | Windows only |
 
-The mysqlnd fix needed the 2024 hardening (GHSA-h35g-vwh6-m678, CVE-2024-8929) too,
-which neither Remi Collet's nor Ondřej Surý's 5.6 has, so
-`backport-mysqlnd-overread.patch` carries over both the 2024 commit and the 2026
-partial fix from PHP 7.4, with the fake-server protocol tests adapted to 5.6. Of these,
+The mysqlnd fix needs the 2024 hardening (GHSA-h35g-vwh6-m678, CVE-2024-8929) first:
+Remi Collet's 5.6 branch has it since 17.11.2026, with Ondřej Surý's follow-ups, so
+`backport-mysqlnd-overread.patch` carries the 2026 partial fix from PHP 7.4 on top of
+it, with 31 fake-server protocol tests adapted to 5.6 (all 50 with his pass). Of the
+fixes of this period,
 TuxCare's alt-php56 5.6.40-135 (errata of 10.08.2026, for example
 [CLSA-2026:1786360064](https://errata.tuxcare.com/els_alt_php/el8/CLSA-2026-1786360064.html))
 fixes CVE-2026-9672, CVE-2026-17543 and CVE-2026-7260.
 
-**The fixes of 2025 and May 2026 in 5.6.** Remi Collet's 5.6 branch has no commit
-from 22.11.2024 to 25.04.2026, so it lacks the fixes of the PHP releases of that time,
-and two of May 2026. `freebsd/5.6` carries our ports of them (04.11.2026), with their
-tests:
+**The fixes of 2025 and May 2026 in 5.6.** Remi Collet's 5.6 branch had no commit
+from 22.11.2024 to 25.04.2026; on 17.11.2026 it got the fixes for host names
+(GHSA-3cr5-j632-f35r), the network functions (GHSA-www2-q4fc-65wf), pgsql escaping
+(GHSA-hrwm-9436-5mv3) and SOAP (GHSA-85c2-q967-79q5, GHSA-453j-q27h-5p8x), and parts of
+those for the HTTP response headers (GHSA-hgf5-96fm-v528) and getimagesize().
+`freebsd/5.6` carries our ports of the rest (04.11.2026, rebuilt on his branch on
+20.11.2026), with their tests:
 
 | Area (patch) | Fixes |
 |---|---|
 | [HTTP response headers](freebsd/patches/5.6/backport-http-response-headers.patch) | GHSA-v8xr-gpvj-cx9g (CVE-2025-1217): folded headers; GHSA-pcmh-g36c-qc44 (CVE-2025-1734): header lines without a colon; GHSA-52jp-hrpf-2jff (CVE-2025-1861): `Location` cut at 1024 bytes; GHSA-hgf5-96fm-v528 (CVE-2025-1736): the `Authorization` header from the URL left out; with the bounds checks of GH-23467 (CVE-2026-93682) and GH-23521 for a relative `Location` |
 | [getimagesize()](freebsd/patches/5.6/backport-getimagesize.patch) | GHSA-3237-qqm7-mfv7 (CVE-2025-14177): process memory in `$imageinfo` |
-| [host names](freebsd/patches/5.6/backport-hostname-nul.patch) | GHSA-3cr5-j632-f35r (CVE-2025-1220): a NUL byte in a host name |
-| [network functions](freebsd/patches/5.6/backport-network-nul.patch) | GHSA-www2-q4fc-65wf: a NUL byte in the arguments of `dns_get_record()`, `ip2long()` and others |
-| [pgsql escaping](freebsd/patches/5.6/backport-pgsql-unchecked-escape.patch) | GHSA-hrwm-9436-5mv3 (CVE-2025-1735): escaping errors not checked in pgsql and pdo_pgsql |
-| [SOAP: href map](freebsd/patches/5.6/backport-soap-ref-map.patch) | GHSA-85c2-q967-79q5 (CVE-2026-6722): use after free with an Apache Map and an href |
-| [SOAP: names](freebsd/patches/5.6/backport-soap-qname.patch) | GHSA-453j-q27h-5p8x (CVE-2025-6491): a NULL node name with libxml2 older than 2.13 (the servers have 2.15: for completeness) |
 | [ctype](freebsd/patches/5.6/backport-unsigned-char-ctype.patch) | GHSA-m8rr-4c36-8gq4 (CVE-2026-7258): negative values handed to the ctype.h functions (the libc of FreeBSD checks them: for completeness) |
 | [XML: test](freebsd/patches/5.6/backport-xml-toffset-test.patch) | GHSA-wg4p-4hqh-c3g9: the test only, 5.6 is not affected |
 
@@ -151,8 +147,9 @@ charset from the Content-Type of a libxml stream) and GHSA-h96m-rvf9-jgm2
 **The PHP security release of 19.11.2026 in 5.6.** Remi Collet's 7.4 and 8.1
 branches have its twelve fixes since the evening of the release (his commits of
 17.11.2026, published 19.11.2026), and with them the fixes of CVE-2024-11235 and
-GH-12705 that `freebsd/7.4` and `freebsd/8.1` carried as backports; his 5.6 branch has
-none of them. So `freebsd/5.6` carries our ports of the twelve fixes of PHP 8.2.36
+GH-12705 that `freebsd/7.4` and `freebsd/8.1` carried as backports; his 5.6 branch got ten
+of them on 17.11.2026 ([NEWS of f98c3c2b](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS)), all but GHSA-mmf9-xm3v-hg2x and the guard
+of GHSA-658j-r8rw-q6mx. So `freebsd/5.6` carries our ports of those two fixes of PHP 8.2.36
 (the commits of php-src named in the `Origin:` line of each patch), in
 `backport-zz-ghsa-*.patch`: `zz`, so that they come after the other backports, whose
 code some of them change. They are the code adapted to 5.6 (the `Description:` line
@@ -170,17 +167,17 @@ does, [7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch).
 
 | Advisory | Fixes | Patches |
 |---|---|---|
-| GHSA-5j3f-64r7-f564 (CVE-2026-129538) | CGI: an underflow of PATH_INFO in `init_request_info()` | [5.6](freebsd/patches/5.6/backport-zz-ghsa-5j3f-64r7-f564.patch) |
-| GHSA-gr4f-wgx5-jpfv (CVE-2026-129496) | the error log: a use after free of the time zone cache outside of a request | [5.6](freebsd/patches/5.6/backport-zz-ghsa-gr4f-wgx5-jpfv.patch) |
-| GHSA-qc49-hpvq-g2w6 (CVE-2026-129289) | FastCGI: an unread request body taken for the next request (smuggling) | [5.6](freebsd/patches/5.6/backport-zz-ghsa-qc49-hpvq-g2w6.patch) |
-| GHSA-3mg3-cr28-46gc (CVE-2026-129292) | FPM: the method, the user and the script unescaped on the status page (XSS) | [5.6](freebsd/patches/5.6/backport-zz-ghsa-3mg3-cr28-46gc.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch) (the JSON page) |
-| GHSA-jm4m-qfqx-967m (CVE-2026-129291) | FPM: a stdio pipe of a worker closed twice | [5.6](freebsd/patches/5.6/backport-zz-ghsa-jm4m-qfqx-967m.patch) |
-| GHSA-68fq-fh7h-f8gr (CVE-2026-128090) | phar: a keyless signature accepted where a `.pubkey` asks for OpenSSL | [5.6](freebsd/patches/5.6/backport-zz-ghsa-68fq-fh7h-f8gr.patch) |
-| GHSA-fm2m-fjf5-v3cp (CVE-2026-126714) | session files: a write cut short left a mix of two sessions | [5.6](freebsd/patches/5.6/backport-zz-ghsa-fm2m-fjf5-v3cp.patch) |
+| GHSA-5j3f-64r7-f564 (CVE-2026-129538) | CGI: an underflow of PATH_INFO in `init_request_info()` | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
+| GHSA-gr4f-wgx5-jpfv (CVE-2026-129496) | the error log: a use after free of the time zone cache outside of a request | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
+| GHSA-qc49-hpvq-g2w6 (CVE-2026-129289) | FastCGI: an unread request body taken for the next request (smuggling) | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
+| GHSA-3mg3-cr28-46gc (CVE-2026-129292) | FPM: the method, the user and the script unescaped on the status page (XSS) | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS), [7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch) (the JSON page) |
+| GHSA-jm4m-qfqx-967m (CVE-2026-129291) | FPM: a stdio pipe of a worker closed twice | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
+| GHSA-68fq-fh7h-f8gr (CVE-2026-128090) | phar: a keyless signature accepted where a `.pubkey` asks for OpenSSL | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
+| GHSA-fm2m-fjf5-v3cp (CVE-2026-126714) | session files: a write cut short left a mix of two sessions | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
 | GHSA-658j-r8rw-q6mx (CVE-2026-115560) | session upload progress: off by default, the session settings not to be changed at run time while it is on | [5.6](freebsd/patches/5.6/backport-zz-ghsa-658j-r8rw-q6mx.patch) |
-| GHSA-q23r-hr55-xmpg (CVE-2026-15353) | SOAP: an out-of-bounds read on an empty `arraySize` | [5.6](freebsd/patches/5.6/backport-zz-ghsa-q23r-hr55-xmpg.patch) |
-| GHSA-4646-p932-gw34 (CVE-2026-129506) | SOAP: the DTD freed while its entities were still in use | [5.6](freebsd/patches/5.6/backport-zz-ghsa-4646-p932-gw34.patch) |
-| GHSA-f6gg-rchx-xw8j (CVE-2026-128064) | `HTTPS://` and `FTPS://` in capitals went in plain text | [5.6](freebsd/patches/5.6/backport-zz-ghsa-f6gg-rchx-xw8j.patch) |
+| GHSA-q23r-hr55-xmpg (CVE-2026-15353) | SOAP: an out-of-bounds read on an empty `arraySize` | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
+| GHSA-4646-p932-gw34 (CVE-2026-129506) | SOAP: the DTD freed while its entities were still in use | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
+| GHSA-f6gg-rchx-xw8j (CVE-2026-128064) | `HTTPS://` and `FTPS://` in capitals went in plain text | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
 | GHSA-mmf9-xm3v-hg2x (CVE-2026-127960) | HTTP: a header of many folded lines was joined in quadratic time | [5.6](freebsd/patches/5.6/backport-zz-ghsa-mmf9-xm3v-hg2x.patch) |
 
 What changes for scripts: `session.upload_progress.enabled` is off by default (on

@@ -1,8 +1,8 @@
 Description: GHSA-3237-qqm7-mfv7 (CVE-2025-14177): getimagesize() reads an APPn segment of a JPEG from a stream in chunks until it has the whole segment, instead of handing back in $imageinfo a buffer that a short read left partly uninitialized (a leak of process memory).
-Origin: php-src commit 6cf0fb3c48fd (GH-20584, 25.11.2025, Niels Dossche) of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports), with its test
+Origin: php-src commit 6cf0fb3c48fd (GH-20584, 25.11.2025, Niels Dossche) of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports), with its test; on Remi's 5.6 branch f98c3c2b (17.11.2026), which already refuses a short read (!= length): the chunked read of upstream replaces that check
 
 diff --git a/ext/standard/image.c b/ext/standard/image.c
-index db64b3a48..113b056aa 100644
+index 03d45e88..113b056a 100644
 --- a/ext/standard/image.c
 +++ b/ext/standard/image.c
 @@ -423,6 +423,25 @@ static int php_skip_variable(php_stream * stream TSRMLS_DC)
@@ -35,14 +35,14 @@ index db64b3a48..113b056aa 100644
  
  	buffer = emalloc(length);
  
--	if (php_stream_read(stream, buffer, (long) length) <= 0) {
+-	if (php_stream_read(stream, buffer, (long) length) != length) {
 +	if (php_read_stream_all_chunks(stream, (char *) buffer, (size_t) length TSRMLS_CC) != length) {
  		efree(buffer);
  		return 0;
  	}
 diff --git a/ext/standard/tests/image/gh20584.phpt b/ext/standard/tests/image/gh20584.phpt
 new file mode 100644
-index 000000000..d117f2182
+index 00000000..d117f218
 --- /dev/null
 +++ b/ext/standard/tests/image/gh20584.phpt
 @@ -0,0 +1,39 @@
