@@ -163,14 +163,17 @@ CVE-2024-8929), которого нет ни в 5.6 у Remi Collet, ни у Ond�
 `freebsd/7.4` и `freebsd/8.1` добавляют её поверх его бэкпорта,
 [7.4](freebsd/patches/7.4/backport-zz-ghsa-658j-r8rw-q6mx-runtime.patch) и
 [8.1](freebsd/patches/8.1/backport-zz-ghsa-658j-r8rw-q6mx-runtime.patch) (с его
-тестом).
+тестом). Его исправление GHSA-3mg3-cr28-46gc в 7.4 экранирует пять полей страницы
+статуса FPM только для страниц HTML и XML (json в 7.4 бывает отдельным модулем, FPM
+его вызвать не может); `freebsd/7.4` экранирует их и на странице JSON, как 8.x,
+[7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch).
 
 | Уязвимость | Исправляет | Патчи |
 |---|---|---|
 | GHSA-5j3f-64r7-f564 (CVE-2026-129538) | CGI: выход за начало PATH_INFO в `init_request_info()` | [5.6](freebsd/patches/5.6/backport-zz-ghsa-5j3f-64r7-f564.patch) |
 | GHSA-gr4f-wgx5-jpfv (CVE-2026-129496) | журнал ошибок: обращение к освобождённому кэшу часовых поясов вне запроса | [5.6](freebsd/patches/5.6/backport-zz-ghsa-gr4f-wgx5-jpfv.patch) |
 | GHSA-qc49-hpvq-g2w6 (CVE-2026-129289) | FastCGI: непрочитанное тело запроса принималось за следующий запрос | [5.6](freebsd/patches/5.6/backport-zz-ghsa-qc49-hpvq-g2w6.patch) |
-| GHSA-3mg3-cr28-46gc (CVE-2026-129292) | FPM: метод, пользователь и скрипт без экранирования на странице статуса (XSS) | [5.6](freebsd/patches/5.6/backport-zz-ghsa-3mg3-cr28-46gc.patch) |
+| GHSA-3mg3-cr28-46gc (CVE-2026-129292) | FPM: метод, пользователь и скрипт без экранирования на странице статуса (XSS) | [5.6](freebsd/patches/5.6/backport-zz-ghsa-3mg3-cr28-46gc.patch), [7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch) (страница JSON) |
 | GHSA-jm4m-qfqx-967m (CVE-2026-129291) | FPM: канал stdio рабочего процесса закрывался дважды | [5.6](freebsd/patches/5.6/backport-zz-ghsa-jm4m-qfqx-967m.patch) |
 | GHSA-68fq-fh7h-f8gr (CVE-2026-128090) | phar: подпись без ключа принималась там, где `.pubkey` требует OpenSSL | [5.6](freebsd/patches/5.6/backport-zz-ghsa-68fq-fh7h-f8gr.patch) |
 | GHSA-fm2m-fjf5-v3cp (CVE-2026-126714) | файлы сессий: прерванная запись оставляла смесь двух сессий | [5.6](freebsd/patches/5.6/backport-zz-ghsa-fm2m-fjf5-v3cp.patch) |
