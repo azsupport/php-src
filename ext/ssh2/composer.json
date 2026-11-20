@@ -1,0 +1,19 @@
+{
+    "name": "pecl/ssh2",
+    "type": "php-ext",
+    "license": "PHP-3.01",
+    "description": "Bindings for the libssh2 library",
+    "require": {
+        "php": ">=8.0.0"
+    },
+    "php-ext": {
+        "extension-name": "ssh2",
+        "configure-options": [
+            {
+                "name": "with-ssh2",
+                "description": "libssh2 prefix path (autodetected if not given)",
+                "needs-value": false
+            }
+        ]
+    }
+}
