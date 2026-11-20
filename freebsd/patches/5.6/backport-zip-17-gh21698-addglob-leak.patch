@@ -1,0 +1,23 @@
+Description: GH-21698: addGlob() did not free the glob() result when no file matched or open_basedir refused the match (PHP 8.4.21, not in this branch); brought onto 5.6 by hand (its strncpy() copy before the open_basedir check); its tests not taken (PHP 7 and later)
+Origin: php-src commit 391ec277d5497dc0a801fd193905d021f1fb34a0 (David Carlier, 10.04.2026, PHP 8.4.21)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index ad11cba..d51e640 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -634,6 +634,7 @@ int php_zip_glob(char *pattern, int pattern_len, long flags, zval *return_value
+ 
+ 	/* now catch the FreeBSD style of "no matches" */
+ 	if (!globbuf.gl_pathc || !globbuf.gl_pathv) {
++		globfree(&globbuf);
+ 		array_init(return_value);
+ 		return 0;
+ 	}
+@@ -642,6 +643,7 @@ int php_zip_glob(char *pattern, int pattern_len, long flags, zval *return_value
+ 	   so checking the dirname of the first match should be sufficient */
+ 	strncpy(cwd, globbuf.gl_pathv[0], MAXPATHLEN);
+ 	if (ZIP_OPENBASEDIR_CHECKPATH(cwd)) {
++		globfree(&globbuf);
+ 		return -1;
+ 	}
+ 

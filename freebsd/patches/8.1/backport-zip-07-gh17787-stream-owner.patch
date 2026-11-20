@@ -1,0 +1,147 @@
+Description: GH-17787: a stream of getStream() borrows the zip_t of the archive; freeing the ZipArchive while the stream was open closed the archive under it (a short read, the pending changes lost); the stream keeps the archive alive now (PHP 8.4.26, not in this branch); brought onto getStream() and php_stream_zip_open() of 8.1, which has no getStreamIndex() and getStreamName(); its test with getStream() only; its tests taken
+Origin: php-src commit 5a326b9a432a8d7df6f814692391bbda15eeff4c (Eyüp Can Akman, 14.08.2026, PHP 8.4.26)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 6e42e01..96c34a0 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -2917,7 +2917,7 @@ PHP_METHOD(ZipArchive, getStream)
+ 		RETURN_FALSE;
+ 	}
+ 
+-	stream = php_stream_zip_open(intern, ZSTR_VAL(filename), mode STREAMS_CC);
++	stream = php_stream_zip_open(Z_ZIP_P(self), ZSTR_VAL(filename), mode STREAMS_CC);
+ 	if (stream) {
+ 		php_stream_to_zval(stream, return_value);
+ 	} else {
+diff --git a/ext/zip/php_zip.h b/ext/zip/php_zip.h
+index e98d2c4..088dab7 100644
+--- a/ext/zip/php_zip.h
++++ b/ext/zip/php_zip.h
+@@ -75,7 +75,7 @@ static inline ze_zip_object *php_zip_fetch_object(zend_object *obj) {
+ #define Z_ZIP_P(zv) php_zip_fetch_object(Z_OBJ_P((zv)))
+ 
+ php_stream *php_stream_zip_opener(php_stream_wrapper *wrapper, const char *path, const char *mode, int options, zend_string **opened_path, php_stream_context *context STREAMS_DC);
+-php_stream *php_stream_zip_open(struct zip *arch, const char *path, const char *mode STREAMS_DC);
++php_stream *php_stream_zip_open(ze_zip_object *obj, const char *path, const char *mode STREAMS_DC);
+ 
+ extern const php_stream_wrapper php_stream_zip_wrapper;
+ 
+diff --git a/ext/zip/tests/gh17787.phpt b/ext/zip/tests/gh17787.phpt
+new file mode 100644
+index 0000000..a817525
+--- /dev/null
++++ b/ext/zip/tests/gh17787.phpt
+@@ -0,0 +1,58 @@
++--TEST--
++GH-17787 (ZipArchive stream stops reading early when the archive is freed while the stream is open)
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$name = __DIR__ . '/gh17787.zip';
++$data = str_repeat("The quick brown fox jumps over the lazy dog.\n", 4000);
++
++$zip = new ZipArchive;
++$zip->open($name, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('entry.txt', $data);
++$zip->close();
++
++$zip = new ZipArchive;
++$zip->open($name, ZipArchive::RDONLY);
++$stream = $zip->getStream('entry.txt');
++$zip = null;
++
++var_dump(stream_get_contents($stream) === $data);
++fclose($stream);
++
++// Pending changes are still committed once the last stream is closed
++$name = __DIR__ . '/gh17787_write.zip';
++
++$zip = new ZipArchive;
++var_dump($zip->open($name, ZipArchive::CREATE | ZipArchive::OVERWRITE));
++$zip->addFromString('first.txt', 'first');
++$zip->close();
++
++$zip = new ZipArchive;
++var_dump($zip->open($name));
++$zip->addFromString('second.txt', 'second');
++$stream = $zip->getStream('first.txt');
++$zip = null;
++
++var_dump(stream_get_contents($stream));
++fclose($stream);
++
++$zip = new ZipArchive;
++var_dump($zip->open($name, ZipArchive::RDONLY));
++var_dump($zip->numFiles);
++var_dump($zip->getFromName('second.txt'));
++$zip->close();
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh17787.zip');
++@unlink(__DIR__ . '/gh17787_write.zip');
++?>
++--EXPECT--
++bool(true)
++bool(true)
++bool(true)
++string(5) "first"
++bool(true)
++int(2)
++string(6) "second"
+diff --git a/ext/zip/zip_stream.c b/ext/zip/zip_stream.c
+index 3ee3144..ff76b41 100644
+--- a/ext/zip/zip_stream.c
++++ b/ext/zip/zip_stream.c
+@@ -36,6 +36,7 @@ struct php_zip_stream_data_t {
+ 	struct zip_file *zf;
+ 	size_t cursor;
+ 	php_stream *stream;
++	ze_zip_object *owner;
+ };
+ 
+ #define STREAM_DATA_FROM_STREAM() \
+@@ -103,6 +104,12 @@ static int php_zip_ops_close(php_stream *stream, int close_handle)
+ 			self->za = NULL;
+ 		}
+ 	}
++
++	/* the pinned object ref is tied to self, so release it regardless of close_handle */
++	if (self->owner) {
++		OBJ_RELEASE(&self->owner->zo);
++		self->owner = NULL;
++	}
+ 	efree(self);
+ 	stream->abstract = NULL;
+ 	return EOF;
+@@ -208,8 +215,9 @@ const php_stream_ops php_stream_zipio_ops = {
+ };
+ 
+ /* {{{ php_stream_zip_open */
+-php_stream *php_stream_zip_open(struct zip *arch, const char *path, const char *mode STREAMS_DC)
++php_stream *php_stream_zip_open(ze_zip_object *obj, const char *path, const char *mode STREAMS_DC)
+ {
++	struct zip *arch = obj->za;
+ 	struct zip_file *zf = NULL;
+ 
+ 	php_stream *stream = NULL;
+@@ -228,6 +236,9 @@ php_stream *php_stream_zip_open(struct zip *arch, const char *path, const char *
+ 			self->zf = zf;
+ 			self->stream = NULL;
+ 			self->cursor = 0;
++			/* keep the archive object alive while the stream borrows its zip_t */
++			self->owner = obj;
++			GC_ADDREF(&obj->zo);
+ 			stream = php_stream_alloc(&php_stream_zipio_ops, self, NULL, mode);
+ 			stream->orig_path = estrdup(path);
+ 		}
+@@ -307,6 +318,7 @@ php_stream *php_stream_zip_opener(php_stream_wrapper *wrapper,
+ 			self->zf = zf;
+ 			self->stream = NULL;
+ 			self->cursor = 0;
++			self->owner = NULL;
+ 			stream = php_stream_alloc(&php_stream_zipio_ops, self, NULL, mode);
+ 
+ 			if (opened_path) {

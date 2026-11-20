@@ -1,0 +1,66 @@
+Description: getNameIndex() cast the index to int, so an index past 2^32 wrapped and named another entry (PHP 8.4.26, not in this branch); its tests taken
+Origin: php-src commit 473a7e04515f19612ade59e489671e5d49a0fab4 (David Carlier, 29.08.2026, PHP 8.4.26)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 1763811..b5731dd 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -2119,7 +2119,7 @@ PHP_METHOD(ZipArchive, getNameIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
+-	name = zip_get_name(intern, (int) index, flags);
++	name = zip_get_name(intern, (zip_uint64_t) index, flags);
+ 
+ 	if (name) {
+ 		RETVAL_STRING((char *)name);
+diff --git a/ext/zip/tests/oo_getnameindex_large_index.phpt b/ext/zip/tests/oo_getnameindex_large_index.phpt
+new file mode 100644
+index 0000000..471dffc
+--- /dev/null
++++ b/ext/zip/tests/oo_getnameindex_large_index.phpt
+@@ -0,0 +1,44 @@
++--TEST--
++ZipArchive::getNameIndex() with an index that does not fit in an int
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++if (PHP_INT_SIZE != 8) die('skip 64-bit only');
++?>
++--FILE--
++<?php
++$file = __DIR__ . '/oo_getnameindex_large_index.zip';
++
++@unlink($file);
++
++$zip = new ZipArchive;
++if (!$zip->open($file, ZipArchive::CREATE)) {
++    exit('failed');
++}
++
++$zip->addFromString('entry1.txt', 'entry #1');
++$zip->close();
++
++if (!$zip->open($file)) {
++    exit('failed');
++}
++
++var_dump($zip->getNameIndex(0));
++var_dump($zip->getNameIndex(1 << 32));
++var_dump($zip->getNameIndex((1 << 32) + 1));
++var_dump($zip->getNameIndex(PHP_INT_MAX));
++var_dump($zip->getNameIndex(-1));
++
++$zip->close();
++?>
++--EXPECT--
++string(10) "entry1.txt"
++bool(false)
++bool(false)
++bool(false)
++bool(false)
++--CLEAN--
++<?php
++unlink(__DIR__ . '/oo_getnameindex_large_index.zip');
++?>

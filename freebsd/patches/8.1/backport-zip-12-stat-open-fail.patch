@@ -1,0 +1,61 @@
+Description: GH-23511: fstat() of a zip:// stream succeeded with an empty stat when the archive could not be opened (PHP 8.4.26, not in this branch); its tests taken
+Origin: php-src commit 614afe7b09fd37c57f71a02fecfac33191ea141a (David Carlier, 29.08.2026, PHP 8.4.26)
+
+diff --git a/ext/zip/tests/stream_fstat_unreadable_archive.phpt b/ext/zip/tests/stream_fstat_unreadable_archive.phpt
+new file mode 100644
+index 0000000..a81fc8f
+--- /dev/null
++++ b/ext/zip/tests/stream_fstat_unreadable_archive.phpt
+@@ -0,0 +1,38 @@
++--TEST--
++fstat() on a zip:// stream whose archive can no longer be opened
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++if (PHP_OS_FAMILY === 'Windows') die('skip the archive cannot be rewritten while it is open');
++?>
++--FILE--
++<?php
++$file = __DIR__ . '/stream_fstat_unreadable_archive.zip';
++
++@unlink($file);
++
++$zip = new ZipArchive;
++if (!$zip->open($file, ZipArchive::CREATE)) {
++    exit('failed');
++}
++
++$zip->addFromString('entry.txt', 'entry');
++$zip->close();
++
++$fp = fopen('zip://' . $file . '#entry.txt', 'rb');
++var_dump($fp !== false);
++
++file_put_contents($file, 'this is not a zip archive');
++
++var_dump(fstat($fp));
++
++fclose($fp);
++?>
++--EXPECT--
++bool(true)
++bool(false)
++--CLEAN--
++<?php
++unlink(__DIR__ . '/stream_fstat_unreadable_archive.zip');
++?>
+diff --git a/ext/zip/zip_stream.c b/ext/zip/zip_stream.c
+index 462edc6..0b13ee6 100644
+--- a/ext/zip/zip_stream.c
++++ b/ext/zip/zip_stream.c
+@@ -198,6 +198,9 @@ static int php_zip_ops_stat(php_stream *stream, php_stream_statbuf *ssb) /* {{{
+ 		ssb->sb.st_blocks = -1;
+ #endif
+ 		ssb->sb.st_ino = -1;
++	} else {
++		zend_string_release_ex(file_basename, 0);
++		return -1;
+ 	}
+ 	zend_string_release_ex(file_basename, 0);
+ 	return 0;

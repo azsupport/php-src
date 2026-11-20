@@ -1,0 +1,19 @@
+Description: phpinfo() reported the AES-128 support for AES-192 and AES-256 (PHP 8.4.26, not in this branch); its tests taken
+Origin: php-src commit d9c58ee8a2270b4c139a40001d75d31bd197217e (Weilin Du, 17.08.2026, PHP 8.4.26)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 153c7c7..5ebb30d 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -3327,9 +3327,9 @@ static PHP_MINFO_FUNCTION(zip)
+ 	php_info_print_table_row(2, "AES-128 encryption",
+ 		zip_encryption_method_supported(ZIP_EM_AES_128, 1) ? "Yes" : "No");
+ 	php_info_print_table_row(2, "AES-192 encryption",
+-		zip_encryption_method_supported(ZIP_EM_AES_128, 1) ? "Yes" : "No");
++		zip_encryption_method_supported(ZIP_EM_AES_192, 1) ? "Yes" : "No");
+ 	php_info_print_table_row(2, "AES-256 encryption",
+-		zip_encryption_method_supported(ZIP_EM_AES_128, 1) ? "Yes" : "No");
++		zip_encryption_method_supported(ZIP_EM_AES_256, 1) ? "Yes" : "No");
+ #endif
+ 
+ 	php_info_print_table_end();

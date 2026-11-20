@@ -1,0 +1,50 @@
+Description: GH-21698: addGlob() did not free the glob() result when no file matched or open_basedir refused the match (PHP 8.4.21, not in this branch); with the array_init() of the no-match return here; its test expects NULL, which addGlob() returns here when open_basedir refuses the match; its tests taken
+Origin: php-src commit 391ec277d5497dc0a801fd193905d021f1fb34a0 (David Carlier, 10.04.2026, PHP 8.4.21)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 1341b7b..083ca81 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -721,6 +721,7 @@ int php_zip_glob(char *pattern, int pattern_len, zend_long flags, zval *return_v
+ 
+ 	/* now catch the FreeBSD style of "no matches" */
+ 	if (!globbuf.gl_pathc || !globbuf.gl_pathv) {
++		globfree(&globbuf);
+ 		array_init(return_value);
+ 		return 0;
+ 	}
+@@ -728,6 +729,7 @@ int php_zip_glob(char *pattern, int pattern_len, zend_long flags, zval *return_v
+ 	/* we assume that any glob pattern will match files from one directory only
+ 	   so checking the dirname of the first match should be sufficient */
+ 	if (ZIP_OPENBASEDIR_CHECKPATH(globbuf.gl_pathv[0])) {
++		globfree(&globbuf);
+ 		return -1;
+ 	}
+ 
+diff --git a/ext/zip/tests/gh21698.phpt b/ext/zip/tests/gh21698.phpt
+new file mode 100644
+index 0000000..d7f86a3
+--- /dev/null
++++ b/ext/zip/tests/gh21698.phpt
+@@ -0,0 +1,21 @@
++--TEST--
++GH-21698 (ZipArchive::addGlob memory leak when open_basedir rejects the match)
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$zipfile = __DIR__ . '/gh21698.zip';
++$zip = new ZipArchive();
++$zip->open($zipfile, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++
++ini_set('open_basedir', '/nonexistent_dir_for_gh21698');
++var_dump($zip->addGlob(__FILE__, 0, []));
++$zip->close();
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh21698.zip');
++?>
++--EXPECTF--
++Warning: ZipArchive::addGlob(): open_basedir restriction in effect. File(%s) is not within the allowed path(s): (%s) in %s on line %d
++NULL

@@ -1,0 +1,62 @@
+Description: GH-22649: setting the inherited comment of an entry again after the entry was overwritten used a comment libzip had freed (a use-after-free in PHP_ZIP_SET_FILE_COMMENT) (PHP 8.4.24, not in this branch); brought onto 5.6 by hand: the deprecated zip_set_file_comment() calls of PHP_ZIP_SET_FILE_COMMENT replaced by php_zip_set_file_comment() on zip_file_get_comment() and zip_file_set_comment(); its tests not taken (PHP 7 and later)
+Origin: php-src commit ebed41a03b8b1f9135874d9aac1320d17eb37e95 (Weilin Du, 10.07.2026, PHP 8.4.24)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 89e9ca9..43e176a 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -93,17 +93,25 @@ static int le_zip_entry;
+ 	}
+ /* }}} */
+ 
+-/* {{{ PHP_ZIP_SET_FILE_COMMENT(za, index, comment, comment_len) */
+-#define PHP_ZIP_SET_FILE_COMMENT(za, index, comment, comment_len) \
+-	if (comment_len == 0) { \
+-		/* Passing NULL remove the existing comment */ \
+-		if (zip_set_file_comment(intern, index, NULL, 0) < 0) { \
+-			RETURN_FALSE; \
+-		} \
+-	} else if (zip_set_file_comment(intern, index, comment, comment_len) < 0) { \
+-		RETURN_FALSE; \
+-	} \
+-	RETURN_TRUE;
++/* {{{ php_zip_set_file_comment */
++static int php_zip_set_file_comment(struct zip *za, zip_uint64_t index, const char *comment, int comment_len)
++{
++	zip_uint32_t current_comment_len;
++	const char *current_comment = zip_file_get_comment(za, index, &current_comment_len, ZIP_FL_ENC_RAW);
++
++	/* Avoid a libzip use-after-free when resetting an unchanged inherited comment. */
++	if (current_comment && current_comment_len == (zip_uint32_t) comment_len
++			&& memcmp(current_comment, comment, comment_len) == 0) {
++		return 1;
++	}
++
++	if (comment_len == 0) {
++		/* Passing NULL removes the existing comment. */
++		return zip_file_set_comment(za, index, NULL, 0, 0) == 0;
++	}
++
++	return zip_file_set_comment(za, index, comment, (zip_uint16_t) comment_len, 0) == 0;
++}
+ /* }}} */
+ 
+ #if (PHP_MAJOR_VERSION < 6)
+@@ -2172,7 +2180,7 @@ static ZIPARCHIVE_METHOD(setCommentName)
+ 	if (idx < 0) {
+ 		RETURN_FALSE;
+ 	}
+-	PHP_ZIP_SET_FILE_COMMENT(intern, idx, comment, comment_len);
++	RETURN_BOOL(php_zip_set_file_comment(intern, (zip_uint64_t) idx, comment, comment_len));
+ }
+ /* }}} */
+ 
+@@ -2199,7 +2207,7 @@ static ZIPARCHIVE_METHOD(setCommentIndex)
+ 	}
+ 
+ 	PHP_ZIP_STAT_INDEX(intern, index, 0, sb);
+-	PHP_ZIP_SET_FILE_COMMENT(intern, index, comment, comment_len);
++	RETURN_BOOL(php_zip_set_file_comment(intern, (zip_uint64_t) index, comment, comment_len));
+ }
+ /* }}} */
+ 

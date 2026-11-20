@@ -1,0 +1,143 @@
+Description: GH-22649: setting the inherited comment of an entry again after the entry was overwritten used a comment libzip had freed (a use-after-free in PHP_ZIP_SET_FILE_COMMENT) (PHP 8.4.24, not in this branch); zend_bool and 1 (7.4 has no stdbool); its test with locateName() for the lastId of PHP 8; its tests taken
+Origin: php-src commit ebed41a03b8b1f9135874d9aac1320d17eb37e95 (Weilin Du, 10.07.2026, PHP 8.4.24)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 9167271..e5dd99b 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -76,17 +76,26 @@ static int le_zip_entry;
+ 	}
+ /* }}} */
+ 
+-/* {{{ PHP_ZIP_SET_FILE_COMMENT(za, index, comment, comment_len) */
+-#define PHP_ZIP_SET_FILE_COMMENT(za, index, comment, comment_len) \
+-	if (comment_len == 0) { \
+-		/* Passing NULL remove the existing comment */ \
+-		if (zip_file_set_comment(za, index, NULL, 0, 0) < 0) { \
+-			RETURN_FALSE; \
+-		} \
+-	} else if (zip_file_set_comment(za, index, comment, comment_len, 0) < 0) { \
+-		RETURN_FALSE; \
+-	} \
+-	RETURN_TRUE;
++/* {{{ php_zip_set_file_comment */
++static zend_bool php_zip_set_file_comment(struct zip *za, zip_uint64_t index, const char *comment, size_t comment_len)
++{
++	zip_uint32_t current_comment_len;
++	const char *current_comment = zip_file_get_comment(za, index, &current_comment_len, ZIP_FL_ENC_RAW);
++
++	/* Avoid a libzip use-after-free when resetting an unchanged inherited comment. */
++	if (current_comment && current_comment_len == comment_len
++			&& memcmp(current_comment, comment, comment_len) == 0) {
++		return 1;
++	}
++
++	if (comment_len == 0) {
++		/* Passing NULL removes the existing comment. */
++		return zip_file_set_comment(za, index, NULL, 0, 0) == 0;
++	}
++
++	ZEND_ASSERT(comment_len <= 0xffff);
++	return zip_file_set_comment(za, index, comment, (zip_uint16_t) comment_len, 0) == 0;
++}
+ /* }}} */
+ 
+ # define add_ascii_assoc_string add_assoc_string
+@@ -2042,7 +2051,7 @@ static ZIPARCHIVE_METHOD(setCommentName)
+ 	zval *self = ZEND_THIS;
+ 	size_t comment_len, name_len;
+ 	char * comment, *name;
+-	int idx;
++	zip_int64_t idx;
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
+@@ -2064,7 +2073,7 @@ static ZIPARCHIVE_METHOD(setCommentName)
+ 	if (idx < 0) {
+ 		RETURN_FALSE;
+ 	}
+-	PHP_ZIP_SET_FILE_COMMENT(intern, idx, comment, comment_len);
++	RETURN_BOOL(php_zip_set_file_comment(intern, (zip_uint64_t) idx, comment, comment_len));
+ }
+ /* }}} */
+ 
+@@ -2078,6 +2087,7 @@ static ZIPARCHIVE_METHOD(setCommentIndex)
+ 	size_t comment_len;
+ 	char * comment;
+ 	struct zip_stat sb;
++	zip_uint64_t idx;
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
+@@ -2092,7 +2102,9 @@ static ZIPARCHIVE_METHOD(setCommentIndex)
+ 	}
+ 
+ 	PHP_ZIP_STAT_INDEX(intern, index, 0, sb);
+-	PHP_ZIP_SET_FILE_COMMENT(intern, index, comment, comment_len);
++	idx = (zip_uint64_t) index;
++
++	RETURN_BOOL(php_zip_set_file_comment(intern, idx, comment, comment_len));
+ }
+ /* }}} */
+ 
+diff --git a/ext/zip/tests/gh22649.phpt b/ext/zip/tests/gh22649.phpt
+new file mode 100644
+index 0000000..696e50c
+--- /dev/null
++++ b/ext/zip/tests/gh22649.phpt
+@@ -0,0 +1,55 @@
++--TEST--
++GH-22649 (setCommentName/Index after addFromString should not segfault)
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$file = __DIR__ . '/gh22649.zip';
++
++@unlink($file);
++
++$zip = new ZipArchive;
++if (!$zip->open($file, ZipArchive::CREATE)) {
++    exit('failed');
++}
++
++$zip->addFromString('dir/entry2d.txt', 'entry #2');
++var_dump($zip->setCommentName('dir/entry2d.txt', 'dir/entry2d.txt'));
++
++$zip->addFromString('dir/entry3d.txt', 'entry #3');
++var_dump($zip->setCommentIndex($zip->locateName('dir/entry3d.txt'), 'dir/entry3d.txt'));
++
++$zip->close();
++
++if (!$zip->open($file, ZipArchive::CREATE)) {
++    exit('failed');
++}
++
++$zip->addFromString('dir/entry2d.txt', 'updated entry #2');
++var_dump($zip->setCommentName('dir/entry2d.txt', 'dir/entry2d.txt'));
++
++$zip->addFromString('dir/entry3d.txt', 'updated entry #3');
++var_dump($zip->setCommentIndex($zip->locateName('dir/entry3d.txt'), 'dir/entry3d.txt'));
++
++$zip->close();
++
++if (!$zip->open($file)) {
++    exit('failed');
++}
++
++var_dump($zip->getCommentName('dir/entry2d.txt'));
++var_dump($zip->getCommentName('dir/entry3d.txt'));
++
++$zip->close();
++?>
++--EXPECT--
++bool(true)
++bool(true)
++bool(true)
++bool(true)
++string(15) "dir/entry2d.txt"
++string(15) "dir/entry3d.txt"
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh22649.zip');
++?>

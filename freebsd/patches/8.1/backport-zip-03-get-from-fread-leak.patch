@@ -1,0 +1,15 @@
+Description: getFromName() and getFromIndex() did not close the entry when zip_fread() failed or read nothing (PHP 8.4.23, not in this branch); its tests taken
+Origin: php-src commit 17f67529fd797da80176fbf5a591e89bf974434b (ndossche, 06.06.2026, PHP 8.4.23)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 4841720..df3ccf2 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -2861,6 +2861,7 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
+ 	buffer = zend_string_safe_alloc(1, len, 0, 0);
+ 	n = zip_fread(zf, ZSTR_VAL(buffer), ZSTR_LEN(buffer));
+ 	if (n < 1) {
++		zip_fclose(zf);
+ 		zend_string_efree(buffer);
+ 		RETURN_EMPTY_STRING();
+ 	}

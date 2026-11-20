@@ -1,0 +1,19 @@
+Description: php_zip_pcre() (addPattern()) freed only the current name when a path was too long and returned, leaking the rest of the list (PHP 8.4.23, not in this branch); brought onto the PHP 5 code of 5.6 by hand; its tests not taken (PHP 7 and later)
+Origin: php-src commit c4d4ceab2dc60f14322016bdc20a8fb9bd5d5a17 (ndossche, 06.06.2026, PHP 8.4.23)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 0768c48..ec338f2 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -698,7 +698,10 @@ int php_zip_pcre(char *regexp, int regexp_len, char *path, int path_len, zval *r
+ 			if ((path_len + namelist_len + 1) >= MAXPATHLEN) {
+ 				php_error_docref(NULL TSRMLS_CC, E_WARNING, "add_path string too long (max: %i, %i given)",
+ 						MAXPATHLEN - 1, (path_len + namelist_len + 1));
+-				efree(namelist[i]);
++				/* The loop isn't continued, so all remaining file names must get freed. */
++				for (; i < files_cnt; i++) {
++					efree(namelist[i]);
++				}
+ 				break;
+ 			}
+ 

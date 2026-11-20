@@ -1,0 +1,885 @@
+Description: GH-23276: with the stream keeping the archive alive, a ZipArchive subclass holding its own stream was a cycle the GC could not collect; the native state of the archive (zip_t, callbacks) is a refcounted object of its own now, which the streams keep (PHP 8.4.26, not in this branch); brought onto php_zip_add_file(), php_zip_add_from_pattern(), the callback registration and the stream opener of 8.1 by hand (8.1 has no clearError()); its tests taken
+Origin: php-src commit f49b94e96b01caa6a918096efeddc9b845d8738f (Weilin Du, 25.08.2026, PHP 8.4.26)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 5ebb30d..1763811 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -333,6 +333,7 @@ static int php_zip_add_file(ze_zip_object *obj, const char *filename, size_t fil
+ 	zip_flags_t flags
+ ) /* {{{ */
+ {
++	struct zip *za = php_zip_object_za(obj);
+ 	struct zip_source *zs;
+ 	char resolved_path[MAXPATHLEN];
+ 	php_stream_statbuf ssb;
+@@ -351,26 +352,26 @@ static int php_zip_add_file(ze_zip_object *obj, const char *filename, size_t fil
+ 		return -1;
+ 	}
+ 
+-	zs = zip_source_file(obj->za, resolved_path, offset_start, offset_len);
++	zs = zip_source_file(za, resolved_path, offset_start, offset_len);
+ 	if (!zs) {
+ 		return -1;
+ 	}
+ 	/* Replace */
+ 	if (replace >= 0) {
+-		if (zip_file_replace(obj->za, replace, zs, flags) < 0) {
++		if (zip_file_replace(za, replace, zs, flags) < 0) {
+ 			zip_source_free(zs);
+ 			return -1;
+ 		}
+-		zip_error_clear(obj->za);
++		zip_error_clear(za);
+ 		return 1;
+ 	}
+ 	/* Add */
+-	obj->last_id = zip_file_add(obj->za, entry_name, zs, flags);
++	obj->last_id = zip_file_add(za, entry_name, zs, flags);
+ 	if (obj->last_id < 0) {
+ 		zip_source_free(zs);
+ 		return -1;
+ 	}
+-	zip_error_clear(obj->za);
++	zip_error_clear(za);
+ 	return 1;
+ }
+ /* }}} */
+@@ -500,7 +501,7 @@ static int php_zip_parse_options(HashTable *options, zip_options *opts)
+ #define ZIP_FROM_OBJECT(intern, object) \
+ 	{ \
+ 		ze_zip_object *obj = Z_ZIP_P(object); \
+-		intern = obj->za; \
++		intern = php_zip_object_za(obj); \
+ 		if (!intern) { \
+ 			zend_value_error("Invalid or uninitialized Zip object"); \
+ 			RETURN_THROWS(); \
+@@ -539,17 +540,18 @@ static int php_zip_parse_options(HashTable *options, zip_options *opts)
+ 
+ static zend_long php_zip_status(ze_zip_object *obj) /* {{{ */
+ {
++	struct zip *za = php_zip_object_za(obj);
+ 	int zep = obj->err_zip; /* saved err if closed */
+ 
+-	if (obj->za) {
++	if (za) {
+ #if LIBZIP_VERSION_MAJOR < 1
+ 		int syp;
+ 
+-		zip_error_get(obj->za, &zep, &syp);
++		zip_error_get(za, &zep, &syp);
+ #else
+ 		zip_error_t *err;
+ 
+-		err = zip_get_error(obj->za);
++		err = zip_get_error(za);
+ 		zep = zip_error_code_zip(err);
+ 		zip_error_fini(err);
+ #endif
+@@ -566,17 +568,18 @@ static zend_long php_zip_last_id(ze_zip_object *obj) /* {{{ */
+ 
+ static zend_long php_zip_status_sys(ze_zip_object *obj) /* {{{ */
+ {
++	struct zip *za = php_zip_object_za(obj);
+ 	int syp = obj->err_sys;  /* saved err if closed */
+ 
+-	if (obj->za) {
++	if (za) {
+ #if LIBZIP_VERSION_MAJOR < 1
+ 		int zep;
+ 
+-		zip_error_get(obj->za, &zep, &syp);
++		zip_error_get(za, &zep, &syp);
+ #else
+ 		zip_error_t *err;
+ 
+-		err = zip_get_error(obj->za);
++		err = zip_get_error(za);
+ 		syp = zip_error_code_system(err);
+ 		zip_error_fini(err);
+ #endif
+@@ -587,8 +590,10 @@ static zend_long php_zip_status_sys(ze_zip_object *obj) /* {{{ */
+ 
+ static zend_long php_zip_get_num_files(ze_zip_object *obj) /* {{{ */
+ {
+-	if (obj->za) {
+-		zip_int64_t num = zip_get_num_entries(obj->za, 0);
++	struct zip *za = php_zip_object_za(obj);
++
++	if (za) {
++		zip_int64_t num = zip_get_num_entries(za, 0);
+ 		return MIN(num, ZEND_LONG_MAX);
+ 	}
+ 	return 0;
+@@ -607,8 +612,10 @@ static char * php_zipobj_get_filename(ze_zip_object *obj, int *len) /* {{{ */
+ 
+ static char * php_zipobj_get_zip_comment(ze_zip_object *obj, int *len) /* {{{ */
+ {
+-	if (obj->za) {
+-		return (char *)zip_get_archive_comment(obj->za, len, 0);
++	struct zip *za = php_zip_object_za(obj);
++
++	if (za) {
++		return (char *)zip_get_archive_comment(za, len, 0);
+ 	}
+ 	return NULL;
+ }
+@@ -1057,11 +1064,11 @@ static HashTable *php_zip_get_properties(zend_object *object)/* {{{ */
+ #ifdef HAVE_PROGRESS_CALLBACK
+ static void _php_zip_progress_callback_free(void *ptr)
+ {
+-	ze_zip_object *obj = ptr;
++	php_zip_archive *archive = ptr;
+ 
+-	if (!Z_ISUNDEF(obj->progress_callback)) {
+-		zval_ptr_dtor(&obj->progress_callback);
+-		ZVAL_UNDEF(&obj->progress_callback);
++	if (!Z_ISUNDEF(archive->progress_callback)) {
++		zval_ptr_dtor(&archive->progress_callback);
++		ZVAL_UNDEF(&archive->progress_callback);
+ 	}
+ }
+ #endif
+@@ -1069,48 +1076,83 @@ static void _php_zip_progress_callback_free(void *ptr)
+ #ifdef HAVE_CANCEL_CALLBACK
+ static void _php_zip_cancel_callback_free(void *ptr)
+ {
+-	ze_zip_object *obj = ptr;
++	php_zip_archive *archive = ptr;
+ 
+-	if (!Z_ISUNDEF(obj->cancel_callback)) {
+-		zval_ptr_dtor(&obj->cancel_callback);
+-		ZVAL_UNDEF(&obj->cancel_callback);
++	if (!Z_ISUNDEF(archive->cancel_callback)) {
++		zval_ptr_dtor(&archive->cancel_callback);
++		ZVAL_UNDEF(&archive->cancel_callback);
+ 	}
+ }
+ #endif
+ 
+-static void php_zip_object_free_storage(zend_object *object) /* {{{ */
++static php_zip_archive *php_zip_archive_create(struct zip *za)
+ {
+-	ze_zip_object * intern = php_zip_fetch_object(object);
+-	int i;
++	php_zip_archive *archive = ecalloc(1, sizeof(php_zip_archive));
++
++	archive->za = za;
++	archive->refcount = 1;
++
++	return archive;
++}
+ 
+-	if (!intern) {
++void php_zip_archive_addref(php_zip_archive *archive)
++{
++	ZEND_ASSERT(archive->refcount > 0);
++	archive->refcount++;
++}
++
++void php_zip_archive_release(php_zip_archive *archive)
++{
++	ZEND_ASSERT(archive->refcount > 0);
++	if (--archive->refcount != 0) {
+ 		return;
+ 	}
+-	if (intern->za) {
+-		if (zip_close(intern->za) != 0) {
+-			php_error_docref(NULL, E_WARNING, "Cannot destroy the zip context: %s", zip_strerror(intern->za));
+-			zip_discard(intern->za);
+-		}
+-	}
+ 
+-	if (intern->buffers_cnt>0) {
+-		for (i=0; i<intern->buffers_cnt; i++) {
+-			efree(intern->buffers[i]);
++	if (archive->za) {
++		if (zip_close(archive->za) != 0) {
++			php_error_docref(NULL, E_WARNING, "Cannot destroy the zip context: %s", zip_strerror(archive->za));
++			zip_discard(archive->za);
+ 		}
+-		efree(intern->buffers);
+ 	}
+ 
+ #ifdef HAVE_PROGRESS_CALLBACK
+-	/* if not properly called by libzip */
+-	_php_zip_progress_callback_free(intern);
++	/* In case libzip did not invoke the callback state destructor. */
++	_php_zip_progress_callback_free(archive);
+ #endif
+ 
+ #ifdef HAVE_CANCEL_CALLBACK
+-	/* if not properly called by libzip */
+-	_php_zip_cancel_callback_free(intern);
++	/* In case libzip did not invoke the callback state destructor. */
++	_php_zip_cancel_callback_free(archive);
+ #endif
+ 
+-	intern->za = NULL;
++	if (archive->buffers) {
++		for (int i = 0; i < archive->buffers_cnt; i++) {
++			efree(archive->buffers[i]);
++		}
++		efree(archive->buffers);
++	}
++
++	efree(archive);
++}
++
++/* The caller must close or discard released_za before detaching it. */
++static void php_zip_object_detach_archive(ze_zip_object *ze_obj, struct zip *released_za)
++{
++	ZEND_ASSERT(ze_obj->archive != NULL);
++	ZEND_ASSERT(ze_obj->archive->za == released_za);
++	ze_obj->archive->za = NULL;
++	php_zip_archive_release(ze_obj->archive);
++	ze_obj->archive = NULL;
++}
++
++static void php_zip_object_free_storage(zend_object *object) /* {{{ */
++{
++	ze_zip_object * intern = php_zip_fetch_object(object);
++
++	if (intern->archive) {
++		php_zip_archive_release(intern->archive);
++		intern->archive = NULL;
++	}
+ 	zend_object_std_dtor(&intern->zo);
+ 
+ 	if (intern->filename) {
+@@ -1510,14 +1552,15 @@ PHP_METHOD(ZipArchive, open)
+ 		RETURN_FALSE;
+ 	}
+ 
+-	if (ze_obj->za) {
++	if (ze_obj->archive) {
+ 		/* we already have an opened zip, free it */
+-		if (zip_close(ze_obj->za) != 0) {
++		intern = ze_obj->archive->za;
++		if (zip_close(intern) != 0) {
+ 			php_error_docref(NULL, E_WARNING, "Empty string as source");
+ 			efree(resolved_path);
+ 			RETURN_FALSE;
+ 		}
+-		ze_obj->za = NULL;
++		php_zip_object_detach_archive(ze_obj, intern);
+ 	}
+ 	if (ze_obj->filename) {
+ 		efree(ze_obj->filename);
+@@ -1549,7 +1592,7 @@ PHP_METHOD(ZipArchive, open)
+ 	}
+ 	ze_obj->filename = resolved_path;
+ 	ze_obj->filename_len = strlen(resolved_path);
+-	ze_obj->za = intern;
++	ze_obj->archive = php_zip_archive_create(intern);
+ 	RETURN_TRUE;
+ }
+ /* }}} */
+@@ -1625,7 +1668,7 @@ PHP_METHOD(ZipArchive, close)
+ 	efree(ze_obj->filename);
+ 	ze_obj->filename = NULL;
+ 	ze_obj->filename_len = 0;
+-	ze_obj->za = NULL;
++	php_zip_object_detach_archive(ze_obj, intern);
+ 
+ 	if (!err) {
+ 		RETURN_TRUE;
+@@ -1662,26 +1705,28 @@ PHP_METHOD(ZipArchive, getStatusString)
+ 	char error_string[128];
+ #endif
+ 	ze_zip_object *ze_obj;
++	struct zip *za;
+ 
+ 	if (zend_parse_parameters_none() == FAILURE) {
+ 		RETURN_THROWS();
+ 	}
+ 
+ 	ze_obj = Z_ZIP_P(self); /* not ZIP_FROM_OBJECT as we can use saved error after close */
++	za = php_zip_object_za(ze_obj);
+ 
+ #if LIBZIP_VERSION_MAJOR < 1
+-	if (ze_obj->za) {
+-		zip_error_get(ze_obj->za, &zep, &syp);
++	if (za) {
++		zip_error_get(za, &zep, &syp);
+ 		len = zip_error_to_str(error_string, 128, zep, syp);
+ 	} else {
+ 		len = zip_error_to_str(error_string, 128, ze_obj->err_zip, ze_obj->err_sys);
+ 	}
+ 	RETVAL_STRINGL(error_string, len);
+ #else
+-	if (ze_obj->za) {
++	if (za) {
+ 		zip_error_t *err;
+ 
+-		err = zip_get_error(ze_obj->za);
++		err = zip_get_error(za);
+ 		RETVAL_STRING(zip_error_strerror(err));
+ 		zip_error_fini(err);
+ 	} else {
+@@ -1781,8 +1826,10 @@ static void php_zip_add_from_pattern(INTERNAL_FUNCTION_PARAMETERS, int type) /*
+ 		int i;
+ 		zval *zval_file;
+ 		ze_zip_object *ze_obj;
++		struct zip *za;
+ 
+ 		ze_obj = Z_ZIP_P(self);
++		za = php_zip_object_za(ze_obj);
+ 
+ 		for (i = 0; i < found; i++) {
+ 			char *file_stripped, *entry_name;
+@@ -1833,14 +1880,14 @@ static void php_zip_add_from_pattern(INTERNAL_FUNCTION_PARAMETERS, int type) /*
+ 					RETURN_FALSE;
+ 				}
+ 				if (opts.comp_method >= 0) {
+-					if (zip_set_file_compression(ze_obj->za, ze_obj->last_id, opts.comp_method, opts.comp_flags)) {
++					if (zip_set_file_compression(za, ze_obj->last_id, opts.comp_method, opts.comp_flags)) {
+ 						zend_array_destroy(Z_ARR_P(return_value));
+ 						RETURN_FALSE;
+ 					}
+ 				}
+ #ifdef HAVE_ENCRYPTION
+ 				if (opts.enc_method >= 0) {
+-					if (zip_file_set_encryption(ze_obj->za, ze_obj->last_id, opts.enc_method, opts.enc_password)) {
++					if (zip_file_set_encryption(za, ze_obj->last_id, opts.enc_method, opts.enc_password)) {
+ 						zend_array_destroy(Z_ARR_P(return_value));
+ 						RETURN_FALSE;
+ 					}
+@@ -1942,6 +1989,7 @@ PHP_METHOD(ZipArchive, addFromString)
+ 	char *name;
+ 	size_t name_len;
+ 	ze_zip_object *ze_obj;
++	php_zip_archive *archive;
+ 	struct zip_source *zs;
+ 	int pos = 0;
+ 	zend_long flags = ZIP_FL_OVERWRITE;
+@@ -1954,18 +2002,19 @@ PHP_METHOD(ZipArchive, addFromString)
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
+ 	ze_obj = Z_ZIP_P(self);
+-	if (ze_obj->buffers_cnt) {
+-		ze_obj->buffers = (char **)safe_erealloc(ze_obj->buffers, sizeof(char *), (ze_obj->buffers_cnt+1), 0);
+-		pos = ze_obj->buffers_cnt++;
++	archive = ze_obj->archive;
++	if (archive->buffers_cnt) {
++		archive->buffers = (char **)safe_erealloc(archive->buffers, sizeof(char *), (archive->buffers_cnt+1), 0);
++		pos = archive->buffers_cnt++;
+ 	} else {
+-		ze_obj->buffers = (char **)emalloc(sizeof(char *));
+-		ze_obj->buffers_cnt++;
++		archive->buffers = (char **)emalloc(sizeof(char *));
++		archive->buffers_cnt++;
+ 		pos = 0;
+ 	}
+-	ze_obj->buffers[pos] = (char *)safe_emalloc(ZSTR_LEN(buffer), 1, 1);
+-	memcpy(ze_obj->buffers[pos], ZSTR_VAL(buffer), ZSTR_LEN(buffer) + 1);
++	archive->buffers[pos] = (char *)safe_emalloc(ZSTR_LEN(buffer), 1, 1);
++	memcpy(archive->buffers[pos], ZSTR_VAL(buffer), ZSTR_LEN(buffer) + 1);
+ 
+-	zs = zip_source_buffer(intern, ze_obj->buffers[pos], ZSTR_LEN(buffer), 0);
++	zs = zip_source_buffer(intern, archive->buffers[pos], ZSTR_LEN(buffer), 0);
+ 
+ 	if (zs == NULL) {
+ 		RETURN_FALSE;
+@@ -2997,10 +3046,10 @@ static void _php_zip_progress_callback(zip_t *arch, double state, void *ptr)
+ {
+ 	zval cb_args[1];
+ 	zval cb_retval;
+-	ze_zip_object *obj = ptr;
++	php_zip_archive *archive = ptr;
+ 
+ 	ZVAL_DOUBLE(&cb_args[0], state);
+-	if (call_user_function(EG(function_table), NULL, &obj->progress_callback, &cb_retval, 1, cb_args) == SUCCESS && !Z_ISUNDEF(cb_retval)) {
++	if (call_user_function(EG(function_table), NULL, &archive->progress_callback, &cb_retval, 1, cb_args) == SUCCESS && !Z_ISUNDEF(cb_retval)) {
+ 		zval_ptr_dtor(&cb_retval);
+ 	}
+ }
+@@ -3013,7 +3062,7 @@ PHP_METHOD(ZipArchive, registerProgressCallback)
+ 	double rate;
+ 	zend_fcall_info fci;
+ 	zend_fcall_info_cache fcc;
+-	ze_zip_object *obj;
++	php_zip_archive *archive;
+ 
+ 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "df", &rate, &fci, &fcc) == FAILURE) {
+ 		RETURN_THROWS();
+@@ -3021,14 +3070,14 @@ PHP_METHOD(ZipArchive, registerProgressCallback)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
+-	obj = Z_ZIP_P(self);
++	archive = Z_ZIP_P(self)->archive;
+ 
+ 	/* free if called twice */
+-	_php_zip_progress_callback_free(obj);
++	_php_zip_progress_callback_free(archive);
+ 
+ 	/* register */
+-	ZVAL_COPY(&obj->progress_callback, &fci.function_name);
+-	if (zip_register_progress_callback_with_state(intern, rate, _php_zip_progress_callback, _php_zip_progress_callback_free, obj)) {
++	ZVAL_COPY(&archive->progress_callback, &fci.function_name);
++	if (zip_register_progress_callback_with_state(intern, rate, _php_zip_progress_callback, _php_zip_progress_callback_free, archive)) {
+ 		RETURN_FALSE;
+ 	}
+ 
+@@ -3042,9 +3091,9 @@ static int _php_zip_cancel_callback(zip_t *arch, void *ptr)
+ {
+ 	zval cb_retval;
+ 	int retval = 0;
+-	ze_zip_object *obj = ptr;
++	php_zip_archive *archive = ptr;
+ 
+-	if (call_user_function(EG(function_table), NULL, &obj->cancel_callback, &cb_retval, 0, NULL) == SUCCESS && !Z_ISUNDEF(cb_retval)) {
++	if (call_user_function(EG(function_table), NULL, &archive->cancel_callback, &cb_retval, 0, NULL) == SUCCESS && !Z_ISUNDEF(cb_retval)) {
+ 		retval = zval_get_long(&cb_retval);
+ 		zval_ptr_dtor(&cb_retval);
+ 	}
+@@ -3059,21 +3108,21 @@ PHP_METHOD(ZipArchive, registerCancelCallback)
+ 	zval *self = ZEND_THIS;
+ 	zend_fcall_info fci;
+ 	zend_fcall_info_cache fcc;
+-	ze_zip_object *obj;
++	php_zip_archive *archive;
+ 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "f", &fci, &fcc) == FAILURE) {
+ 		RETURN_THROWS();
+ 	}
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
+-	obj = Z_ZIP_P(self);
++	archive = Z_ZIP_P(self)->archive;
+ 
+ 	/* free if called twice */
+-	_php_zip_cancel_callback_free(obj);
++	_php_zip_cancel_callback_free(archive);
+ 
+ 	/* register */
+-	ZVAL_COPY(&obj->cancel_callback, &fci.function_name);
+-	if (zip_register_cancel_callback_with_state(intern, _php_zip_cancel_callback, _php_zip_cancel_callback_free, obj)) {
++	ZVAL_COPY(&archive->cancel_callback, &fci.function_name);
++	if (zip_register_cancel_callback_with_state(intern, _php_zip_cancel_callback, _php_zip_cancel_callback_free, archive)) {
+ 		RETURN_FALSE;
+ 	}
+ 
+diff --git a/ext/zip/php_zip.h b/ext/zip/php_zip.h
+index 088dab7..322c539 100644
+--- a/ext/zip/php_zip.h
++++ b/ext/zip/php_zip.h
+@@ -48,23 +48,33 @@ typedef struct _ze_zip_read_rsrc {
+ 	struct zip_stat sb;
+ } zip_read_rsrc;
+ 
+-/* Extends zend object */
+-typedef struct _ze_zip_object {
++/* Refcounted holder for the native archive state.
++ * Owned by a ZipArchive object and streams opened from it. */
++typedef struct _php_zip_archive {
+ 	struct zip *za;
++	uint32_t refcount;
++	/* libzip reads buffers until the archive is closed, can outlive the object. */
+ 	char **buffers;
+-	HashTable *prop_handler;
+-	char *filename;
+-	int filename_len;
+ 	int buffers_cnt;
+-	zip_int64_t last_id;
+-	int err_zip;
+-	int err_sys;
+ #ifdef HAVE_PROGRESS_CALLBACK
+ 	zval progress_callback;
+ #endif
+ #ifdef HAVE_CANCEL_CALLBACK
+ 	zval cancel_callback;
+ #endif
++} php_zip_archive;
++
++/* Extends zend object */
++typedef struct _ze_zip_object {
++	/* NULL when there is no open archive, non-NULL otherwise.
++	 * Owns one ref to the struct. */
++	php_zip_archive *archive;
++	HashTable *prop_handler;
++	char *filename;
++	int filename_len;
++	zip_int64_t last_id;
++	int err_zip;
++	int err_sys;
+ 	zend_object zo;
+ } ze_zip_object;
+ 
+@@ -72,11 +82,19 @@ static inline ze_zip_object *php_zip_fetch_object(zend_object *obj) {
+ 	return (ze_zip_object *)((char*)(obj) - XtOffsetOf(ze_zip_object, zo));
+ }
+ 
++/* The archive an object currently has open, or NULL. */
++static zend_always_inline struct zip *php_zip_object_za(const ze_zip_object *obj) {
++	return obj->archive ? obj->archive->za : NULL;
++}
++
+ #define Z_ZIP_P(zv) php_zip_fetch_object(Z_OBJ_P((zv)))
+ 
+ php_stream *php_stream_zip_opener(php_stream_wrapper *wrapper, const char *path, const char *mode, int options, zend_string **opened_path, php_stream_context *context STREAMS_DC);
+ php_stream *php_stream_zip_open(ze_zip_object *obj, const char *path, const char *mode STREAMS_DC);
+ 
++void php_zip_archive_addref(php_zip_archive *archive);
++void php_zip_archive_release(php_zip_archive *archive);
++
+ extern const php_stream_wrapper php_stream_zip_wrapper;
+ 
+ #endif	/* PHP_ZIP_H */
+diff --git a/ext/zip/tests/gh23276.phpt b/ext/zip/tests/gh23276.phpt
+new file mode 100644
+index 0000000..ac005cd
+--- /dev/null
++++ b/ext/zip/tests/gh23276.phpt
+@@ -0,0 +1,95 @@
++--TEST--
++GH-23276 (ZipArchive subclass storing its own stream is collectable)
++--CREDITS--
++Eyüp Can Akman
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++class Holder extends ZipArchive {
++    public $stream;
++    public $bag = [];
++}
++
++class ResurrectingHolder extends Holder {
++    public function __destruct() {
++        $GLOBALS['resurrected'] = $this;
++    }
++}
++
++function getEntryStream(ZipArchive $zip) {
++    $stream = $zip->getStream('entry.txt');
++    if (!is_resource($stream)) {
++        throw new Exception('Failed to open entry stream');
++    }
++    return $stream;
++}
++
++$filename = __DIR__ . '/gh23276.zip';
++
++$zip = new Holder;
++$zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('entry.txt', 'contents');
++$zip->close();
++
++// An archive holding its own stream in a property must be destroyed.
++$zip->open($filename, ZipArchive::RDONLY);
++$zip->stream = getEntryStream($zip);
++$weakRef = WeakReference::create($zip);
++unset($zip);
++var_dump($weakRef->get());
++
++// Same through an indirect edge (property -> array -> resource).
++$zip = new Holder;
++$zip->open($filename, ZipArchive::RDONLY);
++$zip->bag[] = getEntryStream($zip);
++$weakRef = WeakReference::create($zip);
++unset($zip);
++var_dump($weakRef->get());
++
++// Two archives cross-holding each other's streams.
++$a = new Holder;
++$b = new Holder;
++$a->open($filename, ZipArchive::RDONLY);
++$b->open($filename, ZipArchive::RDONLY);
++$a->stream = getEntryStream($b);
++$b->stream = getEntryStream($a);
++$weakRef = WeakReference::create($a);
++unset($a, $b);
++var_dump($weakRef->get());
++
++// A resurrected object must retain a usable stream.
++$zip = new ResurrectingHolder;
++$zip->open($filename, ZipArchive::RDONLY);
++$zip->stream = getEntryStream($zip);
++unset($zip);
++var_dump($resurrected instanceof ResurrectingHolder);
++var_dump(stream_get_contents($resurrected->stream));
++fclose($resurrected->stream);
++unset($resurrected);
++
++// Externally held streams no longer keep the object alive. Closing one stream
++// must not close the archive while another stream still uses it.
++$zip = new Holder;
++$zip->open($filename, ZipArchive::RDONLY);
++$stream1 = getEntryStream($zip);
++$stream2 = getEntryStream($zip);
++$weakRef = WeakReference::create($zip);
++unset($zip);
++var_dump($weakRef->get());
++fclose($stream1);
++var_dump(stream_get_contents($stream2));
++fclose($stream2);
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh23276.zip');
++?>
++--EXPECT--
++NULL
++NULL
++NULL
++bool(true)
++string(8) "contents"
++NULL
++string(8) "contents"
+diff --git a/ext/zip/tests/gh23276_cancel_callback.phpt b/ext/zip/tests/gh23276_cancel_callback.phpt
+new file mode 100644
+index 0000000..5aa9057
+--- /dev/null
++++ b/ext/zip/tests/gh23276_cancel_callback.phpt
+@@ -0,0 +1,49 @@
++--TEST--
++GH-23276 (ZipArchive cancel callback outlives the object while a stream holds the archive)
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++if (!method_exists(ZipArchive::class, 'registerCancelCallback')) {
++    die('skip cancel callbacks are not supported');
++}
++?>
++--FILE--
++<?php
++$filename = __DIR__ . '/gh23276_cancel_callback.zip';
++
++$zip = new ZipArchive;
++$zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('entry.txt', 'contents');
++$zip->close();
++
++$zip->open($filename);
++$callbackState = new stdClass;
++$callbackStateRef = WeakReference::create($callbackState);
++var_dump($zip->registerCancelCallback(
++    static function () use ($callbackState): int { return 0; },
++));
++$zip->addFromString('cancel.txt', 'late');
++$stream = $zip->getStream('entry.txt');
++if (!is_resource($stream)) {
++    throw new Exception('Failed to open entry stream');
++}
++$weakRef = WeakReference::create($zip);
++unset($callbackState, $zip);
++
++var_dump($weakRef->get());
++var_dump($callbackStateRef->get() !== null);
++var_dump(stream_get_contents($stream));
++fclose($stream);
++var_dump($callbackStateRef->get());
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh23276_cancel_callback.zip');
++?>
++--EXPECT--
++bool(true)
++NULL
++bool(true)
++string(8) "contents"
++NULL
+diff --git a/ext/zip/tests/gh23276_close_with_open_stream.phpt b/ext/zip/tests/gh23276_close_with_open_stream.phpt
+new file mode 100644
+index 0000000..e216c95
+--- /dev/null
++++ b/ext/zip/tests/gh23276_close_with_open_stream.phpt
+@@ -0,0 +1,47 @@
++--TEST--
++GH-23276 (ZipArchive dropping its archive while a stream is open leaves the object collectable)
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$filename = __DIR__ . '/gh23276_close_with_open_stream.zip';
++
++$zip = new ZipArchive;
++$zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('entry.txt', 'contents');
++$zip->close();
++
++$zip->open($filename, ZipArchive::RDONLY);
++$stream = $zip->getStream('entry.txt');
++var_dump($zip->close());
++$weakRef = WeakReference::create($zip);
++unset($zip);
++var_dump($weakRef->get());
++var_dump(stream_get_contents($stream));
++fclose($stream);
++
++$zip = new ZipArchive;
++$zip->open($filename, ZipArchive::RDONLY);
++$stream = $zip->getStream('entry.txt');
++var_dump($zip->open($filename, ZipArchive::RDONLY));
++$weakRef = WeakReference::create($zip);
++unset($zip);
++var_dump($weakRef->get());
++var_dump(stream_get_contents($stream));
++fclose($stream);
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh23276_close_with_open_stream.zip');
++?>
++--EXPECTF--
++bool(true)
++NULL
++
++Warning: stream_get_contents(): Zip stream error: %s in %s on line %d
++string(0) ""
++bool(true)
++NULL
++
++Warning: stream_get_contents(): Zip stream error: %s in %s on line %d
++string(0) ""
+diff --git a/ext/zip/tests/gh23276_progress_callback.phpt b/ext/zip/tests/gh23276_progress_callback.phpt
+new file mode 100644
+index 0000000..ff37b62
+--- /dev/null
++++ b/ext/zip/tests/gh23276_progress_callback.phpt
+@@ -0,0 +1,50 @@
++--TEST--
++GH-23276 (ZipArchive progress callback outlives the object while a stream holds the archive)
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++if (!method_exists(ZipArchive::class, 'registerProgressCallback')) {
++    die('skip progress callbacks are not supported');
++}
++?>
++--FILE--
++<?php
++$filename = __DIR__ . '/gh23276_progress_callback.zip';
++
++$zip = new ZipArchive;
++$zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('entry.txt', 'contents');
++$zip->close();
++
++$zip->open($filename);
++$callbackState = new stdClass;
++$callbackStateRef = WeakReference::create($callbackState);
++var_dump($zip->registerProgressCallback(
++    0.5,
++    static function (float $rate) use ($callbackState): void {},
++));
++$zip->addFromString('progress.txt', 'late');
++$stream = $zip->getStream('entry.txt');
++if (!is_resource($stream)) {
++    throw new Exception('Failed to open entry stream');
++}
++$weakRef = WeakReference::create($zip);
++unset($callbackState, $zip);
++
++var_dump($weakRef->get());
++var_dump($callbackStateRef->get() !== null);
++var_dump(stream_get_contents($stream));
++fclose($stream);
++var_dump($callbackStateRef->get());
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh23276_progress_callback.zip');
++?>
++--EXPECT--
++bool(true)
++NULL
++bool(true)
++string(8) "contents"
++NULL
+diff --git a/ext/zip/tests/oo_addfromstring_reopen_memory.phpt b/ext/zip/tests/oo_addfromstring_reopen_memory.phpt
+new file mode 100644
+index 0000000..fb721c2
+--- /dev/null
++++ b/ext/zip/tests/oo_addfromstring_reopen_memory.phpt
+@@ -0,0 +1,26 @@
++--TEST--
++ZipArchive::addFromString() buffers are released when the archive is closed
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$filename = __DIR__ . '/oo_addfromstring_reopen_memory.zip';
++$blob = str_repeat('q', 200000);
++
++$zip = new ZipArchive;
++$start = memory_get_usage();
++
++for ($i = 0; $i < 50; $i++) {
++    $zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++    $zip->addFromString('entry.txt', $blob);
++    $zip->close();
++}
++
++var_dump(memory_get_usage() - $start < 1000000);
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/oo_addfromstring_reopen_memory.zip');
++?>
++--EXPECT--
++bool(true)
+diff --git a/ext/zip/zip_stream.c b/ext/zip/zip_stream.c
+index ff76b41..462edc6 100644
+--- a/ext/zip/zip_stream.c
++++ b/ext/zip/zip_stream.c
+@@ -36,7 +36,7 @@ struct php_zip_stream_data_t {
+ 	struct zip_file *zf;
+ 	size_t cursor;
+ 	php_stream *stream;
+-	ze_zip_object *owner;
++	php_zip_archive *archive;
+ };
+ 
+ #define STREAM_DATA_FROM_STREAM() \
+@@ -105,10 +105,10 @@ static int php_zip_ops_close(php_stream *stream, int close_handle)
+ 		}
+ 	}
+ 
+-	/* the pinned object ref is tied to self, so release it regardless of close_handle */
+-	if (self->owner) {
+-		OBJ_RELEASE(&self->owner->zo);
+-		self->owner = NULL;
++	/* the archive ref is tied to self, so release it regardless of close_handle */
++	if (self->archive) {
++		php_zip_archive_release(self->archive);
++		self->archive = NULL;
+ 	}
+ 	efree(self);
+ 	stream->abstract = NULL;
+@@ -217,7 +217,7 @@ const php_stream_ops php_stream_zipio_ops = {
+ /* {{{ php_stream_zip_open */
+ php_stream *php_stream_zip_open(ze_zip_object *obj, const char *path, const char *mode STREAMS_DC)
+ {
+-	struct zip *arch = obj->za;
++	struct zip *arch = php_zip_object_za(obj);
+ 	struct zip_file *zf = NULL;
+ 
+ 	php_stream *stream = NULL;
+@@ -236,9 +236,9 @@ php_stream *php_stream_zip_open(ze_zip_object *obj, const char *path, const char
+ 			self->zf = zf;
+ 			self->stream = NULL;
+ 			self->cursor = 0;
+-			/* keep the archive object alive while the stream borrows its zip_t */
+-			self->owner = obj;
+-			GC_ADDREF(&obj->zo);
++			/* keep the zip_t alive while the stream borrows it */
++			self->archive = obj->archive;
++			php_zip_archive_addref(self->archive);
+ 			stream = php_stream_alloc(&php_stream_zipio_ops, self, NULL, mode);
+ 			stream->orig_path = estrdup(path);
+ 		}
+@@ -318,7 +318,7 @@ php_stream *php_stream_zip_opener(php_stream_wrapper *wrapper,
+ 			self->zf = zf;
+ 			self->stream = NULL;
+ 			self->cursor = 0;
+-			self->owner = NULL;
++			self->archive = NULL;
+ 			stream = php_stream_alloc(&php_stream_zipio_ops, self, NULL, mode);
+ 
+ 			if (opened_path) {

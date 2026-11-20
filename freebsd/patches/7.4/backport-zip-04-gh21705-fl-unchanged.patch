@@ -1,0 +1,55 @@
+Description: GH-21705: getFromIndex() with ZipArchive::FL_UNCHANGED stated the current entry instead of the original, so it read the wrong length of a changed entry (PHP 8.4.24, not in this branch); brought onto php_zip_get_from() of 7.4 by hand; its tests taken
+Origin: php-src commit bc3a7c7b175eccba23d215054ad871c0a8208c26 (Weilin Du, 03.07.2026, PHP 8.4.24)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 69e69b4..9167271 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -2724,7 +2724,7 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
+ 		if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|ll", &index, &len, &flags) == FAILURE) {
+ 			return;
+ 		}
+-		PHP_ZIP_STAT_INDEX(intern, index, 0, sb);
++		PHP_ZIP_STAT_INDEX(intern, index, flags, sb);
+ 	}
+ 
+ 	if (sb.size < 1) {
+diff --git a/ext/zip/tests/bug_gh21705.phpt b/ext/zip/tests/bug_gh21705.phpt
+new file mode 100644
+index 0000000..41dabb2
+--- /dev/null
++++ b/ext/zip/tests/bug_gh21705.phpt
+@@ -0,0 +1,33 @@
++--TEST--
++ZipArchive::getFromIndex() honors FL_UNCHANGED for deleted entries
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$name = __DIR__ . '/bug_gh21705.zip';
++@unlink($name);
++$zip = new ZipArchive;
++$zip->open($name, ZipArchive::CREATE);
++$zip->addFromString('foo.txt', 'foo');
++$zip->addFromString('bar.txt', 'bar');
++$zip->close();
++
++$zip = new ZipArchive;
++$zip->open($name);
++
++$index = $zip->locateName('bar.txt');
++$zip->deleteName('bar.txt');
++
++var_dump($zip->getFromName('bar.txt', 0, ZipArchive::FL_UNCHANGED));
++var_dump($zip->getFromIndex($index, 0, ZipArchive::FL_UNCHANGED));
++
++$zip->close();
++?>
++--CLEAN--
++<?php
++$name = __DIR__ . '/bug_gh21705.zip';
++@unlink($name);
++?>
++--EXPECT--
++string(3) "bar"
++string(3) "bar"

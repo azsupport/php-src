@@ -1,0 +1,16 @@
+Description: getNameIndex() cast the index to int, so an index past 2^32 wrapped and named another entry (PHP 8.4.26, not in this branch); brought onto the PHP 5 code of 5.6 by hand; its tests not taken (PHP 7 and later)
+Origin: php-src commit 473a7e04515f19612ade59e489671e5d49a0fab4 (David Carlier, 29.08.2026, PHP 8.4.26)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index e1a824f..b95bbe8 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -2125,7 +2125,7 @@ static ZIPARCHIVE_METHOD(getNameIndex)
+ 		return;
+ 	}
+ 
+-	name = zip_get_name(intern, (int) index, flags);
++	name = zip_get_name(intern, (zip_uint64_t) index, flags);
+ 
+ 	if (name) {
+ 		RETVAL_STRING((char *)name, 1);

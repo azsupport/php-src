@@ -1,0 +1,93 @@
+Description: extractTo() with an array of names that is not a list skipped the names whose key was not an index below the count (PHP 8.4.27, not in this branch); the switch of extractTo() of 7.4, php_zip_extract_file() has no index argument; its tests taken
+Origin: php-src commit 214ed7eb93c181cc6f53dc3a4de2d72a38776b5a (David Carlier, 10.09.2026, PHP 8.4.27)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 7c89358..75bdc63 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -2693,7 +2693,7 @@ static ZIPARCHIVE_METHOD(extractTo)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 	if (zval_files && (Z_TYPE_P(zval_files) != IS_NULL)) {
+-		uint32_t nelems, i;
++		uint32_t nelems;
+ 
+ 		switch (Z_TYPE_P(zval_files)) {
+ 			case IS_STRING:
+@@ -2706,20 +2706,19 @@ static ZIPARCHIVE_METHOD(extractTo)
+ 				if (nelems == 0 ) {
+ 					RETURN_FALSE;
+ 				}
+-				for (i = 0; i < nelems; i++) {
+-					zval *zval_file;
+-					if ((zval_file = zend_hash_index_find_deref(Z_ARRVAL_P(zval_files), i)) != NULL) {
+-						switch (Z_TYPE_P(zval_file)) {
+-							case IS_LONG:
+-								break;
+-							case IS_STRING:
+-								if (!php_zip_extract_file(intern, pathto, Z_STRVAL_P(zval_file), Z_STRLEN_P(zval_file))) {
+-									RETURN_FALSE;
+-								}
+-								break;
+-						}
++				zval *zval_file;
++				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(zval_files), zval_file) {
++					ZVAL_DEREF(zval_file);
++					switch (Z_TYPE_P(zval_file)) {
++						case IS_LONG:
++							break;
++						case IS_STRING:
++							if (!php_zip_extract_file(intern, pathto, Z_STRVAL_P(zval_file), Z_STRLEN_P(zval_file))) {
++								RETURN_FALSE;
++							}
++							break;
+ 					}
+-				}
++				} ZEND_HASH_FOREACH_END();
+ 				break;
+ 			case IS_LONG:
+ 			default:
+diff --git a/ext/zip/tests/oo_extract_array_keys.phpt b/ext/zip/tests/oo_extract_array_keys.phpt
+new file mode 100644
+index 0000000..c825bbe
+--- /dev/null
++++ b/ext/zip/tests/oo_extract_array_keys.phpt
+@@ -0,0 +1,38 @@
++--TEST--
++ZipArchive::extractTo() with a non-list files array (non-sequential keys)
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$archive = __DIR__ . "/oo_extract_array_keys.zip";
++
++$zip = new ZipArchive();
++$zip->open($archive, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString("file0.txt", "zero");
++$zip->addFromString("file1.txt", "one");
++$zip->close();
++
++$target = __DIR__ . "/oo_extract_array_keys";
++mkdir($target);
++
++// array_filter() (and array_unique/array_diff) preserve keys, so this is [1 => "file1.txt"],
++// a perfectly valid list of entry names that is not a packed 0-based array.
++$files = array_filter(["file0.txt", "file1.txt"], fn($f) => $f === "file1.txt");
++
++$zip = new ZipArchive();
++$zip->open($archive);
++var_dump($zip->extractTo($target, $files));
++$zip->close();
++
++var_dump(is_file("$target/file1.txt"));
++?>
++--EXPECT--
++bool(true)
++bool(true)
++--CLEAN--
++<?php
++@unlink(__DIR__ . "/oo_extract_array_keys.zip");
++$target = __DIR__ . "/oo_extract_array_keys";
++@unlink("$target/file1.txt");
++@rmdir($target);
++?>

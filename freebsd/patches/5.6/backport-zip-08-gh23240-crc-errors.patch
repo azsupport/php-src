@@ -1,0 +1,129 @@
+Description: GH-23240: extractTo() took a failed read (the CRC error of a corrupted entry) for success and wrote the corrupt data, and getFromName() and getFromIndex() never read up to the CRC check and returned such data silently; read errors fail with a warning now (PHP 8.4.26, not in this branch); brought onto 5.6 by hand (its safe_emalloc() buffer, n zip_int64_t); its tests not taken (PHP 7 and later)
+Origin: php-src commit 2a2b337392a1e8d522026b3441360692db373192 (David Carlier, 13.08.2026, PHP 8.4.26)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 43e176a..e1a824f 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -167,6 +167,30 @@ static char * php_zip_make_relative_path(char *path, int path_len) /* {{{ */
+ # define CWD_STATE_FREE(s)  efree(s)
+ #endif
+ 
++/* {{{ php_zip_file_error
++ Entry error code, plus its message when message is not NULL.
++ zip_error_t and its accessors only exist since libzip 1.0. */
++static int php_zip_file_error(struct zip_file *zf, const char **message)
++{
++#if LIBZIP_VERSION_MAJOR < 1
++	int zep, syp;
++
++	zip_file_error_get(zf, &zep, &syp);
++	if (message) {
++		*message = zip_file_strerror(zf);
++	}
++	return zep;
++#else
++	zip_error_t *err = zip_file_get_error(zf);
++
++	if (message) {
++		*message = zip_error_strerror(err);
++	}
++	return zip_error_code_zip(err);
++#endif
++}
++/* }}} */
++
+ /* {{{ php_zip_extract_file */
+ static int php_zip_extract_file(struct zip * za, char *dest, char *file, int file_len TSRMLS_DC)
+ {
+@@ -308,11 +332,25 @@ static int php_zip_extract_file(struct zip * za, char *dest, char *file, int fil
+ 	n = 0;
+ 
+ 	while ((n=zip_fread(zf, b, sizeof(b))) > 0) {
+-		php_stream_write(stream, b, n);
++		if (php_stream_write(stream, b, n) != n) {
++			n = -1;
++			break;
++		}
++	}
++
++	if (n < 0) {
++		const char *message;
++
++		if (php_zip_file_error(zf, &message) != ZIP_ER_OK) {
++			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Cannot extract \"%s\": \"%s\"", file, message);
++		}
++		php_stream_close(stream);
++		zip_fclose(zf);
++		goto done;
+ 	}
+ 
+ 	php_stream_close(stream);
+-	n = zip_fclose(zf);
++	n = zip_fclose(zf) == 0 ? 0 : -1;
+ 
+ done:
+ 	efree(fullpath);
+@@ -2770,7 +2808,7 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
+ 	long len = 0;
+ 
+ 	char *buffer;
+-	int n = 0;
++	zip_int64_t n = 0;
+ 
+ 	if (!this) {
+ 		RETURN_FALSE;
+@@ -2790,10 +2828,6 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
+ 		PHP_ZIP_STAT_INDEX(intern, index, flags, sb);
+ 	}
+ 
+-	if (sb.size < 1) {
+-		RETURN_EMPTY_STRING();
+-	}
+-
+ 	if (len < 1) {
+ 		len = sb.size;
+ 	}
+@@ -2808,8 +2842,40 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
+ 	}
+ 
+ 	buffer = safe_emalloc(len, 1, 2);
+-	n = zip_fread(zf, buffer, len);
+-	if (n < 1) {
++
++	/* zip_fread() may return short reads, a truncated entry must not pass for a complete one. */
++	n = 0;
++	while (n < len) {
++		zip_int64_t rd = zip_fread(zf, buffer + n, len - n);
++
++		if (rd < 0) {
++			n = -1;
++			break;
++		}
++		if (rd == 0) {
++			break;
++		}
++		n += rd;
++	}
++
++	if (n >= 0 && (zip_uint64_t)n == sb.size) {
++		/* The whole entry has been consumed, read past its last byte so that
++		 * libzip reaches the end of the stream and validates the CRC. */
++		char tmp;
++		if (zip_fread(zf, &tmp, 1) < 0) {
++			n = -1;
++		}
++	}
++	if (n < 0) {
++		const char *message;
++
++		php_zip_file_error(zf, &message);
++		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Cannot read entry: %s", message);
++		zip_fclose(zf);
++		efree(buffer);
++		RETURN_FALSE;
++	}
++	if (n == 0) {
+ 		zip_fclose(zf);
+ 		efree(buffer);
+ 		RETURN_EMPTY_STRING();
