@@ -1,18 +1,97 @@
-Description: GHSA-3mg3-cr28-46gc (CVE-2026-129292, the PHP security release of 19.11.2026): FPM XSS within status endpoint via user and script; for 5.6: the request method, the user and the script escaped as the URI and the query string are in 5.6 (the HTML and XML pages; 5.6 escapes nothing for JSON); its tests not taken
+Description: GHSA-3mg3-cr28-46gc (CVE-2026-129292, the PHP security release of 19.11.2026): FPM XSS within status endpoint via user and script; for 5.6: the request method, the user and the script escaped as the URI and the query string are in 5.6 for the HTML and XML pages, and these five fields escaped for the JSON page too, by an escaper of its own that writes them as php_json_encode_string() of 8.x does (the json of 5.6 is a module of its own, which FPM cannot call; 20.11.2026); its tests not taken
 Origin: php-src commit 1ecb92f2cdeb235bb10d6c220c9be4a13f527243 (Jakub Zelenka, 26.10.2026, PHP 8.2.36)
 
 diff --git a/sapi/fpm/fpm/fpm_status.c b/sapi/fpm/fpm/fpm_status.c
-index d9a826308..76b9a0882 100644
+index d9a826308..7e4767290 100644
 --- a/sapi/fpm/fpm/fpm_status.c
 +++ b/sapi/fpm/fpm/fpm_status.c
-@@ -46,6 +46,25 @@ int fpm_status_init_child(struct fpm_worker_pool_s *wp) /* {{{ */
+@@ -16,6 +16,7 @@
+ #include "fpm_conf.h"
+ #include "fpm_php.h"
+ #include <ext/standard/html.h>
++#include <ext/standard/php_smart_str.h>
+ 
+ static char *fpm_status_uri = NULL;
+ static char *fpm_status_ping_uri = NULL;
+@@ -46,13 +47,107 @@ int fpm_status_init_child(struct fpm_worker_pool_s *wp) /* {{{ */
  }
  /* }}} */
  
-+/* a field of the full status: escaped for the HTML and XML pages, NULL when empty
-+ * (GHSA-3mg3-cr28-46gc, as fpm_status_escape() of PHP 8.2.36, without its JSON);
++/* a field for the JSON page as php_json_encode_string() of PHP 8.2.36 writes it with
++ * PHP_JSON_INVALID_UTF8_IGNORE, without its quotes: " \ / and the control characters
++ * escaped, every character past ASCII as \uXXXX (UTF-16), the bytes that are not
++ * UTF-8 left out; the json of 5.6 is a module of its own, which FPM cannot call */
++static char *fpm_status_json_escape(const char *str)
++{
++	static const char digits[] = "0123456789abcdef";
++	size_t len = strlen(str), pos = 0;
++	smart_str buf = {0};
++
++	while (pos < len) {
++		int status;
++		unsigned int us = php_next_utf8_char((const unsigned char *) str, len, &pos, &status);
++
++		if (status != SUCCESS) {
++			continue;
++		}
++		switch (us) {
++			case '"':
++				smart_str_appendl(&buf, "\\\"", 2);
++				break;
++			case '\\':
++				smart_str_appendl(&buf, "\\\\", 2);
++				break;
++			case '/':
++				smart_str_appendl(&buf, "\\/", 2);
++				break;
++			case '\b':
++				smart_str_appendl(&buf, "\\b", 2);
++				break;
++			case '\f':
++				smart_str_appendl(&buf, "\\f", 2);
++				break;
++			case '\n':
++				smart_str_appendl(&buf, "\\n", 2);
++				break;
++			case '\r':
++				smart_str_appendl(&buf, "\\r", 2);
++				break;
++			case '\t':
++				smart_str_appendl(&buf, "\\t", 2);
++				break;
++			default:
++				if (us >= 0x20 && us < 0x80) {
++					smart_str_appendc(&buf, (char) us);
++				} else {
++					unsigned int units[2];
++					int n = 1, i;
++
++					units[0] = us;
++					if (us >= 0x10000) {
++						us -= 0x10000;
++						units[0] = 0xd800 | (us >> 10);
++						units[1] = 0xdc00 | (us & 0x3ff);
++						n = 2;
++					}
++					for (i = 0; i < n; i++) {
++						smart_str_appendl(&buf, "\\u", 2);
++						smart_str_appendc(&buf, digits[(units[i] >> 12) & 0xf]);
++						smart_str_appendc(&buf, digits[(units[i] >> 8) & 0xf]);
++						smart_str_appendc(&buf, digits[(units[i] >> 4) & 0xf]);
++						smart_str_appendc(&buf, digits[units[i] & 0xf]);
++					}
++				}
++				break;
++		}
++	}
++	smart_str_0(&buf);
++	return buf.c ? buf.c : estrdup("");
++}
++
++/* a field of the full status: escaped for the HTML and XML pages and for the JSON
++ * page, NULL when empty (GHSA-3mg3-cr28-46gc, as fpm_status_escape() of PHP 8.2.36);
 + * *escaped: whether the result is a new string to free */
-+static char *fpm_status_escape(char *str, int encode, int *escaped TSRMLS_DC)
++static char *fpm_status_escape(char *str, int encode, int encode_json, int *escaped TSRMLS_DC)
 +{
 +	size_t len;
 +
@@ -25,13 +104,41 @@ index d9a826308..76b9a0882 100644
 +		return php_escape_html_entities_ex((unsigned char *) str, strlen(str), &len, 1,
 +				ENT_DISALLOWED | ENT_HTML_DOC_XML1 | ENT_COMPAT, NULL, 1 TSRMLS_CC);
 +	}
++	if (encode_json) {
++		*escaped = 1;
++		return fpm_status_json_escape(str);
++	}
 +	return str;
 +}
 +
  int fpm_status_handle_request(TSRMLS_D) /* {{{ */
  {
  	struct fpm_scoreboard_s scoreboard, *scoreboard_p;
-@@ -384,8 +403,9 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
+ 	struct fpm_scoreboard_proc_s proc;
+ 	char *buffer, *time_format, time_buffer[64];
+ 	time_t now_epoch;
+-	int full, encode;
++	int full, encode, encode_json;
+ 	char *short_syntax, *short_post;
+ 	char *full_pre, *full_syntax, *full_post, *full_separator;
+ 
+@@ -130,6 +225,7 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
+ 		short_syntax = short_post = NULL;
+ 		full_separator = full_pre = full_syntax = full_post = NULL;
+ 		encode = 0;
++		encode_json = 0;
+ 
+ 		/* HTML */
+ 		if (fpm_php_get_string_from_table("_GET", "html" TSRMLS_CC)) {
+@@ -262,6 +358,7 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
+ 		} else if (fpm_php_get_string_from_table("_GET", "json" TSRMLS_CC)) {
+ 			sapi_add_header_ex(ZEND_STRL("Content-Type: application/json"), 1, 1 TSRMLS_CC);
+ 			time_format = "%s";
++			encode_json = 1;
+ 
+ 			short_syntax =
+ 				"{"
+@@ -384,8 +481,9 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
  		/* no need to test the var 'full' */
  		if (full_syntax) {
  			int i, first;
@@ -43,7 +150,7 @@ index d9a826308..76b9a0882 100644
  			struct timeval duration, now;
  #ifdef HAVE_FPM_LQ
  			float cpu;
-@@ -412,24 +432,11 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
+@@ -412,24 +510,11 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
  					}
  				}
  
@@ -65,15 +172,15 @@ index d9a826308..76b9a0882 100644
 -						query_string = php_escape_html_entities_ex((unsigned char *)proc.query_string, strlen(proc.query_string), &len, 1, ENT_DISALLOWED | ENT_HTML_DOC_XML1 | ENT_COMPAT, NULL, 1 TSRMLS_CC);
 -					}
 -				}
-+				request_method_string = fpm_status_escape(proc.request_method, encode, &esc_method TSRMLS_CC);
-+				request_uri_string = fpm_status_escape(proc.request_uri, encode, &esc_uri TSRMLS_CC);
-+				query_string = fpm_status_escape(proc.query_string, encode, &esc_query TSRMLS_CC);
-+				auth_user_string = fpm_status_escape(proc.auth_user, encode, &esc_user TSRMLS_CC);
-+				script_filename_string = fpm_status_escape(proc.script_filename, encode, &esc_script TSRMLS_CC);
++				request_method_string = fpm_status_escape(proc.request_method, encode, encode_json, &esc_method TSRMLS_CC);
++				request_uri_string = fpm_status_escape(proc.request_uri, encode, encode_json, &esc_uri TSRMLS_CC);
++				query_string = fpm_status_escape(proc.query_string, encode, encode_json, &esc_query TSRMLS_CC);
++				auth_user_string = fpm_status_escape(proc.auth_user, encode, encode_json, &esc_user TSRMLS_CC);
++				script_filename_string = fpm_status_escape(proc.script_filename, encode, encode_json, &esc_script TSRMLS_CC);
  
  #ifdef HAVE_FPM_LQ
  				/* prevent NaN */
-@@ -453,13 +460,13 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
+@@ -453,13 +538,13 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
  					now_epoch - proc.start_epoch,
  					proc.requests,
  					duration.tv_sec * 1000000UL + duration.tv_usec,
@@ -90,7 +197,7 @@ index d9a826308..76b9a0882 100644
  #ifdef HAVE_FPM_LQ
  					proc.request_stage == FPM_REQUEST_ACCEPTING ? cpu : 0.,
  #endif
-@@ -467,12 +474,21 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
+@@ -467,12 +552,21 @@ int fpm_status_handle_request(TSRMLS_D) /* {{{ */
  				PUTS(buffer);
  				efree(buffer);
  
