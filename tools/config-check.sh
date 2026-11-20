@@ -484,7 +484,7 @@ deps_opts() {
     bwarn=""
     if [ -n "$blevel" ]; then
         blacks="$(cpu_lacks "$blevel")"
-        [ -n "$blacks" ] && bwarn="; WARNING: the libraries are built for -march=$blevel and this CPU lacks $blacks, so PHP built against them stops with \"Illegal instruction\" here: take the packages of a lower level (the repository az of x86-64-v2: sh az-menu.sh --repo)"
+        [ -n "$blacks" ] && bwarn="; WARNING: the libraries are built for -march=$blevel and this CPU lacks $blacks, so PHP built against them stops with \"Illegal instruction\" here: take the packages of a lower level (the repository az of the level of this CPU, x86-64-v3 or x86-64-v2: sh az-menu.sh --repo)"
     fi
     deps_note="${phpdeps_note:+$phpdeps_note; }the libraries come from the static tree $PHPDEPS ($(head -n 1 "$DEPS_VERSIONS" | sed 's/, built.*//')): static, linked into PHP${sasl}${still:+; still from pkg: $still}${bwarn}; check after make install: ldd of bin/php*, sbin/php-fpm* | grep /usr/local/lib"
 }

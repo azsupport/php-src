@@ -1416,29 +1416,48 @@ AZ_REPO_CONF="${AZ_REPO_CONF:-/usr/local/etc/pkg/repos/az.conf}"
 AZ_REPO_KEY="${AZ_REPO_KEY:-/usr/local/etc/pkg/keys/az.pub}"
 work="${AZ_MENU_WORK:-/var/tmp/az-menu}"
 say() { echo "az-menu: $*"; }
-# the x86-64 level this CPU runs (the packages are built for x86-64-v3 and -v2)
-cpu_level() {
-    _f="$(cc -march=native -dM -E - < /dev/null 2>/dev/null)"
-    for _x in AVX2 BMI2 FMA F16C LZCNT MOVBE; do
-        printf '%s\n' "$_f" | grep -q "^#define __${_x}__ 1" || { echo v2; return 0; }
-    done
-    echo v3
-}
-# cpu_level_note: the level of cpu_level in words, and why
-cpu_level_note() {
-    command -v cc > /dev/null 2>&1 ||
-        { echo "no cc (the compiler of the base system) to ask the CPU: x86-64-v2, which every x86-64 CPU runs"; return 0; }
+# the x86-64 level of the repository az for this CPU (cc -march=native; the packages are
+# built for x86-64-v3 and -v2, and for x86-64-v4 on aZ's word only): x86-64-v3 with
+# AVX2, BMI2, FMA, F16C, LZCNT and MOVBE, else x86-64-v2; x86-64-v4 with AVX512F,
+# AVX512BW, AVX512CD, AVX512DQ and AVX512VL too, when its release is there (its
+# meta.conf downloads), else x86-64-v3; cpu_level_why says it in words, and why.
+# cpu_level_find asks once (call it outside $(...) first, so that the subshells of
+# cpu_level take what it found)
+cpu_level_v="" cpu_level_why=""
+cpu_level_find() {
+    [ -z "$cpu_level_v" ] || return 0
+    if ! command -v cc > /dev/null 2>&1; then
+        cpu_level_v=v2
+        cpu_level_why="no cc (the compiler of the base system) to ask the CPU: x86-64-v2, which every x86-64 CPU runs"
+        return 0
+    fi
     _f="$(cc -march=native -dM -E - < /dev/null 2>/dev/null)"
     _m=""
     for _x in AVX2 BMI2 FMA F16C LZCNT MOVBE; do
         printf '%s\n' "$_f" | grep -q "^#define __${_x}__ 1" || _m="$_m $_x"
     done
-    if [ -z "$_m" ]; then
-        echo "this CPU has AVX2, BMI2, FMA, F16C, LZCNT and MOVBE (cc -march=native): the packages of x86-64-v3"
-    else
-        echo "this CPU has not$_m (cc -march=native): the packages of x86-64-v2"
+    if [ -n "$_m" ]; then
+        cpu_level_v=v2
+        cpu_level_why="this CPU has not$_m (cc -march=native): the packages of x86-64-v2"
+        return 0
     fi
+    cpu_level_v=v3
+    cpu_level_why="this CPU has AVX2, BMI2, FMA, F16C, LZCNT and MOVBE (cc -march=native): the packages of x86-64-v3"
+    _m=""
+    for _x in AVX512F AVX512BW AVX512CD AVX512DQ AVX512VL; do
+        printf '%s\n' "$_f" | grep -q "^#define __${_x}__ 1" || _m="$_m $_x"
+    done
+    [ -z "$_m" ] || return 0
+    _u="$AZ_REPO_URL/releases/download/az-fbsd$(uname -r | cut -d. -f1)-amd64-v4${AZ_CANDIDATE:+-candidate}"
+    if mkdir -p "$work" 2>/dev/null && fetch -q -o "$work/meta-v4.conf" "$_u/meta.conf" 2>/dev/null; then
+        cpu_level_v=v4
+        cpu_level_why="this CPU has AVX2, BMI2, FMA, F16C, LZCNT, MOVBE, AVX512F, AVX512BW, AVX512CD, AVX512DQ and AVX512VL (cc -march=native): the packages of x86-64-v4"
+    else
+        cpu_level_why="this CPU has AVX2, BMI2, FMA, F16C, LZCNT and MOVBE, and AVX-512 (cc -march=native), but no repository of x86-64-v4 is there ($_u/meta.conf does not download): the packages of x86-64-v3"
+    fi
+    rm -f "$work/meta-v4.conf"
 }
+cpu_level() { cpu_level_find; echo "$cpu_level_v"; }
 # key_sha256 <file>: its SHA-256 (sha256 of FreeBSD, else sha256sum)
 key_sha256() { sha256 -q "$1" 2>/dev/null || sha256sum "$1" 2>/dev/null | cut -d ' ' -f 1; }
 # the repository of the packages of /usr/local/az for this FreeBSD and this CPU (the
@@ -1496,7 +1515,8 @@ repo_key() {
 }
 if [ -n "$repo" ]; then
     [ "$(id -u)" = 0 ] || die "--repo writes $AZ_REPO_CONF: as root"
-    say "$(cpu_level_note)"
+    cpu_level_find
+    say "$cpu_level_why"
     repo_key
     mkdir -p "$(dirname "$AZ_REPO_CONF")" || exit 2
     repo_conf > "$AZ_REPO_CONF" || exit 2
@@ -1794,6 +1814,7 @@ az_packages_menu() {
     backtitle="az-menu $AZ_MENU_SHORT  $AZ_MENU_SITES"
     [ "$(id -u)" = 0 ] || die "the packages are installed with pkg: run it as root"
     if [ ! -f "$AZ_REPO_CONF" ]; then
+        cpu_level_find
         dlg --title "The repository az" --yesno "There is no repository az ($AZ_REPO_CONF). Write it, for this CPU (x86-64-$(cpu_level))?
 
 $(repo_conf)" 0 0 || die "no repository az: sh az-menu.sh --repo writes it"

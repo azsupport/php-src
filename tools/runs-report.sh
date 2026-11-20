@@ -6,7 +6,7 @@
 #
 # Usage: sh tools/runs-report.sh <report.md> <part>
 #   <report.md>  the job summary of the run (what the report scripts wrote)
-#   <part>       the part of the run in the file name (x86-64-v3, x86-64-v2...)
+#   <part>       the part of the run in the file name (x86-64-v3, x86-64-v2, x86-64-v4...)
 # Environment:
 #   RUNS_TOKEN   a fine-grained token with Contents read and write on
 #                azsupport/azsupport (secret of this repository); without it the
