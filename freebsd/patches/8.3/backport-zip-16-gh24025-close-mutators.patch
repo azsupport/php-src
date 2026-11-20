@@ -1,0 +1,641 @@
+Description: GH-24025: a progress or cancel callback could delete or unchange entries inside zip_close() after libzip had fixed its list (a use-after-free of a dirent) or change the archive with the changes dropped; every mutator throws "Already being closed" then (PHP 8.4.28, not in this branch); its tests taken
+Origin: php-src commit acd5fe8b6ad8bed362344d3324ba0318429ee3a1 (Ilia Alshanetsky, 24.09.2026, PHP 8.4.28)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 1e6dd4a..104c9d5 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -639,6 +639,15 @@ static char * php_zipobj_get_zip_comment(ze_zip_object *obj, int *len) /* {{{ */
+ }
+ /* }}} */
+ 
++static bool php_zipobj_closing(ze_zip_object *obj)
++{
++	if (obj->archive && obj->archive->close) {
++		zend_throw_error(NULL, "Already being closed");
++		return true;
++	}
++	return false;
++}
++
+ #ifdef HAVE_GLOB /* {{{ */
+ #ifndef GLOB_ONLYDIR
+ #define GLOB_ONLYDIR (1<<30)
+@@ -1588,9 +1597,8 @@ PHP_METHOD(ZipArchive, open)
+ 
+ 	if (ze_obj->archive) {
+ 		/* we already have an opened zip, free it */
+-		if (ze_obj->archive->close) {
++		if (php_zipobj_closing(ze_obj)) {
+ 			efree(resolved_path);
+-			zend_throw_error(NULL, "Already being closed");
+ 			RETURN_THROWS();
+ 		}
+ 		intern = ze_obj->archive->za;
+@@ -1653,6 +1661,10 @@ PHP_METHOD(ZipArchive, setPassword)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (password_len < 1) {
+ 		RETURN_FALSE;
+ 	}
+@@ -1682,8 +1694,7 @@ PHP_METHOD(ZipArchive, close)
+ 
+ 	ze_obj = Z_ZIP_P(self);
+ 
+-	if (ze_obj->archive->close) {
+-		zend_throw_error(NULL, "Already being closed");
++	if (php_zipobj_closing(ze_obj)) {
+ 		RETURN_THROWS();
+ 	}
+ 
+@@ -1828,6 +1839,10 @@ PHP_METHOD(ZipArchive, addEmptyDir)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (dirname_len<1) {
+ 		RETURN_FALSE;
+ 	}
+@@ -1886,6 +1901,10 @@ static void php_zip_add_from_pattern(INTERNAL_FUNCTION_PARAMETERS, int type) /*
+ 		RETURN_THROWS();
+ 	}
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (type == 1) {
+ 		found = php_zip_glob(ZSTR_VAL(pattern), ZSTR_LEN(pattern), glob_flags, return_value);
+ 	} else {
+@@ -2020,6 +2039,10 @@ PHP_METHOD(ZipArchive, addFile)
+ 		entry_name_len = ZSTR_LEN(filename);
+ 	}
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (php_zip_add_file(Z_ZIP_P(self), ZSTR_VAL(filename), ZSTR_LEN(filename),
+ 			entry_name, entry_name_len, offset_start, offset_len, -1, flags) < 0) {
+ 		RETURN_FALSE;
+@@ -2053,6 +2076,10 @@ PHP_METHOD(ZipArchive, replaceFile)
+ 		RETURN_THROWS();
+ 	}
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (php_zip_add_file(Z_ZIP_P(self), ZSTR_VAL(filename), ZSTR_LEN(filename),
+ 			NULL, 0, offset_start, offset_len, index, flags) < 0) {
+ 		RETURN_FALSE;
+@@ -2083,6 +2110,10 @@ PHP_METHOD(ZipArchive, addFromString)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	ze_obj = Z_ZIP_P(self);
+ 	archive = ze_obj->archive;
+ 	if (archive->buffers_cnt) {
+@@ -2225,6 +2256,10 @@ PHP_METHOD(ZipArchive, setArchiveComment)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (comment_len > 0xffff) {
+ 		zend_argument_value_error(1, "must be less than 65535 bytes");
+ 		RETURN_THROWS();
+@@ -2273,6 +2308,10 @@ PHP_METHOD(ZipArchive, setArchiveFlag)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (zip_set_archive_flag(intern, flag, (int)value)) {
+ 		RETURN_FALSE;
+ 	} else {
+@@ -2316,6 +2355,10 @@ PHP_METHOD(ZipArchive, setCommentName)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (comment_len > 0xffff) {
+ 		zend_argument_value_error(2, "must be less than 65535 bytes");
+ 		RETURN_THROWS();
+@@ -2347,6 +2390,10 @@ PHP_METHOD(ZipArchive, setCommentIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (comment_len > 0xffff) {
+ 		zend_argument_value_error(2, "must be less than 65535 bytes");
+ 		RETURN_THROWS();
+@@ -2379,6 +2426,10 @@ PHP_METHOD(ZipArchive, setExternalAttributesName)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (name_len == 0) {
+ 		zend_argument_value_error(1, "cannot be empty");
+ 		RETURN_THROWS();
+@@ -2412,6 +2463,10 @@ PHP_METHOD(ZipArchive, setExternalAttributesIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	PHP_ZIP_STAT_INDEX(intern, index, 0, sb);
+ 	if (zip_file_set_external_attributes(intern, (zip_uint64_t)index,
+ 			(zip_flags_t)flags, (zip_uint8_t)(opsys&0xff), (zip_uint32_t)attr) < 0) {
+@@ -2507,6 +2562,10 @@ PHP_METHOD(ZipArchive, setEncryptionName)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (name_len == 0) {
+ 		zend_argument_value_error(1, "cannot be empty");
+ 		RETURN_THROWS();
+@@ -2546,6 +2605,10 @@ PHP_METHOD(ZipArchive, setEncryptionIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (UNEXPECTED(zip_file_set_encryption(intern, index, ZIP_EM_NONE, NULL) < 0)) {
+ 		php_error_docref(NULL, E_WARNING, "password reset failed");
+ 		RETURN_FALSE;
+@@ -2634,6 +2697,10 @@ PHP_METHOD(ZipArchive, setCompressionName)
+ 
+ 	ZIP_FROM_OBJECT(intern, this);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(this))) {
++		RETURN_THROWS();
++	}
++
+ 	if (name_len == 0) {
+ 		zend_argument_value_error(1, "cannot be empty");
+ 		RETURN_THROWS();
+@@ -2668,6 +2735,10 @@ PHP_METHOD(ZipArchive, setCompressionIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, this);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(this))) {
++		RETURN_THROWS();
++	}
++
+ 	if (zip_set_file_compression(intern, (zip_uint64_t)index,
+ 			(zip_int32_t)comp_method, (zip_uint32_t)comp_flags) != 0) {
+ 		RETURN_FALSE;
+@@ -2694,6 +2765,10 @@ PHP_METHOD(ZipArchive, setMtimeName)
+ 
+ 	ZIP_FROM_OBJECT(intern, this);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(this))) {
++		RETURN_THROWS();
++	}
++
+ 	if (name_len == 0) {
+ 		zend_argument_value_error(1, "cannot be empty");
+ 		RETURN_THROWS();
+@@ -2728,6 +2803,10 @@ PHP_METHOD(ZipArchive, setMtimeIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, this);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(this))) {
++		RETURN_THROWS();
++	}
++
+ 	if (zip_file_set_mtime(intern, (zip_uint64_t)index,
+ 			(time_t)mtime, (zip_uint32_t)flags) != 0) {
+ 		RETURN_FALSE;
+@@ -2750,6 +2829,10 @@ PHP_METHOD(ZipArchive, deleteIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (index < 0) {
+ 		RETURN_FALSE;
+ 	}
+@@ -2777,6 +2860,10 @@ PHP_METHOD(ZipArchive, deleteName)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (name_len < 1) {
+ 		RETURN_FALSE;
+ 	}
+@@ -2808,6 +2895,10 @@ PHP_METHOD(ZipArchive, renameIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (new_name_len == 0) {
+ 		zend_argument_value_error(2, "cannot be empty");
+ 		RETURN_THROWS();
+@@ -2836,6 +2927,10 @@ PHP_METHOD(ZipArchive, renameName)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (new_name_len == 0) {
+ 		zend_argument_value_error(2, "cannot be empty");
+ 		RETURN_THROWS();
+@@ -2864,6 +2959,10 @@ PHP_METHOD(ZipArchive, unchangeIndex)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (index < 0) {
+ 		RETURN_FALSE;
+ 	}
+@@ -2891,6 +2990,10 @@ PHP_METHOD(ZipArchive, unchangeName)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (name_len < 1) {
+ 		RETURN_FALSE;
+ 	}
+@@ -2917,6 +3020,10 @@ PHP_METHOD(ZipArchive, unchangeAll)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (zip_unchange_all(intern) != 0) {
+ 		RETURN_FALSE;
+ 	} else {
+@@ -2937,6 +3044,10 @@ PHP_METHOD(ZipArchive, unchangeArchive)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	if (zip_unchange_archive(intern) != 0) {
+ 		RETURN_FALSE;
+ 	} else {
+@@ -3232,6 +3343,10 @@ PHP_METHOD(ZipArchive, registerProgressCallback)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	archive = Z_ZIP_P(self)->archive;
+ 
+ 	/* register */
+@@ -3274,6 +3389,10 @@ PHP_METHOD(ZipArchive, registerCancelCallback)
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (php_zipobj_closing(Z_ZIP_P(self))) {
++		RETURN_THROWS();
++	}
++
+ 	archive = Z_ZIP_P(self)->archive;
+ 
+ 	/* register */
+diff --git a/ext/zip/tests/zip_close_mutator_reentry.phpt b/ext/zip/tests/zip_close_mutator_reentry.phpt
+new file mode 100644
+index 0000000..98636d9
+--- /dev/null
++++ b/ext/zip/tests/zip_close_mutator_reentry.phpt
+@@ -0,0 +1,145 @@
++--TEST--
++ZipArchive mutators throw when called from a progress callback during close()
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++if (!method_exists(ZipArchive::class, 'registerProgressCallback')) {
++    die('skip progress callbacks are not supported');
++}
++if (!method_exists(ZipArchive::class, 'registerCancelCallback')) {
++    die('skip cancel callbacks are not supported');
++}
++if (!method_exists(ZipArchive::class, 'setEncryptionName')) {
++    die('skip encryption not supported');
++}
++if (!method_exists(ZipArchive::class, 'setMtimeName')) {
++    die('skip libzip too old');
++}
++?>
++--FILE--
++<?php
++$filename = __DIR__ . '/zip_close_mutator_reentry.zip';
++
++function populate(ZipArchive $zip, string $filename): void {
++    $zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++    $zip->addFromString('a.txt', str_repeat('a', 100000));
++    $zip->addFromString('b.txt', str_repeat('b', 100000));
++}
++
++$zip = new ZipArchive();
++populate($zip, $filename);
++$zip->registerProgressCallback(0.0, function ($rate) use ($zip) {
++    static $done = false;
++    if ($done || $rate <= 0) {
++        return;
++    }
++    $done = true;
++    try {
++        var_dump($zip->deleteIndex(0));
++    } catch (Error $e) {
++        echo $e::class, ': ', $e->getMessage(), PHP_EOL;
++    }
++});
++var_dump($zip->close());
++
++$zip = new ZipArchive();
++populate($zip, $filename);
++$mutators = [
++    'deleteIndex' => fn() => $zip->deleteIndex(0),
++    'deleteName' => fn() => $zip->deleteName('a.txt'),
++    'unchangeIndex' => fn() => $zip->unchangeIndex(0),
++    'unchangeName' => fn() => $zip->unchangeName('a.txt'),
++    'unchangeAll' => fn() => $zip->unchangeAll(),
++    'unchangeArchive' => fn() => $zip->unchangeArchive(),
++    'addEmptyDir' => fn() => $zip->addEmptyDir('dir'),
++    'addFile' => fn() => $zip->addFile(__FILE__, 'file.phpt'),
++    'addFromString' => fn() => $zip->addFromString('c.txt', 'c'),
++    'addGlob' => fn() => $zip->addGlob(__FILE__),
++    'addPattern' => fn() => $zip->addPattern('/\.phpt$/', __DIR__),
++    'replaceFile' => fn() => $zip->replaceFile(__FILE__, 0),
++    'renameIndex' => fn() => $zip->renameIndex(0, 'x.txt'),
++    'renameName' => fn() => $zip->renameName('a.txt', 'x.txt'),
++    'setArchiveComment' => fn() => $zip->setArchiveComment('comment'),
++    'setArchiveFlag' => fn() => $zip->setArchiveFlag(ZipArchive::AFL_RDONLY, 1),
++    'setCommentIndex' => fn() => $zip->setCommentIndex(0, 'comment'),
++    'setCommentName' => fn() => $zip->setCommentName('a.txt', 'comment'),
++    'setCompressionIndex' => fn() => $zip->setCompressionIndex(0, ZipArchive::CM_STORE),
++    'setCompressionName' => fn() => $zip->setCompressionName('a.txt', ZipArchive::CM_STORE),
++    'setEncryptionIndex' => fn() => $zip->setEncryptionIndex(0, ZipArchive::EM_AES_256, 'secret'),
++    'setEncryptionName' => fn() => $zip->setEncryptionName('a.txt', ZipArchive::EM_AES_256, 'secret'),
++    'setExternalAttributesIndex' => fn() => $zip->setExternalAttributesIndex(0, ZipArchive::OPSYS_UNIX, 0),
++    'setExternalAttributesName' => fn() => $zip->setExternalAttributesName('a.txt', ZipArchive::OPSYS_UNIX, 0),
++    'setMtimeIndex' => fn() => $zip->setMtimeIndex(0, 0),
++    'setMtimeName' => fn() => $zip->setMtimeName('a.txt', 0),
++    'setPassword' => fn() => $zip->setPassword('secret'),
++    'registerCancelCallback' => fn() => $zip->registerCancelCallback(fn() => 0),
++    'registerProgressCallback' => fn() => $zip->registerProgressCallback(0.5, function () {}),
++];
++
++$zip->registerProgressCallback(0.0, function ($rate) use ($mutators) {
++    static $done = false;
++    if ($done || $rate <= 0) {
++        return;
++    }
++    $done = true;
++    foreach ($mutators as $name => $mutator) {
++        try {
++            var_dump($mutator());
++        } catch (Error $e) {
++            echo $name, ': ', $e::class, ': ', $e->getMessage(), PHP_EOL;
++        }
++    }
++});
++var_dump($zip->close());
++
++$zip = new ZipArchive();
++var_dump($zip->open($filename, ZipArchive::CHECKCONS));
++var_dump($zip->numFiles);
++var_dump($zip->getFromName('a.txt') === str_repeat('a', 100000));
++var_dump($zip->getFromName('b.txt') === str_repeat('b', 100000));
++var_dump($zip->getArchiveComment());
++$zip->close();
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/zip_close_mutator_reentry.zip');
++?>
++--EXPECT--
++Error: Already being closed
++bool(true)
++deleteIndex: Error: Already being closed
++deleteName: Error: Already being closed
++unchangeIndex: Error: Already being closed
++unchangeName: Error: Already being closed
++unchangeAll: Error: Already being closed
++unchangeArchive: Error: Already being closed
++addEmptyDir: Error: Already being closed
++addFile: Error: Already being closed
++addFromString: Error: Already being closed
++addGlob: Error: Already being closed
++addPattern: Error: Already being closed
++replaceFile: Error: Already being closed
++renameIndex: Error: Already being closed
++renameName: Error: Already being closed
++setArchiveComment: Error: Already being closed
++setArchiveFlag: Error: Already being closed
++setCommentIndex: Error: Already being closed
++setCommentName: Error: Already being closed
++setCompressionIndex: Error: Already being closed
++setCompressionName: Error: Already being closed
++setEncryptionIndex: Error: Already being closed
++setEncryptionName: Error: Already being closed
++setExternalAttributesIndex: Error: Already being closed
++setExternalAttributesName: Error: Already being closed
++setMtimeIndex: Error: Already being closed
++setMtimeName: Error: Already being closed
++setPassword: Error: Already being closed
++registerCancelCallback: Error: Already being closed
++registerProgressCallback: Error: Already being closed
++bool(true)
++bool(true)
++int(2)
++bool(true)
++bool(true)
++string(0) ""
+diff --git a/ext/zip/tests/zip_close_mutator_reentry_cancel.phpt b/ext/zip/tests/zip_close_mutator_reentry_cancel.phpt
+new file mode 100644
+index 0000000..4826c8b
+--- /dev/null
++++ b/ext/zip/tests/zip_close_mutator_reentry_cancel.phpt
+@@ -0,0 +1,57 @@
++--TEST--
++ZipArchive mutators throw when called from a cancel callback during close()
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++if (!method_exists(ZipArchive::class, 'registerCancelCallback')) {
++    die('skip cancel callbacks are not supported');
++}
++?>
++--FILE--
++<?php
++$filename = __DIR__ . '/zip_close_mutator_reentry_cancel.zip';
++$zip = new ZipArchive();
++$zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('a.txt', str_repeat('a', 100000));
++$zip->addFromString('b.txt', str_repeat('b', 100000));
++$zip->registerCancelCallback(function () use ($zip) {
++    static $done = false;
++    if ($done) {
++        return 0;
++    }
++    $done = true;
++    $mutators = [
++        'deleteIndex' => fn() => $zip->deleteIndex(0),
++        'addFromString' => fn() => $zip->addFromString('c.txt', 'c'),
++        'registerCancelCallback' => fn() => $zip->registerCancelCallback(fn() => 0),
++    ];
++    foreach ($mutators as $name => $mutator) {
++        try {
++            var_dump($mutator());
++        } catch (Error $e) {
++            echo $name, ': ', $e::class, ': ', $e->getMessage(), PHP_EOL;
++        }
++    }
++    return 0;
++});
++var_dump($zip->close());
++var_dump($zip->open($filename, ZipArchive::CHECKCONS));
++var_dump($zip->numFiles);
++var_dump($zip->getFromName('a.txt') === str_repeat('a', 100000));
++var_dump($zip->getFromName('b.txt') === str_repeat('b', 100000));
++$zip->close();
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/zip_close_mutator_reentry_cancel.zip');
++?>
++--EXPECT--
++deleteIndex: Error: Already being closed
++addFromString: Error: Already being closed
++registerCancelCallback: Error: Already being closed
++bool(true)
++bool(true)
++int(2)
++bool(true)
++bool(true)
+diff --git a/ext/zip/tests/zip_close_mutator_reentry_open.phpt b/ext/zip/tests/zip_close_mutator_reentry_open.phpt
+new file mode 100644
+index 0000000..c169ea9
+--- /dev/null
++++ b/ext/zip/tests/zip_close_mutator_reentry_open.phpt
+@@ -0,0 +1,69 @@
++--TEST--
++ZipArchive mutators throw when open() implicitly closes the previous archive
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++if (!method_exists(ZipArchive::class, 'registerProgressCallback')) {
++    die('skip progress callbacks are not supported');
++}
++?>
++--FILE--
++<?php
++$filename = __DIR__ . '/zip_close_mutator_reentry_open.zip';
++$nextFilename = __DIR__ . '/zip_close_mutator_reentry_open_next.zip';
++$zip = new ZipArchive();
++$zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('a.txt', str_repeat('a', 100000));
++$zip->addFromString('b.txt', str_repeat('b', 100000));
++$zip->registerProgressCallback(0.0, function ($rate) use ($zip) {
++    static $done = false;
++    if ($done || $rate <= 0) {
++        return;
++    }
++    $done = true;
++    $mutators = [
++        'deleteIndex' => fn() => $zip->deleteIndex(0),
++        'addFromString' => fn() => $zip->addFromString('c.txt', 'c'),
++        'registerProgressCallback' => fn() => $zip->registerProgressCallback(0.5, function () {}),
++    ];
++    foreach ($mutators as $name => $mutator) {
++        try {
++            var_dump($mutator());
++        } catch (Error $e) {
++            echo $name, ': ', $e::class, ': ', $e->getMessage(), PHP_EOL;
++        }
++    }
++});
++var_dump($zip->open($nextFilename, ZipArchive::CREATE | ZipArchive::OVERWRITE));
++var_dump($zip->addFromString('new.txt', 'new contents'));
++var_dump($zip->close());
++var_dump($zip->open($filename, ZipArchive::CHECKCONS));
++var_dump($zip->numFiles);
++var_dump($zip->getFromName('a.txt') === str_repeat('a', 100000));
++var_dump($zip->getFromName('b.txt') === str_repeat('b', 100000));
++$zip->close();
++var_dump($zip->open($nextFilename, ZipArchive::CHECKCONS));
++var_dump($zip->numFiles);
++var_dump($zip->getFromName('new.txt') === 'new contents');
++$zip->close();
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/zip_close_mutator_reentry_open.zip');
++@unlink(__DIR__ . '/zip_close_mutator_reentry_open_next.zip');
++?>
++--EXPECT--
++deleteIndex: Error: Already being closed
++addFromString: Error: Already being closed
++registerProgressCallback: Error: Already being closed
++bool(true)
++bool(true)
++bool(true)
++bool(true)
++int(2)
++bool(true)
++bool(true)
++bool(true)
++int(1)
++bool(true)

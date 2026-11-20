@@ -1,0 +1,213 @@
+Description: GH-23108: addGlob() and addPattern() without options stored the entries uncompressed and failed on an existing name instead of replacing it, the defaults being applied only with an options array (PHP 8.4.25, not in this branch); its tests taken
+Origin: php-src commit 8d5b0d6fb4a9e6175f6a7e636d3e9f5c0ace7862 (David Carlier, 08.08.2026, PHP 8.4.25)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 4504478..114982d 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -65,6 +65,12 @@ static int le_zip_entry;
+ 	}
+ /* }}} */
+ 
++#ifdef HAVE_ENCRYPTION
++#define PHP_ZIP_DEFAULT_OPTIONS { .enc_method = -1, .comp_method = -1, .flags = ZIP_FL_OVERWRITE }
++#else
++#define PHP_ZIP_DEFAULT_OPTIONS { .comp_method = -1, .flags = ZIP_FL_OVERWRITE }
++#endif
++
+ /* {{{ php_zip_set_file_comment */
+ static bool php_zip_set_file_comment(struct zip *za, zip_uint64_t index, const char *comment, size_t comment_len)
+ {
+@@ -374,13 +380,6 @@ static int php_zip_parse_options(HashTable *options, zip_options *opts)
+ {
+ 	zval *option;
+ 
+-	/* default values */
+-	opts->flags = ZIP_FL_OVERWRITE;
+-	opts->comp_method = -1; /* -1 to not change default */
+-#ifdef HAVE_ENCRYPTION
+-	opts->enc_method = -1;  /* -1 to not change default */
+-#endif
+-
+ 	if ((option = zend_hash_str_find(options, "remove_all_path", sizeof("remove_all_path") - 1)) != NULL) {
+ 		if (Z_TYPE_P(option) != IS_FALSE && Z_TYPE_P(option) != IS_TRUE) {
+ 			php_error_docref(NULL, E_WARNING, "Option \"remove_all_path\" must be of type bool, %s given",
+@@ -1749,7 +1748,7 @@ static void php_zip_add_from_pattern(INTERNAL_FUNCTION_PARAMETERS, int type) /*
+ 	size_t  path_len = 1;
+ 	zend_long glob_flags = 0;
+ 	HashTable *options = NULL;
+-	zip_options opts = {0};
++	zip_options opts = PHP_ZIP_DEFAULT_OPTIONS;
+ 	int found;
+ 	zend_string *pattern;
+ 
+diff --git a/ext/zip/tests/addGlob_default_options.phpt b/ext/zip/tests/addGlob_default_options.phpt
+new file mode 100644
+index 0000000..f1951e8
+--- /dev/null
++++ b/ext/zip/tests/addGlob_default_options.phpt
+@@ -0,0 +1,79 @@
++--TEST--
++ZipArchive::addGlob() uses the default options when none are supplied
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$dir = __DIR__ . '/addglob_default_options_dir';
++@mkdir($dir);
++$src = $dir . '/data.txt';
++file_put_contents($src, str_repeat('The quick brown fox. ', 3000));
++$archive = $dir . '/test.zip';
++
++function stat_first(string $archive): array
++{
++    $zip = new ZipArchive();
++    $zip->open($archive);
++    $sb = $zip->statIndex(0);
++    $zip->close();
++
++    return $sb;
++}
++
++function add_glob(string $archive, string $pattern, ?array $options): bool
++{
++    $zip = new ZipArchive();
++    $zip->open($archive, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++    $added = $options === null
++        ? $zip->addGlob($pattern)
++        : $zip->addGlob($pattern, 0, $options);
++    $zip->close();
++
++    return is_array($added);
++}
++
++/* comp_method defaults to "leave it to libzip", i.e. deflate, not CM_STORE. */
++foreach (['no options' => null, 'empty options' => []] as $label => $options) {
++    echo "-- $label --", PHP_EOL;
++    @unlink($archive);
++    var_dump(add_glob($archive, $dir . '/*.txt', $options));
++    $sb = stat_first($archive);
++    var_dump($sb['comp_method'] === ZipArchive::CM_DEFLATE);
++    var_dump($sb['comp_size'] < $sb['size']);
++}
++
++/* flags defaults to FL_OVERWRITE, so an existing entry is replaced. */
++echo '-- overwrites an existing entry --', PHP_EOL;
++@unlink($archive);
++$zip = new ZipArchive();
++$zip->open($archive, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString($src, 'placeholder');
++var_dump(is_array($zip->addGlob($dir . '/*.txt')));
++$zip->close();
++
++$zip = new ZipArchive();
++$zip->open($archive);
++var_dump($zip->numFiles);
++var_dump($zip->getFromName($src) === file_get_contents($src));
++$zip->close();
++?>
++--CLEAN--
++<?php
++$dir = __DIR__ . '/addglob_default_options_dir';
++@unlink($dir . '/test.zip');
++@unlink($dir . '/data.txt');
++@rmdir($dir);
++?>
++--EXPECT--
++-- no options --
++bool(true)
++bool(true)
++bool(true)
++-- empty options --
++bool(true)
++bool(true)
++bool(true)
++-- overwrites an existing entry --
++bool(true)
++int(1)
++bool(true)
+diff --git a/ext/zip/tests/addPattern_default_options.phpt b/ext/zip/tests/addPattern_default_options.phpt
+new file mode 100644
+index 0000000..404e47e
+--- /dev/null
++++ b/ext/zip/tests/addPattern_default_options.phpt
+@@ -0,0 +1,79 @@
++--TEST--
++ZipArchive::addPattern() uses the default options when none are supplied
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$dir = __DIR__ . DIRECTORY_SEPARATOR . 'addpattern_default_options_dir';
++@mkdir($dir);
++$src = $dir . DIRECTORY_SEPARATOR . 'data.txt';
++file_put_contents($src, str_repeat('The quick brown fox. ', 3000));
++$archive = $dir . DIRECTORY_SEPARATOR . 'test.zip';
++
++function stat_first(string $archive): array
++{
++    $zip = new ZipArchive();
++    $zip->open($archive);
++    $sb = $zip->statIndex(0);
++    $zip->close();
++
++    return $sb;
++}
++
++function add_pattern(string $archive, string $pattern, string $path, ?array $options): bool
++{
++    $zip = new ZipArchive();
++    $zip->open($archive, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++    $added = $options === null
++        ? $zip->addPattern($pattern, $path)
++        : $zip->addPattern($pattern, $path, $options);
++    $zip->close();
++
++    return is_array($added);
++}
++
++/* comp_method defaults to "leave it to libzip", i.e. deflate, not CM_STORE. */
++foreach (['no options' => null, 'empty options' => []] as $label => $options) {
++    echo "-- $label --", PHP_EOL;
++    @unlink($archive);
++    var_dump(add_pattern($archive, '/^data\.txt$/', $dir, $options));
++    $sb = stat_first($archive);
++    var_dump($sb['comp_method'] === ZipArchive::CM_DEFLATE);
++    var_dump($sb['comp_size'] < $sb['size']);
++}
++
++/* flags defaults to FL_OVERWRITE, so an existing entry is replaced. */
++echo '-- overwrites an existing entry --', PHP_EOL;
++@unlink($archive);
++$zip = new ZipArchive();
++$zip->open($archive, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString($src, 'placeholder');
++var_dump(is_array($zip->addPattern('/^data\.txt$/', $dir)));
++$zip->close();
++
++$zip = new ZipArchive();
++$zip->open($archive);
++var_dump($zip->numFiles);
++var_dump($zip->getFromIndex(0) === file_get_contents($src));
++$zip->close();
++?>
++--CLEAN--
++<?php
++$dir = __DIR__ . DIRECTORY_SEPARATOR . 'addpattern_default_options_dir';
++@unlink($dir . DIRECTORY_SEPARATOR . 'test.zip');
++@unlink($dir . DIRECTORY_SEPARATOR . 'data.txt');
++@rmdir($dir);
++?>
++--EXPECT--
++-- no options --
++bool(true)
++bool(true)
++bool(true)
++-- empty options --
++bool(true)
++bool(true)
++bool(true)
++-- overwrites an existing entry --
++bool(true)
++int(1)
++bool(true)

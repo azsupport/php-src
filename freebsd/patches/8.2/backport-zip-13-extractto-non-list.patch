@@ -1,0 +1,93 @@
+Description: extractTo() with an array of names that is not a list skipped the names whose key was not an index below the count (PHP 8.4.27, not in this branch); php_zip_extract_file() of 8.2 has no index argument; its tests taken
+Origin: php-src commit 214ed7eb93c181cc6f53dc3a4de2d72a38776b5a (David Carlier, 10.09.2026, PHP 8.4.27)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 99ccdb7..d8858e4 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -2875,7 +2875,7 @@ PHP_METHOD(ZipArchive, extractTo)
+ 		}
+ 	}
+ 
+-	uint32_t nelems, i;
++	uint32_t nelems;
+ 
+ 	if (files_str) {
+ 		if (!php_zip_extract_file(intern, pathto, ZSTR_VAL(files_str), ZSTR_LEN(files_str))) {
+@@ -2886,20 +2886,19 @@ PHP_METHOD(ZipArchive, extractTo)
+ 		if (nelems == 0 ) {
+ 			RETURN_FALSE;
+ 		}
+-		for (i = 0; i < nelems; i++) {
+-			zval *zval_file;
+-			if ((zval_file = zend_hash_index_find_deref(files_ht, i)) != NULL) {
+-				switch (Z_TYPE_P(zval_file)) {
+-					case IS_LONG:
+-						break;
+-					case IS_STRING:
+-						if (!php_zip_extract_file(intern, pathto, Z_STRVAL_P(zval_file), Z_STRLEN_P(zval_file))) {
+-							RETURN_FALSE;
+-						}
+-						break;
+-				}
++		zval *zval_file;
++		ZEND_HASH_FOREACH_VAL(files_ht, zval_file) {
++			ZVAL_DEREF(zval_file);
++			switch (Z_TYPE_P(zval_file)) {
++				case IS_LONG:
++					break;
++				case IS_STRING:
++					if (!php_zip_extract_file(intern, pathto, Z_STRVAL_P(zval_file), Z_STRLEN_P(zval_file))) {
++						RETURN_FALSE;
++					}
++					break;
+ 			}
+-		}
++		} ZEND_HASH_FOREACH_END();
+ 	} else {
+ 		/* Extract all files */
+ 		zip_int64_t i, filecount = zip_get_num_entries(intern, 0);
+diff --git a/ext/zip/tests/oo_extract_array_keys.phpt b/ext/zip/tests/oo_extract_array_keys.phpt
+new file mode 100644
+index 0000000..c825bbe
+--- /dev/null
++++ b/ext/zip/tests/oo_extract_array_keys.phpt
+@@ -0,0 +1,38 @@
++--TEST--
++ZipArchive::extractTo() with a non-list files array (non-sequential keys)
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$archive = __DIR__ . "/oo_extract_array_keys.zip";
++
++$zip = new ZipArchive();
++$zip->open($archive, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString("file0.txt", "zero");
++$zip->addFromString("file1.txt", "one");
++$zip->close();
++
++$target = __DIR__ . "/oo_extract_array_keys";
++mkdir($target);
++
++// array_filter() (and array_unique/array_diff) preserve keys, so this is [1 => "file1.txt"],
++// a perfectly valid list of entry names that is not a packed 0-based array.
++$files = array_filter(["file0.txt", "file1.txt"], fn($f) => $f === "file1.txt");
++
++$zip = new ZipArchive();
++$zip->open($archive);
++var_dump($zip->extractTo($target, $files));
++$zip->close();
++
++var_dump(is_file("$target/file1.txt"));
++?>
++--EXPECT--
++bool(true)
++bool(true)
++--CLEAN--
++<?php
++@unlink(__DIR__ . "/oo_extract_array_keys.zip");
++$target = __DIR__ . "/oo_extract_array_keys";
++@unlink("$target/file1.txt");
++@rmdir($target);
++?>

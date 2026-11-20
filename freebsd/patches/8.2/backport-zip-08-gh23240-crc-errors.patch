@@ -1,0 +1,293 @@
+Description: GH-23240: extractTo() took a failed read (the CRC error of a corrupted entry) for success and wrote the corrupt data, and getFromName() and getFromIndex() never read up to the CRC check and returned such data silently; read errors fail with a warning now (PHP 8.4.26, not in this branch); the n of php_zip_get_from() of 8.2 is an int: zip_int64_t now; its tests taken
+Origin: php-src commit 2a2b337392a1e8d522026b3441360692db373192 (David Carlier, 13.08.2026, PHP 8.4.26)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 120c164..b387293 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -136,6 +136,30 @@ static char * php_zip_make_relative_path(char *path, size_t path_len) /* {{{ */
+ # define CWD_STATE_ALLOC(l) emalloc(l)
+ # define CWD_STATE_FREE(s)  efree(s)
+ 
++/* {{{ php_zip_file_error
++ Entry error code, plus its message when message is not NULL.
++ zip_error_t and its accessors only exist since libzip 1.0. */
++static int php_zip_file_error(struct zip_file *zf, const char **message)
++{
++#if LIBZIP_VERSION_MAJOR < 1
++	int zep, syp;
++
++	zip_file_error_get(zf, &zep, &syp);
++	if (message) {
++		*message = zip_file_strerror(zf);
++	}
++	return zep;
++#else
++	zip_error_t *err = zip_file_get_error(zf);
++
++	if (message) {
++		*message = zip_error_strerror(err);
++	}
++	return zip_error_code_zip(err);
++#endif
++}
++/* }}} */
++
+ /* {{{ php_zip_extract_file */
+ static int php_zip_extract_file(struct zip * za, char *dest, char *file, size_t file_len)
+ {
+@@ -262,7 +286,21 @@ static int php_zip_extract_file(struct zip * za, char *dest, char *file, size_t
+ 	n = 0;
+ 
+ 	while ((n=zip_fread(zf, b, sizeof(b))) > 0) {
+-		php_stream_write(stream, b, n);
++		if (php_stream_write(stream, b, n) != n) {
++			n = -1;
++			break;
++		}
++	}
++
++	if (n < 0) {
++		const char *message;
++
++		if (php_zip_file_error(zf, &message) != ZIP_ER_OK) {
++			php_error_docref(NULL, E_WARNING, "Cannot extract \"%s\": \"%s\"", file, message);
++		}
++		php_stream_close(stream);
++		zip_fclose(zf);
++		goto done;
+ 	}
+ 
+ 	if (stream->wrapper->wops->stream_metadata) {
+@@ -273,7 +311,7 @@ static int php_zip_extract_file(struct zip * za, char *dest, char *file, size_t
+ 	}
+ 
+ 	php_stream_close(stream);
+-	n = zip_fclose(zf);
++	n = zip_fclose(zf) == 0 ? 0 : -1;
+ 
+ done:
+ 	efree(fullpath);
+@@ -2847,7 +2885,7 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
+ 	zend_string *filename;
+ 	zend_string *buffer;
+ 
+-	int n = 0;
++	zip_int64_t n = 0;
+ 
+ 	if (type == 1) {
+ 		if (zend_parse_parameters(ZEND_NUM_ARGS(), "P|ll", &filename, &len, &flags) == FAILURE) {
+@@ -2867,10 +2905,6 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
+ 		PHP_ZIP_STAT_INDEX(intern, index, flags, sb);
+ 	}
+ 
+-	if (sb.size < 1) {
+-		RETURN_EMPTY_STRING();
+-	}
+-
+ 	if (len < 1) {
+ 		len = sb.size;
+ 	}
+@@ -2885,8 +2919,40 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
+ 	}
+ 
+ 	buffer = zend_string_safe_alloc(1, len, 0, 0);
+-	n = zip_fread(zf, ZSTR_VAL(buffer), ZSTR_LEN(buffer));
+-	if (n < 1) {
++
++	/* zip_fread() may return short reads, a truncated entry must not pass for a complete one. */
++	n = 0;
++	while ((zip_uint64_t)n < ZSTR_LEN(buffer)) {
++		zip_int64_t rd = zip_fread(zf, ZSTR_VAL(buffer) + n, ZSTR_LEN(buffer) - n);
++
++		if (rd < 0) {
++			n = -1;
++			break;
++		}
++		if (rd == 0) {
++			break;
++		}
++		n += rd;
++	}
++
++	if (n >= 0 && (zip_uint64_t)n == sb.size) {
++		/* The whole entry has been consumed, read past its last byte so that
++		 * libzip reaches the end of the stream and validates the CRC. */
++		char tmp;
++		if (zip_fread(zf, &tmp, 1) < 0) {
++			n = -1;
++		}
++	}
++	if (n < 0) {
++		const char *message;
++
++		php_zip_file_error(zf, &message);
++		php_error_docref(NULL, E_WARNING, "Cannot read entry: %s", message);
++		zip_fclose(zf);
++		zend_string_efree(buffer);
++		RETURN_FALSE;
++	}
++	if (n == 0) {
+ 		zip_fclose(zf);
+ 		zend_string_efree(buffer);
+ 		RETURN_EMPTY_STRING();
+diff --git a/ext/zip/tests/oo_extract_crc.phpt b/ext/zip/tests/oo_extract_crc.phpt
+new file mode 100644
+index 0000000..bcb3118
+--- /dev/null
++++ b/ext/zip/tests/oo_extract_crc.phpt
+@@ -0,0 +1,44 @@
++--TEST--
++ZipArchive::extractTo() and getFrom*() fail on a CRC-corrupted entry
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$dirname = __DIR__ . '/oo_extract_crc_dir';
++mkdir($dirname);
++$file = $dirname . '/corrupt.zip';
++$payload = str_repeat('A', 64) . 'PAYLOAD-END';
++
++$zip = new ZipArchive();
++$zip->open($file, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('a.txt', $payload);
++$zip->setCompressionName('a.txt', ZipArchive::CM_STORE);
++$zip->close();
++
++$raw = file_get_contents($file);
++$raw[strpos($raw, 'AAAA') + 2] = 'Z';
++file_put_contents($file, $raw);
++
++$zip = new ZipArchive();
++$zip->open($file);
++var_dump($zip->extractTo($dirname, 'a.txt'));
++var_dump($zip->getFromName('a.txt'));
++var_dump($zip->getFromIndex(0));
++$zip->close();
++?>
++--CLEAN--
++<?php
++$dirname = __DIR__ . '/oo_extract_crc_dir';
++@unlink($dirname . '/a.txt');
++@unlink($dirname . '/corrupt.zip');
++@rmdir($dirname);
++?>
++--EXPECTF--
++Warning: ZipArchive::extractTo(): Cannot extract "a.txt": "CRC error" in %s on line %d
++bool(false)
++
++Warning: ZipArchive::getFromName(): Cannot read entry: CRC error in %s on line %d
++bool(false)
++
++Warning: ZipArchive::getFromIndex(): Cannot read entry: CRC error in %s on line %d
++bool(false)
+diff --git a/ext/zip/tests/oo_get_from_crc_empty.phpt b/ext/zip/tests/oo_get_from_crc_empty.phpt
+new file mode 100644
+index 0000000..5e48059
+--- /dev/null
++++ b/ext/zip/tests/oo_get_from_crc_empty.phpt
+@@ -0,0 +1,52 @@
++--TEST--
++ZipArchive::getFrom*() rejects a CRC-corrupted empty entry
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++/* libzip < 1.10.0 shortcuts empty entries and never checks their CRC. */
++if (version_compare(ZipArchive::LIBZIP_VERSION, '1.10.0', '<')) die('skip libzip < 1.10.0');
++?>
++--FILE--
++<?php
++$dirname = __DIR__ . '/oo_get_from_crc_empty_dir';
++mkdir($dirname);
++$file = $dirname . '/corrupt.zip';
++
++$zip = new ZipArchive();
++$zip->open($file, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('empty.txt', '');
++$zip->setCompressionName('empty.txt', ZipArchive::CM_STORE);
++$zip->close();
++
++/* Corrupt the CRC in both the local and central directory headers. */
++$raw = file_get_contents($file);
++for ($i = 0, $length = strlen($raw); $i + 3 < $length; $i++) {
++    $signature = substr($raw, $i, 4);
++    if ($signature === "PK\x03\x04") {
++        $raw[$i + 14] = "\x01";
++    } elseif ($signature === "PK\x01\x02") {
++        $raw[$i + 16] = "\x01";
++    }
++}
++file_put_contents($file, $raw);
++
++$zip = new ZipArchive();
++$zip->open($file);
++var_dump($zip->getFromName('empty.txt'));
++var_dump($zip->getFromIndex(0));
++$zip->close();
++?>
++--CLEAN--
++<?php
++$dirname = __DIR__ . '/oo_get_from_crc_empty_dir';
++@unlink($dirname . '/empty.txt');
++@unlink($dirname . '/corrupt.zip');
++@rmdir($dirname);
++?>
++--EXPECTF--
++Warning: ZipArchive::getFromName(): Cannot read entry: CRC error in %s on line %d
++bool(false)
++
++Warning: ZipArchive::getFromIndex(): Cannot read entry: CRC error in %s on line %d
++bool(false)
+diff --git a/ext/zip/tests/oo_get_from_length.phpt b/ext/zip/tests/oo_get_from_length.phpt
+new file mode 100644
+index 0000000..9eae83f
+--- /dev/null
++++ b/ext/zip/tests/oo_get_from_length.phpt
+@@ -0,0 +1,46 @@
++--TEST--
++ZipArchive::getFrom*() rejects an entry with an inconsistent uncompressed size
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$dirname = __DIR__ . '/oo_get_from_length_dir';
++mkdir($dirname);
++$file = $dirname . '/inconsistent.zip';
++
++$zip = new ZipArchive();
++$zip->open($file, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++$zip->addFromString('a.txt', str_repeat('A', 10));
++$zip->setCompressionName('a.txt', ZipArchive::CM_STORE);
++$zip->close();
++
++/* Advertise 20 bytes in the central directory, but keep only 10 bytes. */
++$raw = file_get_contents($file);
++for ($i = 0, $length = strlen($raw); $i + 27 < $length; $i++) {
++    if (substr($raw, $i, 4) === "PK\x01\x02") {
++        $size = unpack('V', substr($raw, $i + 24, 4))[1];
++        $raw = substr_replace($raw, pack('V', $size + 10), $i + 24, 4);
++        break;
++    }
++}
++file_put_contents($file, $raw);
++
++$zip = new ZipArchive();
++$zip->open($file);
++var_dump($zip->getFromName('a.txt'));
++var_dump($zip->getFromIndex(0));
++$zip->close();
++?>
++--CLEAN--
++<?php
++$dirname = __DIR__ . '/oo_get_from_length_dir';
++@unlink($dirname . '/a.txt');
++@unlink($dirname . '/inconsistent.zip');
++@rmdir($dirname);
++?>
++--EXPECTF--
++Warning: ZipArchive::getFromName(): Cannot read entry: Zip archive inconsistent%s
++bool(false)
++
++Warning: ZipArchive::getFromIndex(): Cannot read entry: Zip archive inconsistent%s
++bool(false)

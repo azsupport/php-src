@@ -1,0 +1,189 @@
+Description: GH-23779: a ZipArchive destroyed without close() while its progress or cancel callback ran nested zip_close() and freed the archive in use (a use-after-free); no new stream while closing, no callback destructors after the engine shutdown (PHP 8.4.28, not in this branch); its tests taken
+Origin: php-src commit 303e6aa82f2834a3c0d49a23824611d88f1e88c3 (jvoisin, 19.09.2026, PHP 8.4.28)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index 673c9f6..13275be 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -1062,6 +1062,10 @@ static void _php_zip_progress_callback_free(void *ptr)
+ {
+ 	php_zip_archive *archive = ptr;
+ 
++	if (UNEXPECTED(!EG(active))) {
++		return;
++	}
++
+ 	if (!Z_ISUNDEF(archive->progress_callback)) {
+ 		zval_ptr_dtor(&archive->progress_callback);
+ 		ZVAL_UNDEF(&archive->progress_callback);
+@@ -1074,6 +1078,10 @@ static void _php_zip_cancel_callback_free(void *ptr)
+ {
+ 	php_zip_archive *archive = ptr;
+ 
++	if (UNEXPECTED(!EG(active))) {
++		return;
++	}
++
+ 	if (!Z_ISUNDEF(archive->cancel_callback)) {
+ 		zval_ptr_dtor(&archive->cancel_callback);
+ 		ZVAL_UNDEF(&archive->cancel_callback);
+@@ -1105,7 +1113,12 @@ void php_zip_archive_release(php_zip_archive *archive)
+ 	}
+ 
+ 	if (archive->za) {
+-		if (zip_close(archive->za) != 0) {
++		/* Guard against a re-entrant close() or open() from a progress/cancel
++		 * callback fired during zip_close(), which would run a nested zip_close()
++		 * on the same archive (see ZipArchive::close()). */
++		archive->close = true;
++		int err = zip_close(archive->za);
++		if (err != 0) {
+ 			php_error_docref(NULL, E_WARNING, "Cannot destroy the zip context: %s", zip_strerror(archive->za));
+ 			zip_discard(archive->za);
+ 		}
+@@ -1137,6 +1150,7 @@ static void php_zip_object_detach_archive(ze_zip_object *ze_obj, struct zip *rel
+ 	ZEND_ASSERT(ze_obj->archive != NULL);
+ 	ZEND_ASSERT(ze_obj->archive->za == released_za);
+ 	ze_obj->archive->za = NULL;
++	ze_obj->archive->close = false;
+ 	php_zip_archive_release(ze_obj->archive);
+ 	ze_obj->archive = NULL;
+ }
+@@ -1651,7 +1665,6 @@ PHP_METHOD(ZipArchive, close)
+ 
+ 	ze_obj->archive->close = true;
+ 	err = zip_close(intern);
+-	ze_obj->archive->close = false;
+ 	if (err) {
+ 		php_error_docref(NULL, E_WARNING, "%s", zip_strerror(intern));
+ 		/* Save error for property reader */
+@@ -3074,6 +3087,11 @@ static void php_zip_get_stream(INTERNAL_FUNCTION_PARAMETERS, int type, bool acce
+ 
+ 	ZIP_FROM_OBJECT(intern, self);
+ 
++	if (Z_ZIP_P(self)->archive->close) {
++		zend_throw_error(NULL, "Already being closed");
++		RETURN_THROWS();
++	}
++
+ 	if (type) {
+ 		PHP_ZIP_STAT_PATH(intern, ZSTR_VAL(filename), ZSTR_LEN(filename), flags, sb);
+ 	} else {
+diff --git a/ext/zip/tests/gh23747_close_error.phpt b/ext/zip/tests/gh23747_close_error.phpt
+new file mode 100644
+index 0000000..2af6218
+--- /dev/null
++++ b/ext/zip/tests/gh23747_close_error.phpt
+@@ -0,0 +1,48 @@
++--TEST--
++GH-23747 (Re-entrant close from a ZipArchive close warning is rejected)
++--EXTENSIONS--
++zip
++--FILE--
++<?php
++$filename = __DIR__ . '/gh23747_close_error.zip';
++$source = __DIR__ . '/gh23747_close_error.txt';
++
++foreach (['close', 'destruct'] as $operation) {
++    echo $operation, ":\n";
++    file_put_contents($source, 'contents');
++    $zip = new ZipArchive();
++    $zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++    $zip->addFile($source, 'file.txt');
++    unlink($source);
++
++    $weak = WeakReference::create($zip);
++    set_error_handler(static function (int $errno, string $message) use ($weak): bool {
++        try {
++            $weak->get()->close();
++        } catch (Error $error) {
++            echo $error::class, ': ', $error->getMessage(), "\n";
++        }
++        return true;
++    });
++
++    if ($operation === 'close') {
++        var_dump($zip->close());
++    } else {
++        unset($zip);
++        echo "destroyed\n";
++    }
++    restore_error_handler();
++}
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh23747_close_error.zip');
++@unlink(__DIR__ . '/gh23747_close_error.txt');
++?>
++--EXPECT--
++close:
++Error: Already being closed
++bool(false)
++destruct:
++Error: Already being closed
++destroyed
+diff --git a/ext/zip/tests/gh23747_dtor.phpt b/ext/zip/tests/gh23747_dtor.phpt
+new file mode 100644
+index 0000000..5732eb9
+--- /dev/null
++++ b/ext/zip/tests/gh23747_dtor.phpt
+@@ -0,0 +1,58 @@
++--TEST--
++GH-23747 (Re-entrant operations during ZipArchive destruction are rejected)
++--EXTENSIONS--
++zip
++--SKIPIF--
++<?php
++if (!method_exists(ZipArchive::class, 'registerProgressCallback')) {
++    die('skip progress callbacks are not supported');
++}
++?>
++--FILE--
++<?php
++$filename = __DIR__ . '/gh23747_dtor.zip';
++
++foreach ([
++    ['close', []],
++    ['getStream', ['f0.txt']],
++    ['getStreamName', ['f0.txt']],
++    ['getStreamIndex', [0]],
++] as [$method, $arguments]) {
++    $zip = new ZipArchive();
++    $zip->open($filename, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++    for ($index = 0; $index < 64; $index++) {
++        $zip->addFromString("f$index.txt", str_repeat('x', 2000));
++    }
++
++    $weak = WeakReference::create($zip);
++    $callback = static function (float $rate) use ($weak, $method, $arguments): void {
++        static $done = false;
++        if ($done) {
++            return;
++        }
++        $done = true;
++
++        try {
++            $weak->get()->$method(...$arguments);
++        } catch (Error $error) {
++            echo $method, ': ', $error->getMessage(), "\n";
++        }
++    };
++    $zip->registerProgressCallback(0.0, $callback);
++    unset($zip);
++    echo "destroyed\n";
++}
++?>
++--CLEAN--
++<?php
++@unlink(__DIR__ . '/gh23747_dtor.zip');
++?>
++--EXPECT--
++close: Already being closed
++destroyed
++getStream: Already being closed
++destroyed
++getStreamName: Already being closed
++destroyed
++getStreamIndex: Already being closed
++destroyed

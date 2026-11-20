@@ -1,0 +1,26 @@
+Description: php_zip_add_file() leaked the file it had opened for ZIP_FL_OPEN_FILE_NOW when zip_source_filep() failed (PHP 8.4.23, not in this branch); its tests taken
+Origin: php-src commit 4c54dce2bc252315dbf3c524929a8d8edf5bbef4 (ndossche, 06.06.2026, PHP 8.4.23)
+
+diff --git a/ext/zip/php_zip.c b/ext/zip/php_zip.c
+index f163019..ebae2c9 100644
+--- a/ext/zip/php_zip.c
++++ b/ext/zip/php_zip.c
+@@ -314,11 +314,15 @@ static int php_zip_add_file(ze_zip_object *obj, const char *filename, size_t fil
+ 		}
+ 		flags ^= ZIP_FL_OPEN_FILE_NOW;
+ 		zs = zip_source_filep(obj->za, fd, offset_start, offset_len);
++		if (!zs) {
++			fclose(fd);
++			return FAILURE;
++		}
+ 	} else {
+ 		zs = zip_source_file(obj->za, resolved_path, offset_start, offset_len);
+-	}
+-	if (!zs) {
+-		return -1;
++		if (!zs) {
++			return FAILURE;
++		}
+ 	}
+ 	/* Replace */
+ 	if (replace >= 0) {
