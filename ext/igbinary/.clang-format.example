@@ -1,0 +1,12 @@
+# Note: This has a lot of false positives with the macros used for developing PHP modules,
+# and can't be used automatically.
+BasedOnStyle: LLVM
+UseTab: Always
+IndentWidth: 8
+TabWidth: 8
+ColumnLimit: 0
+SpacesBeforeTrailingComments: 2
+
+# I tried ForEachMacros,
+# but clang-format 3.8.0 would insert a space before the '(', making the C macro not work.
+# ForEachMacros: ['ZEND_HASH_FOREACH_KEY_PTR', 'ZEND_HASH_FOREACH_KEY_VAL_IND', 'ZEND_HASH_FOREACH_PTR', 'ZEND_HASH_FOREACH_STR_KEY', 'ZEND_HASH_FOREACH_STR_KEY_PTR', 'ZEND_HASH_FOREACH_STR_KEY_VAL', 'ZEND_HASH_FOREACH_VAL_IND']
