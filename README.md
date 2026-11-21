@@ -160,17 +160,19 @@ time while `session.upload_progress.enabled` is on, as PHP 8.2 and later have it
 `freebsd/7.4` and `freebsd/8.1` add it on top of his backport,
 [7.4](freebsd/patches/7.4/backport-zz-ghsa-658j-r8rw-q6mx-runtime.patch) and
 [8.1](freebsd/patches/8.1/backport-zz-ghsa-658j-r8rw-q6mx-runtime.patch) (with its
-test). His fix of GHSA-3mg3-cr28-46gc in 7.4 escapes the five fields of the status
-page of FPM for the HTML and XML pages only (the json of 7.4 can be a module of its
-own, which FPM cannot call); `freebsd/7.4` escapes them for the JSON page too, as 8.x
-does, [7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch).
+test). His fix of GHSA-3mg3-cr28-46gc in 5.6 and 7.4 escapes the five fields of the
+status page of FPM for the HTML and XML pages only (the json of 5.6 and 7.4 can be a
+module of its own, which FPM cannot call); `freebsd/5.6` and `freebsd/7.4` escape them
+for the JSON page too, as 8.x does,
+[5.6](freebsd/patches/5.6/backport-zz-ghsa-3mg3-cr28-46gc-json.patch) and
+[7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch).
 
 | Advisory | Fixes | Patches |
 |---|---|---|
 | GHSA-5j3f-64r7-f564 (CVE-2026-129538) | CGI: an underflow of PATH_INFO in `init_request_info()` | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
 | GHSA-gr4f-wgx5-jpfv (CVE-2026-129496) | the error log: a use after free of the time zone cache outside of a request | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
 | GHSA-qc49-hpvq-g2w6 (CVE-2026-129289) | FastCGI: an unread request body taken for the next request (smuggling) | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
-| GHSA-3mg3-cr28-46gc (CVE-2026-129292) | FPM: the method, the user and the script unescaped on the status page (XSS) | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS), [7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch) (the JSON page) |
+| GHSA-3mg3-cr28-46gc (CVE-2026-129292) | FPM: the method, the user and the script unescaped on the status page (XSS) | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS), [5.6](freebsd/patches/5.6/backport-zz-ghsa-3mg3-cr28-46gc-json.patch) and [7.4](freebsd/patches/7.4/backport-zz-ghsa-3mg3-cr28-46gc-json.patch) (the JSON page) |
 | GHSA-jm4m-qfqx-967m (CVE-2026-129291) | FPM: a stdio pipe of a worker closed twice | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
 | GHSA-68fq-fh7h-f8gr (CVE-2026-128090) | phar: a keyless signature accepted where a `.pubkey` asks for OpenSSL | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
 | GHSA-fm2m-fjf5-v3cp (CVE-2026-126714) | session files: a write cut short left a mix of two sessions | [5.6: Remi](https://github.com/remicollet/php-src-security/blob/f98c3c2b5ffca6bed55e6d514307facdcfc35f78/NEWS) |
