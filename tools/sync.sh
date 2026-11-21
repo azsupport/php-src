@@ -8,6 +8,8 @@
 #      official php-src release tag of that minor version);
 #   2. skip the target if freebsd/<target> already carries that upstream commit
 #      and the same patch set (unless --force) - checked before any big fetch;
+#      a tip that no release points at (a run stopped between the push and the
+#      release) is built and released again;
 #   3. rebuild freebsd/<target> = upstream
 #        + one commit applying the curated FreeBSD ports patches
 #        + commits for our build compatibility patches, interim security
@@ -820,6 +822,27 @@ publish_release() {
     log "$target: released $name"
 }
 
+# A run stopped between the push of a branch and its release (a cancelled job)
+# leaves a tip that no release points at, and the up-to-date check alone would
+# never release it. True only when GitHub answers for certain: the dated release
+# of the tip (its tag from Fork-Build) is missing or points at another commit,
+# and no draft points at the tip (refresh_notes publishes such a draft).
+tip_unreleased() {   # $1: commit message of the tip of $branch
+    fb="$(printf '%s\n' "$1" | sed -n 's/^Fork-Build: //p')"
+    [ -n "$fb" ] || return 1
+    tip="$(git ls-remote origin "refs/heads/$branch" | awk 'NR == 1 {print $1}')"
+    [ -n "$tip" ] || return 1
+    tip_tag="freebsd-$target-${fb%%-fbsd-*}-$(short "$up_commit" 8)"
+    if out="$(gh api "repos/$gh_repo/releases/tags/$tip_tag" --jq .target_commitish 2>&1)"; then
+        [ "$out" != "$tip" ] || return 1
+    else
+        case "$out" in *"(HTTP 404)"*) ;; *) return 1 ;; esac
+    fi
+    drafts="$(gh api "repos/$gh_repo/releases?per_page=100" \
+        --jq "[.[] | select(.draft and .target_commitish == \"$tip\")] | length")" || return 1
+    [ "$drafts" = 0 ]
+}
+
 build_target() {
     target="$1" url="$2" ref="$3" port="$4" portrev="$5"
     patch_dir="$main_dir/freebsd/patches/$target"
@@ -835,12 +858,16 @@ build_target() {
     if [ "$force" = 0 ] && [ "$local_only" = 0 ] && msg="$(current_message "$branch" 2>/dev/null)"; then
         if [ "$(printf '%s\n' "$msg" | sed -n 's/^Upstream-Commit: //p')" = "$up_commit" ] &&
            [ "$(printf '%s\n' "$msg" | sed -n 's/^Patchset: //p')" = "$patchset" ]; then
-            log "$target: up to date ($up_ref @ $(short "$up_commit"))"
-            if [ "$release" = 1 ]; then
-                refresh_notes "$target" "$url" "$ref" "$port" "$portrev" ||
-                    log "$target: warning: could not refresh the release notes"
+            if { [ "$release" = 1 ] || [ "$check_only" = 1 ]; } && tip_unreleased "$msg"; then
+                log "$target: $branch @ $(short "$tip") has no release $tip_tag: building it again"
+            else
+                log "$target: up to date ($up_ref @ $(short "$up_commit"))"
+                if [ "$release" = 1 ]; then
+                    refresh_notes "$target" "$url" "$ref" "$port" "$portrev" ||
+                        log "$target: warning: could not refresh the release notes"
+                fi
+                return 0
             fi
-            return 0
         fi
     fi
     if [ "$check_only" = 1 ]; then
