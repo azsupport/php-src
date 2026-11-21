@@ -193,11 +193,19 @@ AC_DEFUN([PHP_GD_FREETYPE2],[
     done
 
     if test -z "$FREETYPE2_DIR"; then
-      AC_MSG_ERROR([freetype-config not found.])
+      dnl freetype 2.9.1 and newer no longer install freetype-config by default
+      dnl (the FreeBSD freetype2 package ships only freetype2.pc): use pkg-config.
+      AC_PATH_PROG(PKG_CONFIG, pkg-config, no)
+      if test "$PKG_CONFIG" != "no" && $PKG_CONFIG --exists freetype2; then
+        FREETYPE2_CFLAGS=`$PKG_CONFIG --cflags freetype2`
+        FREETYPE2_LIBS=`$PKG_CONFIG --libs freetype2`
+      else
+        AC_MSG_ERROR([freetype-config not found, and pkg-config knows no freetype2.])
+      fi
+    else
+      FREETYPE2_CFLAGS=`$FREETYPE2_CONFIG --cflags`
+      FREETYPE2_LIBS=`$FREETYPE2_CONFIG --libs`
     fi
-
-    FREETYPE2_CFLAGS=`$FREETYPE2_CONFIG --cflags`
-    FREETYPE2_LIBS=`$FREETYPE2_CONFIG --libs`
 
     PHP_EVAL_INCLINE($FREETYPE2_CFLAGS)
     PHP_EVAL_LIBLINE($FREETYPE2_LIBS, GD_SHARED_LIBADD)
@@ -249,7 +257,12 @@ AC_DEFUN([PHP_GD_CHECK_VERSION],[
   PHP_CHECK_LIBRARY(gd, gdImageCreateFromPng,   [AC_DEFINE(HAVE_GD_PNG,              1, [ ])], [], [ $GD_SHARED_LIBADD ])
   PHP_CHECK_LIBRARY(gd, gdImageCreateFromWebp,  [AC_DEFINE(HAVE_GD_WEBP,             1, [ ])], [], [ $GD_SHARED_LIBADD ])
   PHP_CHECK_LIBRARY(gd, gdImageCreateFromJpeg,  [AC_DEFINE(HAVE_GD_JPG,              1, [ ])], [], [ $GD_SHARED_LIBADD ])
-  PHP_CHECK_LIBRARY(gd, gdImageCreateFromXpm,   [AC_DEFINE(HAVE_GD_XPM,              1, [ ])], [], [ $GD_SHARED_LIBADD ])
+  dnl XPM only with --with-xpm-dir: libgd has gdImageCreateFromXpm also when it is
+  dnl built without libXpm (it fails then), and HAVE_GD_XPM makes gd.c include
+  dnl X11/xpm.h and call XpmLibraryVersion()
+  if test "$PHP_XPM_DIR" != "no"; then
+    PHP_CHECK_LIBRARY(gd, gdImageCreateFromXpm, [AC_DEFINE(HAVE_GD_XPM,              1, [ ])], [], [ $GD_SHARED_LIBADD ])
+  fi
   PHP_CHECK_LIBRARY(gd, gdImageStringFT,        [AC_DEFINE(HAVE_GD_FREETYPE,         1, [ ])], [], [ $GD_SHARED_LIBADD ])
   PHP_CHECK_LIBRARY(gd, gdVersionString,        [AC_DEFINE(HAVE_GD_LIBVERSION,       1, [ ])], [], [ $GD_SHARED_LIBADD ])
 ])
@@ -318,7 +331,8 @@ dnl enable the support in bundled GD library
     GDLIB_CFLAGS="$GDLIB_CFLAGS -DHAVE_XPM"
   fi
 
-  if test -n "$FREETYPE2_DIR"; then
+  dnl FREETYPE2_DIR stays empty when FreeType was found through pkg-config
+  if test -n "$FREETYPE2_LIBS"; then
     AC_DEFINE(HAVE_GD_FREETYPE,   1, [ ])
     AC_DEFINE(ENABLE_GD_TTF, 1, [ ])
     GDLIB_CFLAGS="$GDLIB_CFLAGS -DHAVE_LIBFREETYPE -DENABLE_GD_TTF"
@@ -355,15 +369,31 @@ dnl Header path
   fi
 
 dnl Library path
+dnl With the gdlib.pc of that libgd (libgd 2.1 and newer install it) the libraries
+dnl come from pkg-config: a static libgd.a also needs those of its Libs.private
+dnl (a pkg-config that runs with --static gives them), as with PHP 7.4 and newer.
+
+  GDLIB_LIBS=""
+  if test -f "$PHP_GD/$PHP_LIBDIR/pkgconfig/gdlib.pc"; then
+    AC_PATH_PROG(PKG_CONFIG, pkg-config, no)
+    if test "$PKG_CONFIG" != "no" && $PKG_CONFIG --exists gdlib && \
+       test "`$PKG_CONFIG --variable=libdir gdlib`" = "$PHP_GD/$PHP_LIBDIR"; then
+      GDLIB_LIBS=`$PKG_CONFIG --libs gdlib`
+    fi
+  fi
 
   PHP_CHECK_LIBRARY(gd, gdSetErrorMethod,
   [
-    PHP_ADD_LIBRARY_WITH_PATH(gd, $PHP_GD/$PHP_LIBDIR, GD_SHARED_LIBADD)
+    if test -n "$GDLIB_LIBS"; then
+      PHP_EVAL_LIBLINE($GDLIB_LIBS, GD_SHARED_LIBADD)
+    else
+      PHP_ADD_LIBRARY_WITH_PATH(gd, $PHP_GD/$PHP_LIBDIR, GD_SHARED_LIBADD)
+    fi
     AC_DEFINE(HAVE_LIBGD, 1, [ ])
   ],[
     AC_MSG_ERROR([Unable to find libgd.(a|so) >= 2.1.0 anywhere under $PHP_GD])
   ],[
-    -L$PHP_GD/$PHP_LIBDIR
+    -L$PHP_GD/$PHP_LIBDIR $GDLIB_LIBS
   ])
   PHP_GD_CHECK_VERSION
 
