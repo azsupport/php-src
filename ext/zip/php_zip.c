@@ -93,17 +93,25 @@ static int le_zip_entry;
 	}
 /* }}} */
 
-/* {{{ PHP_ZIP_SET_FILE_COMMENT(za, index, comment, comment_len) */
-#define PHP_ZIP_SET_FILE_COMMENT(za, index, comment, comment_len) \
-	if (comment_len == 0) { \
-		/* Passing NULL remove the existing comment */ \
-		if (zip_set_file_comment(intern, index, NULL, 0) < 0) { \
-			RETURN_FALSE; \
-		} \
-	} else if (zip_set_file_comment(intern, index, comment, comment_len) < 0) { \
-		RETURN_FALSE; \
-	} \
-	RETURN_TRUE;
+/* {{{ php_zip_set_file_comment */
+static int php_zip_set_file_comment(struct zip *za, zip_uint64_t index, const char *comment, int comment_len)
+{
+	zip_uint32_t current_comment_len;
+	const char *current_comment = zip_file_get_comment(za, index, &current_comment_len, ZIP_FL_ENC_RAW);
+
+	/* Avoid a libzip use-after-free when resetting an unchanged inherited comment. */
+	if (current_comment && current_comment_len == (zip_uint32_t) comment_len
+			&& memcmp(current_comment, comment, comment_len) == 0) {
+		return 1;
+	}
+
+	if (comment_len == 0) {
+		/* Passing NULL removes the existing comment. */
+		return zip_file_set_comment(za, index, NULL, 0, 0) == 0;
+	}
+
+	return zip_file_set_comment(za, index, comment, (zip_uint16_t) comment_len, 0) == 0;
+}
 /* }}} */
 
 #if (PHP_MAJOR_VERSION < 6)
@@ -158,6 +166,30 @@ static char * php_zip_make_relative_path(char *path, int path_len) /* {{{ */
 # define CWD_STATE_ALLOC(l) emalloc(l)
 # define CWD_STATE_FREE(s)  efree(s)
 #endif
+
+/* {{{ php_zip_file_error
+ Entry error code, plus its message when message is not NULL.
+ zip_error_t and its accessors only exist since libzip 1.0. */
+static int php_zip_file_error(struct zip_file *zf, const char **message)
+{
+#if LIBZIP_VERSION_MAJOR < 1
+	int zep, syp;
+
+	zip_file_error_get(zf, &zep, &syp);
+	if (message) {
+		*message = zip_file_strerror(zf);
+	}
+	return zep;
+#else
+	zip_error_t *err = zip_file_get_error(zf);
+
+	if (message) {
+		*message = zip_error_strerror(err);
+	}
+	return zip_error_code_zip(err);
+#endif
+}
+/* }}} */
 
 /* {{{ php_zip_extract_file */
 static int php_zip_extract_file(struct zip * za, char *dest, char *file, int file_len TSRMLS_DC)
@@ -300,11 +332,25 @@ static int php_zip_extract_file(struct zip * za, char *dest, char *file, int fil
 	n = 0;
 
 	while ((n=zip_fread(zf, b, sizeof(b))) > 0) {
-		php_stream_write(stream, b, n);
+		if (php_stream_write(stream, b, n) != n) {
+			n = -1;
+			break;
+		}
+	}
+
+	if (n < 0) {
+		const char *message;
+
+		if (php_zip_file_error(zf, &message) != ZIP_ER_OK) {
+			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Cannot extract \"%s\": \"%s\"", file, message);
+		}
+		php_stream_close(stream);
+		zip_fclose(zf);
+		goto done;
 	}
 
 	php_stream_close(stream);
-	n = zip_fclose(zf);
+	n = zip_fclose(zf) == 0 ? 0 : -1;
 
 done:
 	efree(fullpath);
@@ -588,6 +634,7 @@ int php_zip_glob(char *pattern, int pattern_len, long flags, zval *return_value 
 
 	/* now catch the FreeBSD style of "no matches" */
 	if (!globbuf.gl_pathc || !globbuf.gl_pathv) {
+		globfree(&globbuf);
 		array_init(return_value);
 		return 0;
 	}
@@ -596,6 +643,7 @@ int php_zip_glob(char *pattern, int pattern_len, long flags, zval *return_value 
 	   so checking the dirname of the first match should be sufficient */
 	strncpy(cwd, globbuf.gl_pathv[0], MAXPATHLEN);
 	if (ZIP_OPENBASEDIR_CHECKPATH(cwd)) {
+		globfree(&globbuf);
 		return -1;
 	}
 
@@ -698,7 +746,10 @@ int php_zip_pcre(char *regexp, int regexp_len, char *path, int path_len, zval *r
 			if ((path_len + namelist_len + 1) >= MAXPATHLEN) {
 				php_error_docref(NULL TSRMLS_CC, E_WARNING, "add_path string too long (max: %i, %i given)",
 						MAXPATHLEN - 1, (path_len + namelist_len + 1));
-				efree(namelist[i]);
+				/* The loop isn't continued, so all remaining file names must get freed. */
+				for (; i < files_cnt; i++) {
+					efree(namelist[i]);
+				}
 				break;
 			}
 
@@ -1572,6 +1623,21 @@ static ZIPARCHIVE_METHOD(open)
 		ze_obj->filename = NULL;
 	}
 
+#if LIBZIP_VERSION_MAJOR > 1 || LIBZIP_VERSION_MAJOR == 1 && LIBZIP_VERSION_MINOR >= 6
+	/* reduce BC break introduce in libzip 1.6.0
+	   "Do not accept empty files as valid zip archives any longer" */
+
+	/* open for write without option to empty the archive */
+	if ((flags & (ZIP_TRUNCATE | ZIP_RDONLY)) == 0) {
+		struct stat st;
+
+		/* exists and is empty */
+		if (VCWD_STAT(resolved_path, &st) == 0 && st.st_size == 0) {
+			flags |= ZIP_TRUNCATE;
+		}
+	}
+#endif
+
 	intern = zip_open(resolved_path, flags, &err);
 	if (!intern || err) {
 		efree(resolved_path);
@@ -2061,7 +2127,7 @@ static ZIPARCHIVE_METHOD(getNameIndex)
 		return;
 	}
 
-	name = zip_get_name(intern, (int) index, flags);
+	name = zip_get_name(intern, (zip_uint64_t) index, flags);
 
 	if (name) {
 		RETVAL_STRING((char *)name, 1);
@@ -2154,7 +2220,7 @@ static ZIPARCHIVE_METHOD(setCommentName)
 	if (idx < 0) {
 		RETURN_FALSE;
 	}
-	PHP_ZIP_SET_FILE_COMMENT(intern, idx, comment, comment_len);
+	RETURN_BOOL(php_zip_set_file_comment(intern, (zip_uint64_t) idx, comment, comment_len));
 }
 /* }}} */
 
@@ -2181,7 +2247,7 @@ static ZIPARCHIVE_METHOD(setCommentIndex)
 	}
 
 	PHP_ZIP_STAT_INDEX(intern, index, 0, sb);
-	PHP_ZIP_SET_FILE_COMMENT(intern, index, comment, comment_len);
+	RETURN_BOOL(php_zip_set_file_comment(intern, (zip_uint64_t) index, comment, comment_len));
 }
 /* }}} */
 
@@ -2690,8 +2756,12 @@ static ZIPARCHIVE_METHOD(extractTo)
 				if (nelems == 0 ) {
 					RETURN_FALSE;
 				}
-				for (i = 0; i < nelems; i++) {
-					if (zend_hash_index_find(Z_ARRVAL_P(zval_files), i, (void **) &zval_file) == SUCCESS) {
+				{
+					HashPosition pos;
+
+					for (zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(zval_files), &pos);
+							zend_hash_get_current_data_ex(Z_ARRVAL_P(zval_files), (void **) &zval_file, &pos) == SUCCESS;
+							zend_hash_move_forward_ex(Z_ARRVAL_P(zval_files), &pos)) {
 						switch (Z_TYPE_PP(zval_file)) {
 							case IS_LONG:
 								break;
@@ -2744,7 +2814,7 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
 	long len = 0;
 
 	char *buffer;
-	int n = 0;
+	zip_int64_t n = 0;
 
 	if (!this) {
 		RETURN_FALSE;
@@ -2761,11 +2831,7 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
 		if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l|ll", &index, &len, &flags) == FAILURE) {
 			return;
 		}
-		PHP_ZIP_STAT_INDEX(intern, index, 0, sb);
-	}
-
-	if (sb.size < 1) {
-		RETURN_EMPTY_STRING();
+		PHP_ZIP_STAT_INDEX(intern, index, flags, sb);
 	}
 
 	if (len < 1) {
@@ -2782,8 +2848,41 @@ static void php_zip_get_from(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
 	}
 
 	buffer = safe_emalloc(len, 1, 2);
-	n = zip_fread(zf, buffer, len);
-	if (n < 1) {
+
+	/* zip_fread() may return short reads, a truncated entry must not pass for a complete one. */
+	n = 0;
+	while (n < len) {
+		zip_int64_t rd = zip_fread(zf, buffer + n, len - n);
+
+		if (rd < 0) {
+			n = -1;
+			break;
+		}
+		if (rd == 0) {
+			break;
+		}
+		n += rd;
+	}
+
+	if (n >= 0 && (zip_uint64_t)n == sb.size) {
+		/* The whole entry has been consumed, read past its last byte so that
+		 * libzip reaches the end of the stream and validates the CRC. */
+		char tmp;
+		if (zip_fread(zf, &tmp, 1) < 0) {
+			n = -1;
+		}
+	}
+	if (n < 0) {
+		const char *message;
+
+		php_zip_file_error(zf, &message);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Cannot read entry: %s", message);
+		zip_fclose(zf);
+		efree(buffer);
+		RETURN_FALSE;
+	}
+	if (n == 0) {
+		zip_fclose(zf);
 		efree(buffer);
 		RETURN_EMPTY_STRING();
 	}
