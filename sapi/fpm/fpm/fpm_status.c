@@ -14,6 +14,7 @@
 #include "fpm_conf.h"
 #include "fpm_php.h"
 #include <ext/standard/html.h>
+#include "zend_smart_str.h"
 
 static char *fpm_status_uri = NULL;
 static char *fpm_status_ping_uri = NULL;
@@ -44,7 +45,83 @@ int fpm_status_init_child(struct fpm_worker_pool_s *wp) /* {{{ */
 }
 /* }}} */
 
-static char *fpm_status_escape(char *str, int encode, zend_string **tmp)
+/* a field for the JSON page as php_json_encode_string() of PHP 8.2.36 writes it with
+ * PHP_JSON_INVALID_UTF8_IGNORE, without its quotes: " \ / and the control characters
+ * escaped, every character past ASCII as \uXXXX (UTF-16), the bytes that are not
+ * UTF-8 left out; the json of these packages is a module of its own (php74-json),
+ * which FPM cannot call (GHSA-3mg3-cr28-46gc) */
+static zend_string *fpm_status_json_escape(const char *str)
+{
+	static const char digits[] = "0123456789abcdef";
+	size_t len = strlen(str), pos = 0;
+	smart_str buf = {0};
+
+	while (pos < len) {
+		int status;
+		unsigned int us = php_next_utf8_char((const unsigned char *) str, len, &pos, &status);
+
+		if (status != SUCCESS) {
+			continue;
+		}
+		switch (us) {
+			case '"':
+				smart_str_appendl(&buf, "\\\"", 2);
+				break;
+			case '\\':
+				smart_str_appendl(&buf, "\\\\", 2);
+				break;
+			case '/':
+				smart_str_appendl(&buf, "\\/", 2);
+				break;
+			case '\b':
+				smart_str_appendl(&buf, "\\b", 2);
+				break;
+			case '\f':
+				smart_str_appendl(&buf, "\\f", 2);
+				break;
+			case '\n':
+				smart_str_appendl(&buf, "\\n", 2);
+				break;
+			case '\r':
+				smart_str_appendl(&buf, "\\r", 2);
+				break;
+			case '\t':
+				smart_str_appendl(&buf, "\\t", 2);
+				break;
+			default:
+				if (us >= 0x20 && us < 0x80) {
+					smart_str_appendc(&buf, (char) us);
+				} else {
+					unsigned int units[2];
+					int n = 1, i;
+
+					units[0] = us;
+					if (us >= 0x10000) {
+						us -= 0x10000;
+						units[0] = 0xd800 | (us >> 10);
+						units[1] = 0xdc00 | (us & 0x3ff);
+						n = 2;
+					}
+					for (i = 0; i < n; i++) {
+						smart_str_appendl(&buf, "\\u", 2);
+						smart_str_appendc(&buf, digits[(units[i] >> 12) & 0xf]);
+						smart_str_appendc(&buf, digits[(units[i] >> 8) & 0xf]);
+						smart_str_appendc(&buf, digits[(units[i] >> 4) & 0xf]);
+						smart_str_appendc(&buf, digits[units[i] & 0xf]);
+					}
+				}
+				break;
+		}
+	}
+	if (!buf.s) {
+		/* freed with zend_string_free() by the caller: not the interned empty string */
+		return zend_string_init("", 0, 0);
+	}
+	smart_str_0(&buf);
+	return buf.s;
+}
+
+static char *fpm_status_escape(char *str, int encode, int encode_json, zend_string **tmp)
 {
 	*tmp = NULL;
 	if (str[0] == '\0') {
@@ -53,6 +130,10 @@ static char *fpm_status_escape(char *str, int encode, zend_string **tmp)
 	if (encode) {
 		*tmp = php_escape_html_entities_ex((unsigned char *) str, strlen(str), 1,
 				ENT_DISALLOWED | ENT_HTML_DOC_XML1 | ENT_COMPAT, NULL, /* double_encode */ 1);
+		return ZSTR_VAL(*tmp);
+	}
+	if (encode_json) {
+		*tmp = fpm_status_json_escape(str);
 		return ZSTR_VAL(*tmp);
 	}
 	return str;
@@ -161,7 +242,7 @@ int fpm_status_handle_request(void) /* {{{ */
 	struct fpm_scoreboard_proc_s proc;
 	char *buffer, *time_format, time_buffer[64];
 	time_t now_epoch;
-	int full, encode;
+	int full, encode, encode_json;
 	char *short_syntax, *short_post;
 	char *full_pre, *full_syntax, *full_post, *full_separator;
 	zend_string *_GET_str;
@@ -241,6 +322,7 @@ int fpm_status_handle_request(void) /* {{{ */
 		short_syntax = short_post = NULL;
 		full_separator = full_pre = full_syntax = full_post = NULL;
 		encode = 0;
+		encode_json = 0;
 
 		/* HTML */
 		if (fpm_php_get_string_from_table(_GET_str, "html")) {
@@ -373,6 +455,7 @@ int fpm_status_handle_request(void) /* {{{ */
 		} else if (fpm_php_get_string_from_table(_GET_str, "json")) {
 			sapi_add_header_ex(ZEND_STRL("Content-Type: application/json"), 1, 1);
 			time_format = "%s";
+			encode_json = 1;
 
 			short_syntax =
 				"{"
@@ -527,11 +610,11 @@ int fpm_status_handle_request(void) /* {{{ */
 					}
 				}
 
-				request_method_string = fpm_status_escape(proc.request_method, encode, &tmp_request_method_string);
-				request_uri_string = fpm_status_escape(proc.request_uri, encode, &tmp_request_uri_string);
-				query_string = fpm_status_escape(proc.query_string, encode, &tmp_query_string);
-				auth_user_string = fpm_status_escape(proc.auth_user, encode, &tmp_auth_user_string);
-				script_filename_string = fpm_status_escape(proc.script_filename, encode, &tmp_script_filename_string);
+				request_method_string = fpm_status_escape(proc.request_method, encode, encode_json, &tmp_request_method_string);
+				request_uri_string = fpm_status_escape(proc.request_uri, encode, encode_json, &tmp_request_uri_string);
+				query_string = fpm_status_escape(proc.query_string, encode, encode_json, &tmp_query_string);
+				auth_user_string = fpm_status_escape(proc.auth_user, encode, encode_json, &tmp_auth_user_string);
+				script_filename_string = fpm_status_escape(proc.script_filename, encode, encode_json, &tmp_script_filename_string);
 
 #ifdef HAVE_FPM_LQ
 				/* prevent NaN */
