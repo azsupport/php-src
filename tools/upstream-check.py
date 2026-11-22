@@ -64,7 +64,10 @@ package (from a mirror whose CHECKSUMS.md5 the key of Slackware signed); "remi"
 lines, the commits of a branch of Remi Collet's git server after a commit (the
 sources of his RPMs); "arch" lines, the commits of the packaging repository of an
 Arch Linux package (gitlab.archlinux.org), the AUR by "github" lines (its GitHub
-mirror, a branch per package); "suse" lines, the entries of the .changes of a
+mirror, a branch per package); "pull" lines, a pull request of an upstream on GitHub
+whose commits a port of ours carries as patches (the open pull requests of nginx in
+www/nginx-devel): its head another commit than the one taken, or the pull request
+merged or closed; "suse" lines, the entries of the .changes of a
 package of the Open Build Service (openSUSE, and the maintenance projects of SUSE
 Linux Enterprise that backport to old versions); "debian" lines, the advisories of
 Debian (DSA, DLA) and of Freexian's Extended LTS (ELA) for a source package and,
@@ -1338,6 +1341,59 @@ def check_github():
         findings.append({"key": "github:%s:%s" % (src, base), "kind": "ports",
                          "title": "%s %s: %d commit%s after %s" % (repo, branch, n, "" if n == 1 else "s", base[:12]),
                          "body": "\n".join(lines)})
+    return findings, checked
+
+
+def check_pulls():
+    """The rows "pull <owner>/<repo> <number> <commit> <ours>" of upstream.conf: a pull
+    request of an upstream on GitHub whose commits <ours> carries as patches before the
+    upstream has them (the open pull requests of nginx in www/nginx-devel), <commit> its
+    head when they were taken. A finding when the head is another commit (commits
+    added, a rebase), and when the pull request is merged or closed."""
+    findings, checked, all_read = [], set(), True
+    for r in conf("upstream.conf"):
+        if r[0] != "pull" or len(r) < 5:
+            continue
+        repo, num, base, what = r[1], r[2], r[3], r[4]
+        try:
+            pr = github_json("repos/%s/pulls/%s" % (repo, num))
+        except Exception as e:  # noqa: BLE001 - the source is down: leave its issue alone
+            warn("%s #%s: %s" % (repo, num, e))
+            all_read = False
+            continue
+        checked.add("pull:%s:%s:" % (repo, num))
+        head = (pr.get("head") or {}).get("sha") or ""
+        state = "merged" if pr.get("merged") or pr.get("merged_at") else (pr.get("state") or "unknown")
+        moved = not head or not head.startswith(base)
+        if state == "open" and not moved:
+            continue
+        url = "https://github.com/%s/pull/%s" % (repo, num)
+        lines = ["The pull request [#%s](%s) of %s, \"%s\", whose commits %s carries as patches (its head "
+                 "`%s` when they were taken):" % (num, url, repo, (pr.get("title") or "").replace("|", "\\|"),
+                                                 ours(what), base), ""]
+        what_now = []
+        if state == "merged":
+            what_now.append("merged")
+            lines.append("- merged %s%s: the patches of %s go when it is at a release that has them." % (
+                (pr.get("merged_at") or "")[:10],
+                ", as `%s`" % pr["merge_commit_sha"][:12] if pr.get("merge_commit_sha") else "", ours(what)))
+        elif state != "open":
+            what_now.append(state)
+            lines.append("- %s %s without a merge: why (refused, replaced by another fix, committed by hand) is "
+                         "in its conversation." % (state, (pr.get("closed_at") or "")[:10]))
+        if moved:
+            what_now.append("its head moved")
+            lines.append("- its head is `%s` now ([the changes since `%s`](https://github.com/%s/compare/%s...%s), "
+                         "[its commits](%s/commits)): compare them with the patches of %s." % (
+                             head[:12] or "?", base[:12], repo, base, head, url, ours(what)))
+        lines += ["", "After the review: for a head that moved, set the commit of `pull %s %s` in "
+                      "`freebsd/upstream.conf` to it; for a pull request merged or closed, remove the row when its "
+                      "patches are out of %s, or stay as ours; the next check closes this issue." % (
+                          repo, num, ours(what))]
+        findings.append({"key": "pull:%s:%s:%s:%s" % (repo, num, head[:12], state), "kind": "ports",
+                         "title": "%s #%s: %s" % (repo, num, ", ".join(what_now)), "body": "\n".join(lines)})
+    if all_read:
+        checked.add("pull:")  # also the issue of a row that is no longer there
     return findings, checked
 
 
@@ -2697,8 +2753,8 @@ def main():
     ap.add_argument("--days", type=int, default=180)
     ap.add_argument("--only", default="",
                     help="only these checks, separated by commas (%s)" % ", ".join(
-                        ("releases", "bundles", "ports", "eol", "trees", "github", "upstreams", "defaults", "debian",
-                         "launchpad", "cves", "distgit", "slackware", "remi", "arch", "suse")))
+                        ("releases", "bundles", "ports", "eol", "trees", "github", "pulls", "upstreams", "defaults",
+                         "debian", "launchpad", "cves", "distgit", "slackware", "remi", "arch", "suse")))
     ap.add_argument("--ports", default=PORTS_DIR,
                     help="a checkout of azsupport/ports, for the conf files of the bundles (default: ports/ here)")
     args = ap.parse_args()
@@ -2727,6 +2783,7 @@ def main():
         ("eol", check_php_eol),
         ("trees", lambda: check_trees(workdir)),
         ("github", check_github),
+        ("pulls", check_pulls),
         ("upstreams", check_release_rows),
         ("defaults", check_defaults),
         ("debian", check_debian),
