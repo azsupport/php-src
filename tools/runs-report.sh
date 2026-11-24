@@ -31,6 +31,14 @@ if [ -z "$remote" ]; then
     remote="https://x-access-token:${RUNS_TOKEN}@github.com/azsupport/azsupport.git"
 fi
 wf="${GITHUB_WORKFLOW_REF:-}"; wf="${wf%%@*}"; wf="${wf##*/}"; wf="${wf%.yml}"
+# github-act-runner (our runners in the jails of our servers) does not set
+# GITHUB_WORKFLOW_REF: the path of the workflow from the run in the API (the
+# repository is public: no token)
+if [ -z "$wf" ] && [ -n "${GITHUB_RUN_ID:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ]; then
+    wf="$(curl -fsS -m 20 "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" 2> /dev/null |
+        sed -n 's/^ *"path": *"\([^"]*\)".*/\1/p' | head -n 1)"
+    wf="${wf%%@*}"; wf="${wf##*/}"; wf="${wf%.yml}"
+fi
 [ -n "$wf" ] || wf="run"
 day="$(date -u +%Y-%m-%d)"
 run="${GITHUB_RUN_ID:-0}"
