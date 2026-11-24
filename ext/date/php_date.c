@@ -4412,6 +4412,30 @@ static int date_period_initialize(timelib_time **st, timelib_time **et, timelib_
 	return retval;
 }
 
+static void date_period_reset(php_period_obj *period_obj) /* {{{ */
+{
+	if (period_obj->start) {
+		timelib_time_dtor(period_obj->start);
+	}
+	if (period_obj->current) {
+		timelib_time_dtor(period_obj->current);
+	}
+	if (period_obj->end) {
+		timelib_time_dtor(period_obj->end);
+	}
+	if (period_obj->interval) {
+		timelib_rel_time_dtor(period_obj->interval);
+	}
+	period_obj->start = NULL;
+	period_obj->start_ce = NULL;
+	period_obj->current = NULL;
+	period_obj->end = NULL;
+	period_obj->interval = NULL;
+	period_obj->recurrences = 0;
+	period_obj->initialized = 0;
+	period_obj->include_start_date = 0;
+} /* }}} */
+
 /* {{{ proto DatePeriod::__construct(DateTime $start, DateInterval $interval, int recurrences|DateTime $end)
    Creates new DatePeriod object.
 */
@@ -4439,7 +4463,7 @@ PHP_METHOD(DatePeriod, __construct)
 	}
 
 	dpobj = zend_object_store_get_object(getThis() TSRMLS_CC);
-	dpobj->current = NULL;
+	date_period_reset(dpobj);
 
 	if (isostr) {
 		date_period_initialize(&(dpobj->start), &(dpobj->end), &(dpobj->interval), &recurrences, isostr, isostr_len TSRMLS_CC);
@@ -4463,9 +4487,19 @@ PHP_METHOD(DatePeriod, __construct)
 	} else {
 		/* init */
 		intobj  = (php_interval_obj *) zend_object_store_get_object(interval TSRMLS_CC);
+		if (!intobj->initialized) {
+			php_error_docref(NULL TSRMLS_CC, E_WARNING, "The DateInterval object has not been correctly initialized by its constructor");
+			zend_restore_error_handling(&error_handling TSRMLS_CC);
+			return;
+		}
+		dateobj = (php_date_obj *) zend_object_store_get_object(start TSRMLS_CC);
+		if (!dateobj->time || (end && !((php_date_obj *) zend_object_store_get_object(end TSRMLS_CC))->time)) {
+			php_error_docref(NULL TSRMLS_CC, E_WARNING, "The DateTimeInterface object has not been correctly initialized by its constructor");
+			zend_restore_error_handling(&error_handling TSRMLS_CC);
+			return;
+		}
 
 		/* start date */
-		dateobj = (php_date_obj *) zend_object_store_get_object(start TSRMLS_CC);
 		clone = timelib_time_ctor();
 		memcpy(clone, dateobj->time, sizeof(timelib_time));
 		if (dateobj->time->tz_abbr) {
