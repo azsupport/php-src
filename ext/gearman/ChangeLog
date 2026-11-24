@@ -1,0 +1,100 @@
+Version 2.2.1
+-------------
+- Fix build failure on PHP 7.x with -Werror=incompatible-pointer-types (#61)
+- Convert README to Markdown
+
+Version 2.2.0
+-------------
+- Add SSL support via setSSL() for GearmanClient and GearmanWorker (#9)
+- Fix jobs not retried when worker calls exit() mid-callback (#26)
+- Fix forked children causing premature job completion (#40)
+- Fix misleading "Unable to add worker function" exception message (#21)
+- Fix worker constructor error path cleanup (#17)
+- Add Homebrew Apple Silicon search path to config.m4 (#32)
+- Drop PHP 7.1, minimum is now PHP 7.2 (#42)
+- Support PHP 8.6 (#49)
+- Expose GEARMAN_*_STOP_WAIT_ON_SIGNAL constants (#51)
+- Add PIE support via composer.json
+
+Version 2.1.5
+-------------
+- Bump max PHP version so pecl will install for PHP 8.5
+
+Version 2.1.4
+-------------
+- Bump min PHP version to 7.1
+- Fix stubs and arginfo
+
+Version 2.1.3
+-------------
+- Bump max PHP version so pecl will install for PHP 8.4
+
+Version 2.1.2
+-------------
+- Bump max PHP version so pecl will install for PHP 8.2 and 8.3 as well
+
+Version 2.1.1
+-------------
+- Compatibility fix - remove ZVAL_NEW_ARR usage
+- add Param to skip exception handling setup in addServer/addServers in GearmanWorker class
+- fix memory leak in GearmanClient::doXXX methods
+- fix some proto and stubs types
+
+Version 2.1.0
+-------------
+- PHP 8.0 support
+- Serialization segfault fix
+- Clean up tests
+
+Version 2.0.6
+-------------
+- fixing issue with double calling of zval_dtor in set fail callback
+
+Version 2.0.5
+-------------
+- fixing incorrect number of required parameters for GearmanClient::addServer
+and GearmanClient::addServers, along with proceduralequivalents
+
+Version 2.0.4
+-------------
+- bug fix for issue #59, Param to skip exception handling setup in addServer/addServers
+in GearmanClient class
+
+Version 2.0.3
+-------------
+- Including changes for PHP 7.x
+- smaller bug fixes
+- splitting up into several smaller files
+
+Version 0.6.0
+-------------
+- Fixed build issue with 5.1.x
+- Merged eday changes
+- Added wait functions, uncommented other worker functions.
+- Added timeout functions.
+- Updated function list from C library and removed free methods (should use unset).
+- Added stubs for new functions, fixed tests, fixed some of the existing functions from changes.
+
+Version 0.5.0
+-------------
+- Fixed a bug in the task callbacks, the addtional data arg will now work as expected.
+- Added gearman_client_add_servers. This was adde in a recent version of libgearman.
+- Updates to zts for php 5.3
+- Replaced errno with getErrno
+
+Version 0.4.0
+-------------
+- Fixed memory leak in $task object
+- Regened constants off of libgearman v0.7
+- Removed gearman_task_take_data
+- Added exception to task job object when created without a geaman obj arg
+- Fixed a bunch of places where it was possible to use objects before verifying them
+- Other small bug fixes
+
+Version 0.3.1
+-------------
+- Initial PECL import
+- Reworked client/worker/task/job objects.
+- Added $obj->return_code() to all objects
+- Fixed compile issues with PHP 5.1 and 5.3
+
