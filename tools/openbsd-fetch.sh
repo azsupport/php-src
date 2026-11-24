@@ -236,7 +236,7 @@ try_mirrors() {
         export OBF_STRICT
         root="$cand"
         # one ssh connection for all the cvs commands of the run
-        OBF_MASTER=yes timeout 60 "$w/ssh" -f -N "${root%%:*}" < /dev/null > /dev/null 2>&1 || true
+        OBF_MASTER=yes timeout --foreground 60 "$w/ssh" -f -N "${root%%:*}" < /dev/null > /dev/null 2>&1 || true
         # one try, three minutes at most: the next mirror rather than a slow one
         CVSQ_TRIES=1
         CVSQ_TIME=180
