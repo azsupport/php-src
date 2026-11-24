@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   delete:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, azfork]
     timeout-minutes: 10
     steps:
       - name: Delete the releases and their tags

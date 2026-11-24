@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   fetch:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, azfork]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
