@@ -1,0 +1,15 @@
+ignore:
+  - "src/core/error.cc"
+  - "thirdparty/hiredis/*"
+  - "thirdparty/llhttp/*"
+
+# Keep the project percentage as line coverage, matching historical reports.
+# LCOV still collects branch coverage for diagnostics.
+parsers:
+  lcov:
+    partials_as_hits: true
+
+coverage:
+  range: 60..80
+  round: down
+  precision: 2

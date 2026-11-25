@@ -1,0 +1,717 @@
+<?php
+/*
+ +----------------------------------------------------------------------+
+ | Swoole                                                               |
+ +----------------------------------------------------------------------+
+ | Copyright (c) 2012-2017 The Swoole Group                             |
+ +----------------------------------------------------------------------+
+ | This source file is subject to version 2.0 of the Apache license,    |
+ | that is bundled with this package in the file LICENSE, and is        |
+ | available through the world-wide-web at the following url:           |
+ | http://www.apache.org/licenses/LICENSE-2.0.html                      |
+ | If you did not receive a copy of the Apache2.0 license and are unable|
+ | to obtain it through the world-wide-web, please send a note to       |
+ | license@swoole.com so we can mail you a copy immediately.            |
+ +----------------------------------------------------------------------+
+ | Author: Tianfeng Han  <rango@swoole.com>                             |
+ +----------------------------------------------------------------------+
+ */
+
+namespace SwooleTest;
+
+use RuntimeException;
+use Swoole\Atomic;
+use Swoole\Event;
+use Swoole\Process;
+use Swoole\Thread;
+
+class ProcessManager
+{
+    private const WINDOWS_THREAD_MARKER = 'swoole-test-manager-thread';
+
+    /**
+     * @var Atomic
+     */
+    protected $atomic;
+    protected $alone = false;
+    protected $onlyChild = false;
+    protected $onlyParent = false;
+    protected $freePorts = [];
+    protected $randomFunc = 'get_safe_random';
+    protected $randomData = [[]];
+    protected $randomDataArray = [];
+
+    /**
+     * wait wakeup 10s default
+     */
+    protected $waitTimeout = 10.0;
+
+    public $parentFunc;
+    protected $parentSetupFunc;
+    public $childFunc;
+    public $async = false;
+    public $useConstantPorts = false;
+
+    protected $childPid;
+    protected $childExitStatus = 255;
+    protected $expectExitSignal;
+    protected $parentFirst = false;
+    protected $killed = false;
+    /**
+     * @var Process
+     */
+    protected $childProcess;
+    protected $logFileHandle;
+    protected $syncToken;
+    protected $syncFile;
+    protected $waitCount = 0;
+    protected $childOutputFile;
+    protected $childExitCode = 255;
+    protected $childThread;
+    protected $syncQueue;
+    protected $stopFlag;
+    protected $childStopTimer;
+    protected $windowsThreadBackend = false;
+
+    public function __construct()
+    {
+        if (is_win()) {
+            if (!class_exists(Thread::class, false)) {
+                throw new RuntimeException('Swoole thread support is required on Windows');
+            }
+            $this->windowsThreadBackend = true;
+            $this->syncToken = getenv('SWOOLE_TEST_PM_TOKEN') ?: bin2hex(random_bytes(8));
+            $prefix = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'swoole-pm-' . $this->syncToken;
+            $this->syncFile = $prefix . '.state';
+            $this->childOutputFile = $prefix . '.out';
+            $this->waitTimeout = 5.0;
+        } else {
+            $this->atomic = new Atomic(0);
+        }
+        $this->expectExitSignal = [0, defined('SIGTERM') ? SIGTERM : 0];
+    }
+
+    public function setParent(callable $func)
+    {
+        $this->parentFunc = $func;
+    }
+
+    /**
+     * Configure state that belongs to the parent PHP runtime.
+     *
+     * Windows must do this before starting the child thread because runtime
+     * hooks mutate process-wide PHP handlers and cannot be enabled while more
+     * than one PHP thread is active. POSIX does it after fork so the child
+     * keeps the unmodified runtime inherited by existing fixtures.
+     */
+    public function setParentSetup(callable $func): void
+    {
+        $this->parentSetupFunc = $func;
+    }
+
+    protected function runParentSetup(): void
+    {
+        if ($this->parentSetupFunc) {
+            $func = $this->parentSetupFunc;
+            $this->parentSetupFunc = null;
+            $func();
+        }
+    }
+
+    public function parentFirst()
+    {
+        $this->parentFirst = true;
+    }
+
+    public function childFirst()
+    {
+        $this->parentFirst = false;
+    }
+
+    public function setChild(callable $func)
+    {
+        $this->childFunc = $func;
+    }
+
+    public function getChildPid(): int
+    {
+        return $this->childPid;
+    }
+
+    public function setWaitTimeout(float $value)
+    {
+        $this->waitTimeout = $value;
+    }
+
+    //等待信息
+    public function wait()
+    {
+        if ($this->alone || $this->waitTimeout == 0) {
+            return false;
+        }
+        if (!is_win()) {
+            $ready = $this->atomic->wait($this->waitTimeout);
+        } elseif ($this->windowsThreadBackend) {
+            $ready = $this->syncQueue->pop($this->waitTimeout) === true;
+        } else {
+            $deadline = microtime(true) + $this->waitTimeout;
+            $ready = false;
+            while (microtime(true) < $deadline) {
+                $current = $this->readSyncCount();
+                if ($current > $this->waitCount) {
+                    $this->waitCount = $current;
+                    $ready = true;
+                    break;
+                }
+                usleep(10000);
+            }
+        }
+        if (!$ready) {
+            throw new RuntimeException("ProcessManager did not receive a wakeup within {$this->waitTimeout}s");
+        }
+        return true;
+    }
+
+    //唤醒等待的进程
+    public function wakeup()
+    {
+        if ($this->alone) {
+            return false;
+        }
+        if (!is_win()) {
+            return $this->atomic->wakeup();
+        }
+        if ($this->windowsThreadBackend) {
+            return $this->syncQueue->push(true);
+        }
+
+        $this->waitCount = max($this->waitCount + 1, $this->readSyncCount() + 1);
+        return $this->writeSyncCount($this->waitCount);
+    }
+
+    private function waitForChild(bool $blocking): array|false
+    {
+        if (function_exists('pcntl_waitpid')) {
+            do {
+                $pid = pcntl_waitpid($this->childPid, $status, $blocking ? 0 : WNOHANG);
+            } while ($pid === -1 && pcntl_get_last_error() === PCNTL_EINTR);
+            if ($pid <= 0) {
+                return false;
+            }
+            $waitInfo = [
+                'pid' => $pid,
+                'code' => pcntl_wifexited($status) ? pcntl_wexitstatus($status) : 0,
+                'signal' => pcntl_wifsignaled($status) ? pcntl_wtermsig($status) : 0,
+            ];
+        } else {
+            // Process::wait() cannot select a PID; retain compatibility when pcntl is unavailable.
+            $waitInfo = Process::wait($blocking);
+        }
+        if ($waitInfo && $waitInfo['pid'] === $this->childPid) {
+            $this->childExitStatus = $waitInfo['code'];
+            $this->killed = true;
+        }
+        return $waitInfo;
+    }
+
+    private function terminateChildAfterReadinessFailure(): void
+    {
+        $this->kill();
+        // Servers may use their full three-second max_wait_time to stop workers gracefully.
+        $deadline = microtime(true) + 5;
+        do {
+            $waitInfo = $this->waitForChild(false);
+            if ($waitInfo && $waitInfo['pid'] === $this->childPid) {
+                return;
+            }
+            usleep(10000);
+        } while (microtime(true) < $deadline);
+
+        @Process::kill($this->childPid, SIGKILL);
+        do {
+            $waitInfo = $this->waitForChild(true);
+        } while ($waitInfo && $waitInfo['pid'] !== $this->childPid);
+    }
+
+    public function runParentFunc($pid = 0)
+    {
+        if (!$this->parentFunc) {
+            return (function () { $this->kill(); })();
+        } else {
+            return call_user_func($this->parentFunc, $pid);
+        }
+    }
+
+    public function setLogFile($file)
+    {
+        $this->logFileHandle = fopen($file, "a+");
+    }
+
+    public function writeLog($msg)
+    {
+        fwrite($this->logFileHandle, $msg . PHP_EOL);
+    }
+
+    /**
+     * @param int $index
+     * @return mixed
+     */
+    public function getFreePort($index = 0)
+    {
+        return $this->freePorts[$index];
+    }
+
+    public function setRandomFunc($func)
+    {
+        $this->randomFunc = $func;
+    }
+
+    public function initRandomData(int $size, int $len = null)
+    {
+        $this->initRandomDataEx(1, $size, $len);
+    }
+
+    /**
+     * 生成一个随机字节组成的数组
+     * @param int $n
+     * @param int $len 默认为0，表示随机产生长度
+     * @param bool $base64
+     * @throws \Exception
+     */
+    public function initRandomDataArray($n = 1, $len = 0, bool $base64 = false)
+    {
+        while ($n--) {
+            if ($len == 0) {
+                $len = rand(1024, 1 * 1024 * 1024);
+            }
+            $bytes = random_bytes($len);
+            $this->randomDataArray[] = $base64 ? base64_encode($bytes) : $bytes;
+        }
+    }
+
+    /**
+     * @param $index
+     * @return mixed
+     */
+    public function getRandomDataElement(int $index = 0)
+    {
+        if (!isset($this->randomDataArray[$index])) {
+            throw new RuntimeException("out of array");
+        }
+        return $this->randomDataArray[$index];
+    }
+
+    public function getRandomDataArray(): array
+    {
+        if ($this->randomDataArray instanceof Thread\ArrayList) {
+            return $this->randomDataArray->toArray();
+        }
+        return $this->randomDataArray;
+    }
+
+    public function getRandomData()
+    {
+        return $this->getRandomDataEx(0);
+    }
+
+    public function getRandomDataSize(): int
+    {
+        return $this->getRandomDataSizeEx(0);
+    }
+
+    public function initRandomDataEx(int $block_num, int $size, ...$arguments)
+    {
+        $arguments = array_reverse($arguments);
+        $shift = 0;
+        foreach ($arguments as $index => $argument) {
+            if ($argument === null) {
+                $shift++;
+            } else {
+                break;
+            }
+        }
+        while ($shift--) {
+            array_shift($arguments);
+        }
+        $arguments = array_reverse($arguments);
+        $func = $this->randomFunc;
+        for ($b = 0; $b < $block_num; $b++) {
+            for ($n = $size; $n--;) {
+                $this->randomData[$b][] = $func(...$arguments);
+            }
+        }
+    }
+
+    public function getRandomDataEx(int $block_id)
+    {
+        if (!empty($this->randomData[$block_id])) {
+            return array_shift($this->randomData[$block_id]);
+        } else {
+            throw new RuntimeException('Out of the bound');
+        }
+    }
+
+    public function getRandomDataSizeEx(int $block_id): int
+    {
+        return count($this->randomData[$block_id]);
+    }
+
+    public function runChildFunc()
+    {
+        try {
+            $result = call_user_func($this->childFunc);
+            // The callback may only register timers, signals or suspended coroutines. Finish their
+            // event loop before the child wrapper calls exit(), which now propagates UnwindExit
+            // and must not be used to enter the shutdown-time event loop.
+            Event::wait();
+            return $result;
+        } finally {
+            if ($this->childStopTimer) {
+                \Swoole\Timer::clear($this->childStopTimer);
+            }
+        }
+    }
+
+    /**
+     * Register cooperative cleanup for a long-running child fixture.
+     * POSIX still terminates its child process; Windows invokes this callback
+     * in the child thread when the parent calls kill().
+     */
+    public function onChildStop(callable $callback): void
+    {
+        if (!$this->windowsThreadBackend || !$this->onlyChild) {
+            return;
+        }
+        $this->childStopTimer = \Swoole\Timer::tick(10, function (int $timerId) use ($callback) {
+            if ($this->stopFlag->get() === 1) {
+                \Swoole\Timer::clear($timerId);
+                $this->childStopTimer = null;
+                $callback();
+            }
+        });
+    }
+
+    /**
+     *  Kill Child Process
+     * @param bool $force
+     */
+    public function kill(bool $force = false)
+    {
+        if (!defined('PCNTL_ESRCH')) {
+            define('PCNTL_ESRCH', 3);
+        }
+        if (!$this->alone and !$this->killed and $this->childPid) {
+            $this->killed = true;
+            if (is_win()) {
+                if ($this->windowsThreadBackend) {
+                    $this->stopFlag->set(1);
+                    return;
+                }
+                if (is_resource($this->childProcess)) {
+                    @proc_terminate($this->childProcess, 1);
+                }
+                return;
+            }
+            if ($force || (!@Process::kill($this->childPid) && swoole_errno() !== PCNTL_ESRCH)) {
+                if (!@Process::kill($this->childPid, SIGKILL) && swoole_errno() !== PCNTL_ESRCH) {
+                    exit('KILL CHILD PROCESS ERROR');
+                }
+            }
+        }
+    }
+
+    /**
+     * @param int $num
+     * @param int $increment Only used for constant port number, must be a constant
+     * @return void
+     */
+    public function initFreePorts(int $num = 1, int $increment = 0): void
+    {
+        for ($i = $num; $i--;) {
+            $this->freePorts[] = $this->useConstantPorts ? (9500 + $num - $i + count($this->freePorts) + $increment) : get_one_free_port();
+        }
+    }
+
+    public function initFreeIPv6Ports(int $num = 1): void
+    {
+        for ($i = $num; $i--;) {
+            $this->freePorts[] = $this->useConstantPorts ? (9500 + $num - $i + count($this->freePorts)) : get_one_free_port_ipv6();
+        }
+    }
+
+    public function run($redirectStdout = false)
+    {
+        global $argv, $argc;
+        if (is_win() && class_exists(Thread::class, false)) {
+            $threadArgs = Thread::getArguments();
+            if (($threadArgs[0] ?? null) === self::WINDOWS_THREAD_MARKER) {
+                $this->windowsThreadBackend = true;
+                $this->onlyChild = true;
+                $this->syncQueue = $threadArgs[1];
+                $this->stopFlag = $threadArgs[2];
+                $this->freePorts = $threadArgs[3];
+                $this->randomData = $threadArgs[4];
+                $this->randomDataArray = $threadArgs[5];
+                $this->runChildFunc();
+                exit;
+            }
+        }
+        if ($argc > 1) {
+            $this->useConstantPorts = true;
+            if (is_win() && ($ports = getenv('SWOOLE_TEST_PM_PORTS'))) {
+                $ports = json_decode($ports, true);
+                if (is_array($ports)) {
+                    $this->freePorts = array_map('intval', $ports);
+                }
+            }
+            if (!is_win() || !$this->freePorts) {
+                $this->initFreePorts();
+            }
+            if ($argv[1] == 'child') {
+                $this->onlyChild = true;
+            } elseif ($argv[1] == 'parent') {
+                $this->onlyParent = true;
+            } else {
+                throw new RuntimeException("bad parameter \$1\n");
+            }
+            if (is_win() && getenv('SWOOLE_TEST_PM_TOKEN')) {
+                return $this->onlyChild ? $this->runChildFunc() : $this->runParentFunc();
+            }
+            $this->alone = true;
+        }
+        if (is_win() && !$this->freePorts) {
+            $this->initFreePorts();
+        } elseif (!is_win()) {
+            $this->initFreePorts();
+        }
+        if ($this->alone) {
+            if ($this->onlyChild) {
+                return $this->runChildFunc();
+            } elseif ($this->onlyParent) {
+                return $this->runParentFunc();
+            }
+            $this->alone = false;
+        }
+
+        if (is_win()) {
+            if ($this->windowsThreadBackend) {
+                $script = $_SERVER['SCRIPT_FILENAME'] ?? null;
+                if (!$script) {
+                    throw new RuntimeException('cannot determine current script filename');
+                }
+
+                $this->syncQueue = new Thread\Queue();
+                $this->stopFlag = new Thread\Atomic(0);
+                $this->runParentSetup();
+                $this->childThread = new Thread(
+                    $script,
+                    self::WINDOWS_THREAD_MARKER,
+                    $this->syncQueue,
+                    $this->stopFlag,
+                    $this->freePorts,
+                    $this->randomData,
+                    $this->randomDataArray,
+                );
+                $this->childPid = $this->childThread->id;
+                register_shutdown_function(function () {
+                    $this->kill();
+                });
+                if (!$this->parentFirst) {
+                    try {
+                        $this->wait();
+                    } catch (RuntimeException $e) {
+                        $this->kill();
+                        $this->childThread->join();
+                        $this->childExitCode = $this->childThread->getExitStatus();
+                        $this->childExitStatus = $this->childExitCode;
+                        throw $e;
+                    }
+                }
+                $this->runParentFunc($this->childPid);
+                Event::wait();
+                $this->childThread->join();
+                $this->childExitCode = $this->childThread->getExitStatus();
+                $this->childExitStatus = $this->childExitCode;
+                $this->killed = true;
+                return true;
+            }
+
+            @unlink($this->syncFile);
+            @unlink($this->childOutputFile);
+
+            $script = $_SERVER['SCRIPT_FILENAME'] ?? null;
+            if (!$script) {
+                throw new RuntimeException('cannot determine current script filename');
+            }
+            $command = [
+                PHP_BINARY,
+                '-d',
+                'extension=php_swoole',
+                '-d',
+                'swoole.use_shortname=On',
+                $script,
+                'child',
+            ];
+            $descriptors = [
+                0 => ['file', 'NUL', 'r'],
+                1 => ['file', $this->childOutputFile, 'a'],
+                2 => ['redirect', 1],
+            ];
+
+            $previousToken = getenv('SWOOLE_TEST_PM_TOKEN');
+            $previousPorts = getenv('SWOOLE_TEST_PM_PORTS');
+            putenv('SWOOLE_TEST_PM_TOKEN=' . $this->syncToken);
+            putenv('SWOOLE_TEST_PM_PORTS=' . json_encode($this->freePorts));
+            $this->childProcess = proc_open($command, $descriptors, $pipes);
+            $previousToken === false
+                ? putenv('SWOOLE_TEST_PM_TOKEN')
+                : putenv('SWOOLE_TEST_PM_TOKEN=' . $previousToken);
+            $previousPorts === false
+                ? putenv('SWOOLE_TEST_PM_PORTS')
+                : putenv('SWOOLE_TEST_PM_PORTS=' . $previousPorts);
+
+            if (!is_resource($this->childProcess)) {
+                exit("ERROR: CAN NOT CREATE PROCESS\n");
+            }
+            $status = proc_get_status($this->childProcess);
+            $this->childPid = $status['pid'] ?? 0;
+            register_shutdown_function(function () {
+                $this->kill();
+            });
+            if (!$this->parentFirst) {
+                $this->wait();
+            }
+            $this->runParentSetup();
+            $this->runParentFunc($this->childPid);
+            Event::wait();
+            $this->childExitCode = proc_close($this->childProcess);
+            $this->childExitStatus = $this->childExitCode;
+            $this->killed = true;
+            @unlink($this->syncFile);
+            return true;
+        }
+
+        $this->childProcess = new Process(function () {
+            if ($this->parentFirst) {
+                $this->wait();
+            }
+            $this->runChildFunc();
+            exit;
+        }, $redirectStdout, $redirectStdout);
+        if (!$this->childProcess || !($this->childPid = $this->childProcess->start())) {
+            exit("ERROR: CAN NOT CREATE PROCESS\n");
+        }
+        register_shutdown_function(function () {
+            $this->kill();
+        });
+        if (!$this->parentFirst) {
+            try {
+                $this->wait();
+            } catch (RuntimeException $e) {
+                $waitInfo = $this->waitForChild(false);
+                if ($waitInfo && $waitInfo['pid'] === $this->childPid) {
+                    throw new RuntimeException(
+                        "ProcessManager child exited with code {$waitInfo['code']} and signal {$waitInfo['signal']} " .
+                        'before sending a wakeup'
+                    );
+                }
+                $this->terminateChildAfterReadinessFailure();
+                throw $e;
+            }
+        }
+        $this->runParentSetup();
+        $this->runParentFunc($this->childPid);
+        Event::wait();
+        $waitInfo = $this->waitForChild(true);
+        $this->childExitStatus = $waitInfo['code'];
+        if (!in_array($waitInfo['signal'], $this->expectExitSignal)) {
+            throw new RuntimeException("Unexpected exit code {$waitInfo['signal']}");
+        }
+
+        return true;
+    }
+
+    public function getChildOutput()
+    {
+        if (is_win()) {
+            return is_file($this->childOutputFile) ? (string) file_get_contents($this->childOutputFile) : '';
+        }
+        $this->childProcess->setBlocking(false);
+        $output = '';
+        while (1) {
+            $data = @$this->childProcess->read();
+            if (!$data) {
+                break;
+            } else {
+                $output .= $data;
+            }
+        }
+        return $output;
+    }
+
+    public function expectExitCode($code = 0)
+    {
+        if (!is_array($code)) {
+            $code = [$code];
+        }
+        $actual = is_win() ? $this->childExitCode : $this->childExitStatus;
+        if (!in_array($actual, $code)) {
+            throw new RuntimeException("Unexpected exit code {$actual}");
+        }
+    }
+
+    function getChildExitStatus() {
+        return $this->childExitStatus;
+    }
+
+    public function setExpectExitSignal($signal = 0)
+    {
+        if (!is_array($signal)) {
+            $signal = [$signal];
+        }
+        $this->expectExitSignal = $signal;
+    }
+
+    protected function readSyncCount(): int
+    {
+        if (!is_file($this->syncFile)) {
+            return 0;
+        }
+        $content = trim((string) @file_get_contents($this->syncFile));
+        return is_numeric($content) ? (int) $content : 0;
+    }
+
+    protected function writeSyncCount(int $count): bool
+    {
+        // Windows file locks are mandatory and can make the peer process fail
+        // to reopen this one-byte notification file. A single write is atomic
+        // for the small counters used here, so do not hold a cross-process lock.
+        for ($attempt = 0; $attempt < 10; $attempt++) {
+            if (@file_put_contents($this->syncFile, (string) $count) !== false) {
+                return true;
+            }
+            usleep(1000);
+        }
+        return false;
+    }
+
+    static function exec(callable $fn)
+    {
+        $pm = new static();
+        // Fatal errors and whole-runtime exit behavior require a separate PHP
+        // runtime. This is test isolation, not the Swoole process backend.
+        if (is_win()) {
+            $pm->windowsThreadBackend = false;
+        }
+        $pm->setWaitTimeout(0);
+        $pm->parentFunc = function () {
+        };
+        $pm->childFunc = function () use ($pm, $fn) {
+            $fn($pm);
+        };
+        $pm->childFirst();
+        $pm->run(true);
+
+        return $pm;
+    }
+}

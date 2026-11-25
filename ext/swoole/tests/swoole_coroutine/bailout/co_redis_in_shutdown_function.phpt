@@ -1,0 +1,33 @@
+--TEST--
+swoole_coroutine/bailout: call co redis in shutdown function
+--SKIPIF--
+<?php
+require __DIR__ . '/../../include/skipif.inc';
+skip_if_win();
+skip_if_extension_not_exist('redis');
+?>
+--FILE--
+<?php
+require __DIR__ . '/../../include/bootstrap.php';
+
+use Swoole\Event;
+
+Co\run(function () {
+    $redis = new \redis();
+    $redis->connect(REDIS_SERVER_HOST, REDIS_SERVER_PORT);
+    register_shutdown_function(function () use ($redis) {
+        // A fast GET can finish without yielding. An empty blocking pop must enter the coroutine wait path.
+        $redis->blPop(['swoole-shutdown-' . bin2hex(random_bytes(16))], 1);
+    });
+    usleep(10000);
+});
+
+Event::wait();
+?>
+--EXPECTF--
+Fatal error: Uncaught Swoole\Error: API must be called in the coroutine in %s:%d
+Stack trace:
+#0 %s(%d): Redis->blPop(Array, 1)
+#1 [internal function]: {closure%S}()
+#2 {main}
+  thrown in %s on line %d
