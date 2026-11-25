@@ -1,0 +1,238 @@
+#include "php_swoole_cxx.h"
+
+#ifndef _WIN32
+#include "php_swoole_process.h"
+#include "swoole_server.h"
+#endif
+
+zend_result sw_zend_exception_error(zend_object *exception, int severity) {
+    if (EXPECTED(!zend_is_unwind_exit(exception))) {
+        return zend_exception_error(exception, severity);
+    }
+
+    // UnwindExit is VM control flow (e.g. exit() or delayed OOM), not a reportable PHP exception.
+    // zend_exception_error() consumes it without terminating the native caller. Keep ownership in
+    // EG(exception): releasing/clearing it here would let PHP continue after the native loop returns.
+    // Do not bailout or exit here; callbacks may still hold locks or native resources to release.
+    if (auto *reactor = sw_reactor()) {
+        reactor->running = false;
+        // A normal stop can restart on the next wait(); termination also blocks coroutine resumes.
+        reactor->terminated = true;
+    }
+#ifndef _WIN32
+    // Manager and standalone pool masters wait for children without a reactor. Synchronous task
+    // workers likewise need their existing worker shutdown flag to leave blocking receive loops.
+    auto *server = sw_server();
+    auto *pool = sw_process_pool();
+    if (server && (server->is_manager() || server->is_master())) {
+        server->running = false;
+    } else if (pool && pool->is_master()) {
+        pool->running = false;
+    } else if (auto *worker = sw_worker()) {
+        worker->shutdown();
+    }
+#endif
+    return FAILURE;
+}
+
+//----------------------------------known string------------------------------------
+
+static const char *sw_known_strings[] = {
+#define _SW_ZEND_STR_DSC(id, str) str,
+    SW_ZEND_KNOWN_STRINGS(_SW_ZEND_STR_DSC)
+#undef _SW_ZEND_STR_DSC
+        nullptr};
+
+SW_API zend_string **sw_zend_known_strings = nullptr;
+
+SW_API zend_refcounted *sw_refcount_ptr;
+
+zend_refcounted *sw_get_refcount_ptr(zval *value) {
+    return (sw_refcount_ptr = value->value.counted);
+}
+
+#ifdef HAVE_CPU_AFFINITY
+bool php_swoole_array_to_cpu_set(const zval *array, cpu_set_t *cpu_set) {
+    if (php_swoole_array_length(array) == 0) {
+        return false;
+    }
+
+    const zend_long cpu_num = SW_MIN((zend_long) SW_CPU_NUM, (zend_long) CPU_SETSIZE);
+    if ((zend_long) php_swoole_array_length(array) > cpu_num) {
+        php_swoole_fatal_error(E_WARNING, "More than the number of CPU");
+        return false;
+    }
+
+    zval *value = nullptr;
+    CPU_ZERO(cpu_set);
+
+    SW_HASHTABLE_FOREACH_START(Z_ARRVAL_P(array), value)
+    const zend_long cpu_id = zval_get_long(value);
+    if (cpu_id < 0 || cpu_id >= cpu_num) {
+        php_swoole_fatal_error(E_WARNING, "invalid cpu id [" ZEND_LONG_FMT "]", cpu_id);
+        return false;
+    }
+    CPU_SET(cpu_id, cpu_set);
+    SW_HASHTABLE_FOREACH_END();
+
+    return true;
+}
+
+void php_swoole_cpu_set_to_array(zval *array, cpu_set_t *cpu_set) {
+    array_init(array);
+
+    int cpu_n = SW_MIN(SW_CPU_NUM, CPU_SETSIZE);
+    SW_LOOP_N(cpu_n) {
+        if (CPU_ISSET(i, cpu_set)) {
+            add_next_index_long(array, i);
+        }
+    }
+}
+#endif
+
+//----------------------------------known string------------------------------------
+namespace zend {
+void known_strings_init() {
+    sw_zend_known_strings = static_cast<zend_string **>(
+        pemalloc(sizeof(zend_string *) * ((sizeof(sw_known_strings) / sizeof(sw_known_strings[0]) - 1)), 1));
+    for (unsigned int i = 0; i < (sizeof(sw_known_strings) / sizeof(sw_known_strings[0])) - 1; i++) {
+        zend_string *str = zend_string_init(sw_known_strings[i], strlen(sw_known_strings[i]), true);
+        sw_zend_known_strings[i] = zend_new_interned_string(str);
+    }
+}
+
+void known_strings_dtor() {
+    pefree(sw_zend_known_strings, 1);
+    sw_zend_known_strings = nullptr;
+}
+
+zend_function *get_function(const zend_array *function_table, const char *name, size_t name_len) {
+    return static_cast<zend_function *>(zend_hash_str_find_ptr(function_table, name, name_len));
+}
+
+zend_function *get_function(const char *fname, size_t fname_len) {
+    return get_function(EG(function_table), fname, fname_len);
+}
+
+zend_function *get_function(const std::string &fname) {
+    return get_function(fname.c_str(), fname.length());
+}
+
+zend_function *get_function(const zend_string *fname) {
+    return get_function(ZSTR_VAL(fname), ZSTR_LEN(fname));
+}
+
+static zend_always_inline zval *sw_zend_symtable_str_add(
+    HashTable *ht, const char *str, size_t len, zend_ulong idx, bool numeric_key, zval *pData) {
+    if (numeric_key) {
+        return zend_hash_index_add(ht, idx, pData);
+    } else {
+        return zend_hash_str_add(ht, str, len, pData);
+    }
+}
+
+static zend_always_inline zval *sw_zend_symtable_str_find(
+    HashTable *ht, const char *str, size_t len, zend_ulong idx, bool numeric_key) {
+    if (numeric_key) {
+        return zend_hash_index_find(ht, idx);
+    } else {
+        return zend_hash_str_find(ht, str, len);
+    }
+}
+
+static zend_always_inline void array_merge_value(zval *current, zval *new_element) {
+    if (ZVAL_IS_ARRAY(current)) {
+        add_next_index_zval(current, new_element);
+    } else {
+        zval previous;
+        ZVAL_COPY_VALUE(&previous, current);
+        array_init_size(current, 2);
+        add_next_index_zval(current, &previous);
+        add_next_index_zval(current, new_element);
+    }
+}
+
+void array_add_or_merge(zval *zarray, const char *key, size_t key_len, zval *new_element) {
+    zend_ulong idx;
+    bool numeric_key = ZEND_HANDLE_NUMERIC_STR(key, key_len, idx);
+
+    zend_array *array = Z_ARRVAL_P(zarray);
+    if (!sw_zend_symtable_str_add(array, key, key_len, idx, numeric_key, new_element)) {
+        array_merge_value(sw_zend_symtable_str_find(array, key, key_len, idx, numeric_key), new_element);
+    }
+}
+
+void array_add_or_merge(zval *zarray, zend_string *key, zval *new_element) {
+    zend_ulong idx;
+    bool numeric_key = ZEND_HANDLE_NUMERIC(key, idx);
+    zend_array *array = Z_ARRVAL_P(zarray);
+    zval *result = numeric_key ? zend_hash_index_add(array, idx, new_element) : zend_hash_add(array, key, new_element);
+    if (!result) {
+        array_merge_value(numeric_key ? zend_hash_index_find(array, idx) : zend_hash_find(array, key), new_element);
+    }
+}
+
+namespace function {
+
+bool call(zend_fcall_info_cache *fci_cache, uint32_t argc, zval *argv, zval *retval, const bool enable_coroutine) {
+    bool success;
+    if (enable_coroutine) {
+        if (retval) {
+            /* the coroutine has no return value */
+            ZVAL_NULL(retval);
+        }
+        success = swoole::PHPCoroutine::create(fci_cache, argc, argv, nullptr) >= 0;
+    } else {
+        success = sw_zend_call_function_ex(nullptr, fci_cache, argc, argv, retval) == SUCCESS;
+    }
+    /* we have no chance to return to ZendVM to check the exception  */
+    if (UNEXPECTED(EG(exception))) {
+        sw_zend_exception_error(EG(exception), E_ERROR);
+    }
+    return success;
+}
+
+Variable call(const std::string &func_name, int argc, zval *argv) {
+    zval function_name;
+    ZVAL_STRINGL(&function_name, func_name.c_str(), func_name.length());
+    Variable retval;
+    if (call_user_function(EG(function_table), nullptr, &function_name, &retval.value, argc, argv) != SUCCESS) {
+        ZVAL_NULL(&retval.value);
+    }
+    zval_dtor(&function_name);
+    /* we have no chance to return to ZendVM to check the exception  */
+    if (UNEXPECTED(EG(exception))) {
+        sw_zend_exception_error(EG(exception), E_ERROR);
+    }
+    return retval;
+}
+
+}  // namespace function
+
+Callable::Callable(zval *_zfn) {
+    ZVAL_UNDEF(&zfn);
+    if (!zval_is_true(_zfn)) {
+        php_swoole_fatal_error(E_WARNING, "illegal callback function");
+        return;
+    }
+    if (!sw_zend_is_callable_ex(_zfn, nullptr, 0, &fn_name, nullptr, &fcc, nullptr)) {
+        php_swoole_fatal_error(E_WARNING, "function '%s' is not callable", fn_name);
+        return;
+    }
+    zfn = *_zfn;
+    zval_add_ref(&zfn);
+}
+
+Callable::~Callable() {
+    if (!ZVAL_IS_UNDEF(&zfn)) {
+        zval_ptr_dtor(&zfn);
+    }
+    if (fn_name) {
+        efree(fn_name);
+    }
+}
+
+uint32_t Callable::refcount() const {
+    return zval_refcount_p(&zfn);
+}
+}  // namespace zend

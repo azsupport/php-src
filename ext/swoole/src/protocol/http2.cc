@@ -1,0 +1,289 @@
+/*
+ +----------------------------------------------------------------------+
+ | Swoole                                                               |
+ +----------------------------------------------------------------------+
+ | Copyright (c) 2012-2017 The Swoole Group                             |
+ +----------------------------------------------------------------------+
+ | This source file is subject to version 2.0 of the Apache license,    |
+ | that is bundled with this package in the file LICENSE, and is        |
+ | available through the world-wide-web at the following url:           |
+ | http://www.apache.org/licenses/LICENSE-2.0.html                      |
+ | If you did not receive a copy of the Apache2.0 license and are unable|
+ | to obtain it through the world-wide-web, please send a note to       |
+ | license@swoole.com so we can mail you a copy immediately.            |
+ +----------------------------------------------------------------------+
+ | Author: Tianfeng Han  <rango@swoole.com>                             |
+ +----------------------------------------------------------------------+
+ */
+
+#include "swoole_socket.h"
+#include "swoole_http2.h"
+#include "swoole_protocol.h"
+
+#include <limits>
+
+using swoole::PacketLength;
+using swoole::Protocol;
+using swoole::network::Socket;
+
+namespace swoole {
+namespace http2 {
+
+static uint32_t max_headers = SW_HTTP2_DEFAULT_MAX_HEADERS;
+
+static Settings default_settings = {
+    SW_HTTP2_DEFAULT_HEADER_TABLE_SIZE,
+    SW_HTTP2_DEFAULT_ENABLE_PUSH,
+    SW_HTTP2_DEFAULT_MAX_CONCURRENT_STREAMS,
+    SW_HTTP2_DEFAULT_INIT_WINDOW_SIZE,
+    SW_HTTP2_DEFAULT_MAX_FRAME_SIZE,
+    SW_HTTP2_DEFAULT_MAX_HEADER_LIST_SIZE,
+};
+
+void put_default_setting(enum swHttp2SettingId id, uint32_t value) {
+    switch (id) {
+    case SW_HTTP2_SETTING_HEADER_TABLE_SIZE:
+        default_settings.header_table_size = value;
+        break;
+    case SW_HTTP2_SETTINGS_ENABLE_PUSH:
+        default_settings.enable_push = value;
+        break;
+    case SW_HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS:
+        default_settings.max_concurrent_streams = value;
+        break;
+    case SW_HTTP2_SETTINGS_INIT_WINDOW_SIZE:
+        default_settings.init_window_size = value;
+        break;
+    case SW_HTTP2_SETTINGS_MAX_FRAME_SIZE:
+        default_settings.max_frame_size = value;
+        break;
+    case SW_HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE:
+        default_settings.max_header_list_size = value;
+        break;
+    default:
+        // Unknown HTTP/2 settings must be ignored by the core.
+        swoole_trace_log(SW_TRACE_HTTP2, "ignore unknown setting id=%u", id);
+        break;
+    }
+}
+
+uint32_t get_default_setting(enum swHttp2SettingId id) {
+    switch (id) {
+    case SW_HTTP2_SETTING_HEADER_TABLE_SIZE:
+        return default_settings.header_table_size;
+    case SW_HTTP2_SETTINGS_ENABLE_PUSH:
+        return default_settings.enable_push;
+    case SW_HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS:
+        return default_settings.max_concurrent_streams;
+    case SW_HTTP2_SETTINGS_INIT_WINDOW_SIZE:
+        return default_settings.init_window_size;
+    case SW_HTTP2_SETTINGS_MAX_FRAME_SIZE:
+        return default_settings.max_frame_size;
+    case SW_HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE:
+        return default_settings.max_header_list_size;
+    default:
+        swoole_trace_log(SW_TRACE_HTTP2, "query unknown setting id=%u", id);
+        return 0;
+    }
+}
+
+uint32_t get_http2_max_headers() {
+    return max_headers;
+}
+
+void set_http2_max_headers(uint32_t value) {
+    if (value > 0) {
+        max_headers = value;
+    }
+}
+
+static inline void pack_setting_item(char *_buf, enum swHttp2SettingId _id, uint32_t _value) {
+    const uint16_t id = htons(_id);
+    const uint32_t value = htonl(_value);
+    memcpy(_buf, &id, sizeof(id));
+    memcpy(_buf + sizeof(id), &value, sizeof(value));
+}
+
+size_t pack_setting_frame(char *buf, const Settings &settings, bool server_side) {
+    char *p = buf;
+    size_t size = SW_HTTP2_SETTING_OPTION_SIZE * (server_side ? 5 : 6);
+    set_frame_header(p, SW_HTTP2_TYPE_SETTINGS, size, 0, 0);
+    p += SW_HTTP2_FRAME_HEADER_SIZE;
+
+    pack_setting_item(p, SW_HTTP2_SETTING_HEADER_TABLE_SIZE, settings.header_table_size);
+    p += SW_HTTP2_SETTING_OPTION_SIZE;
+
+    if (!server_side) {
+        pack_setting_item(p, SW_HTTP2_SETTINGS_ENABLE_PUSH, settings.enable_push);
+        p += SW_HTTP2_SETTING_OPTION_SIZE;
+    }
+
+    pack_setting_item(p, SW_HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, settings.max_concurrent_streams);
+    p += SW_HTTP2_SETTING_OPTION_SIZE;
+
+    pack_setting_item(p, SW_HTTP2_SETTINGS_INIT_WINDOW_SIZE, settings.init_window_size);
+    p += SW_HTTP2_SETTING_OPTION_SIZE;
+
+    pack_setting_item(p, SW_HTTP2_SETTINGS_MAX_FRAME_SIZE, settings.max_frame_size);
+    p += SW_HTTP2_SETTING_OPTION_SIZE;
+
+    pack_setting_item(p, SW_HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, settings.max_header_list_size);
+    p += SW_HTTP2_SETTING_OPTION_SIZE;
+
+    return p - buf;
+}
+
+ReturnCode unpack_setting_data(const char *buf,
+                               ssize_t length,
+                               const std::function<ReturnCode(uint16_t, uint32_t)> &cb) {
+    uint16_t id = 0;
+    uint32_t value = 0;
+
+    constexpr ssize_t item_size = sizeof(id) + sizeof(value);
+
+    if (length % item_size != 0) {
+        return SW_ERROR;
+    }
+
+    while (length > 0) {
+        memcpy(&id, buf, sizeof(id));
+        memcpy(&value, buf + sizeof(id), sizeof(value));
+        id = ntohs(id);
+        value = ntohl(value);
+
+        auto rc = cb(id, value);
+        if (rc != SW_SUCCESS) {
+            return rc;
+        }
+
+        buf += sizeof(id) + sizeof(value);
+        length -= sizeof(id) + sizeof(value);
+    }
+
+    return SW_SUCCESS;
+}
+
+int send_setting_frame(Protocol *protocol, Socket *_socket) {
+    char setting_frame[SW_HTTP2_SETTING_FRAME_SIZE];
+    size_t n = pack_setting_frame(setting_frame, default_settings, true);
+    return _socket->send(setting_frame, n, 0);
+}
+
+bool parse_content_length(const char *value, size_t length, uint64_t max_body_size, uint64_t *out) {
+    if (length == 0) {
+        return false;
+    }
+
+    uint64_t content_length = 0;
+    for (size_t i = 0; i < length; i++) {
+        const auto ch = static_cast<unsigned char>(value[i]);
+        if (ch < '0' || ch > '9') {
+            return false;
+        }
+
+        const uint64_t digit = ch - '0';
+        if (content_length > (std::numeric_limits<uint64_t>::max() - digit) / 10) {
+            return false;
+        }
+        content_length = content_length * 10 + digit;
+        if (content_length > max_body_size) {
+            return false;
+        }
+    }
+
+    if (out) {
+        *out = content_length;
+    }
+    return true;
+}
+
+bool parse_status_code(const char *value, size_t length, uint16_t *out) {
+    if (length != 3) {
+        return false;
+    }
+
+    uint16_t status_code = 0;
+    for (size_t i = 0; i < length; i++) {
+        const auto ch = static_cast<unsigned char>(value[i]);
+        if (ch < '0' || ch > '9') {
+            return false;
+        }
+        status_code = status_code * 10 + (ch - '0');
+    }
+
+    if (status_code < 100 || status_code > 599) {
+        return false;
+    }
+    if (out) {
+        *out = status_code;
+    }
+    return true;
+}
+
+/**
+ +-----------------------------------------------+
+ |                 Length (24)                   |
+ +---------------+---------------+---------------+
+ |   Type (8)    |   Flags (8)   |
+ +-+-------------+---------------+-------------------------------+
+ |R|                 Stream Identifier (31)                      |
+ +=+=============================================================+
+ |                   Frame Payload (0...)                      ...
+ +---------------------------------------------------------------+
+ */
+ssize_t get_frame_length(const Protocol *protocol, Socket *conn, PacketLength *pl) {
+    if (pl->buf_size < SW_HTTP2_FRAME_HEADER_SIZE) {
+        return 0;
+    }
+    return get_length(pl->buf) + SW_HTTP2_FRAME_HEADER_SIZE;
+}
+
+const char *get_type(int type) {
+    switch (type) {
+    case SW_HTTP2_TYPE_DATA:
+        return "DATA";
+    case SW_HTTP2_TYPE_HEADERS:
+        return "HEADERS";
+    case SW_HTTP2_TYPE_PRIORITY:
+        return "PRIORITY";
+    case SW_HTTP2_TYPE_RST_STREAM:
+        return "RST_STREAM";
+    case SW_HTTP2_TYPE_SETTINGS:
+        return "SETTINGS";
+    case SW_HTTP2_TYPE_PUSH_PROMISE:
+        return "PUSH_PROMISE";
+    case SW_HTTP2_TYPE_PING:
+        return "PING";
+    case SW_HTTP2_TYPE_GOAWAY:
+        return "GOAWAY";
+    case SW_HTTP2_TYPE_WINDOW_UPDATE:
+        return "WINDOW_UPDATE";
+    case SW_HTTP2_TYPE_CONTINUATION:
+        return "CONTINUATION";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+int get_type_color(int type) {
+    switch (type) {
+    case SW_HTTP2_TYPE_DATA:
+    case SW_HTTP2_TYPE_WINDOW_UPDATE:
+        return SW_COLOR_MAGENTA;
+    case SW_HTTP2_TYPE_HEADERS:
+    case SW_HTTP2_TYPE_SETTINGS:
+    case SW_HTTP2_TYPE_PUSH_PROMISE:
+    case SW_HTTP2_TYPE_CONTINUATION:
+        return SW_COLOR_GREEN;
+    case SW_HTTP2_TYPE_PING:
+    case SW_HTTP2_TYPE_PRIORITY:
+        return SW_COLOR_WHITE;
+    case SW_HTTP2_TYPE_RST_STREAM:
+    case SW_HTTP2_TYPE_GOAWAY:
+    default:
+        return SW_COLOR_RED;
+    }
+}
+
+}  // namespace http2
+}  // namespace swoole

@@ -1,0 +1,819 @@
+/*
+  +----------------------------------------------------------------------+
+  | Swoole                                                               |
+  +----------------------------------------------------------------------+
+  | This source file is subject to version 2.0 of the Apache license,    |
+  | that is bundled with this package in the file LICENSE, and is        |
+  | available through the world-wide-web at the following url:           |
+  | http://www.apache.org/licenses/LICENSE-2.0.html                      |
+  | If you did not receive a copy of the Apache2.0 license and are unable|
+  | to obtain it through the world-wide-web, please send a note to       |
+  | license@swoole.com so we can mail you a copy immediately.            |
+  +----------------------------------------------------------------------+
+  | Author: Tianfeng Han  <rango@swoole.com>                             |
+  +----------------------------------------------------------------------+
+*/
+
+#include "swoole_table.h"
+#include "swoole_hash.h"
+#include "swoole_util.h"
+
+#include <limits>
+#include <thread>
+
+namespace swoole {
+
+TableValue::TableValue(const TableColumn *_column, const void *value, size_t length) : column(_column) {
+    if (length != 0) {
+        data.assign(static_cast<const char *>(value), length);
+    }
+}
+
+static bool size_mul_overflow(size_t a, size_t b, size_t *result) {
+    if (a != 0 && b > std::numeric_limits<size_t>::max() / a) {
+        return true;
+    }
+    *result = a * b;
+    return false;
+}
+
+static bool size_add_overflow(size_t a, size_t b, size_t *result) {
+    if (b > std::numeric_limits<size_t>::max() - a) {
+        return true;
+    }
+    *result = a + b;
+    return false;
+}
+
+Table *Table::make(uint32_t rows_size, float conflict_proportion) {
+    if (rows_size >= SW_TABLE_MAX_ROW_SIZE) {
+        rows_size = SW_TABLE_MAX_ROW_SIZE;
+    } else {
+        uint32_t i = 6;
+        while ((1U << i) < rows_size) {
+            i++;
+        }
+        rows_size = 1 << i;
+    }
+
+    if (conflict_proportion > 1.0) {
+        conflict_proportion = 1.0;
+    } else if (conflict_proportion < SW_TABLE_CONFLICT_PROPORTION) {
+        conflict_proportion = SW_TABLE_CONFLICT_PROPORTION;
+    }
+
+    const auto release_table = [](Table *table) { sw_mem_pool()->free(table); };
+    std::unique_ptr<Table, decltype(release_table)> table(static_cast<Table *>(sw_mem_pool()->alloc(sizeof(Table))),
+                                                          release_table);
+    if (!table) {
+        return nullptr;
+    }
+    auto mutex = std::make_unique<Mutex>(true);
+    auto column_map = std::make_unique<std::unordered_map<std::string, TableColumn *>>();
+    auto column_list = std::make_unique<std::vector<TableColumn *>>();
+    table->mutex = mutex.release();
+    table->iterator = nullptr;
+    table->column_map = column_map.release();
+    table->column_list = column_list.release();
+    table->size = rows_size;
+    table->mask = rows_size - 1;
+    table->conflict_proportion = conflict_proportion;
+#ifdef SW_TABLE_USE_PHP_HASH
+    table->hash_func = swoole_hash_php;
+#else
+    table->hash_func = swoole_hash_austin;
+#endif
+
+    return table.release();
+}
+
+bool Table::add_column(const std::string &_name, enum TableColumn::Type _type, size_t _size) {
+    if (created) {
+        swoole_warning("unable to add column after table has been created");
+        return false;
+    }
+    if (_type < TableColumn::TYPE_INT || _type > TableColumn::TYPE_STRING) {
+        swoole_warning("unknown column type");
+        return false;
+    }
+    if (column_map->find(_name) != column_map->end()) {
+        swoole_warning("column[%s] already exists", _name.c_str());
+        return false;
+    }
+    if (_type == TableColumn::TYPE_STRING && _size > std::numeric_limits<uint32_t>::max() - sizeof(TableStringLength)) {
+        swoole_warning("column[%s] size is too large", _name.c_str());
+        return false;
+    }
+
+    auto col = std::make_unique<TableColumn>(_name, _type, _size);
+    if (col->size > std::numeric_limits<size_t>::max() - item_size) {
+        swoole_warning("table row size overflow");
+        return false;
+    }
+    col->index = item_size;
+    const auto inserted = column_map->emplace(_name, col.get());
+    ON_SCOPE_EXIT {
+        if (col) {
+            column_map->erase(inserted.first);
+        }
+    };
+    column_list->push_back(col.get());
+    item_size += col->size;
+    col.release();
+
+    return true;
+}
+
+TableColumn *Table::get_column(const std::string &key) const {
+    auto i = column_map->find(key);
+    if (i == column_map->end()) {
+        return nullptr;
+    } else {
+        return i->second;
+    }
+}
+
+bool Table::exists(const char *key, size_t keylen) const {
+    TableRow *_rowlock = nullptr;
+    const TableRow *row = get(key, keylen, &_rowlock);
+    if (_rowlock) {
+        _rowlock->unlock();
+    }
+    return row != nullptr;
+}
+
+TableIterator::TableIterator(size_t row_size) {
+    const auto release_row = [](TableRow *row) { sw_free(row); };
+    std::unique_ptr<TableRow, decltype(release_row)> row(static_cast<TableRow *>(sw_malloc(row_size)), release_row);
+    if (!row) {
+        throw std::bad_alloc();
+    }
+    auto mutex = std::make_unique<Mutex>(true);
+    current_ = row.release();
+    mutex_ = mutex.release();
+    row_memory_size_ = row_size;
+    reset();
+}
+
+void TableIterator::reset() {
+    absolute_index = 0;
+    collision_index = 0;
+    sw_memset_zero(current_, row_memory_size_);
+}
+
+TableIterator::~TableIterator() {
+    if (current_) {
+        sw_free(current_);
+    }
+    delete mutex_;
+}
+
+size_t Table::calc_memory_size() const {
+    /**
+     * table size + conflict size
+     */
+    size_t conflict_row_num = size * conflict_proportion;
+    size_t _row_num = 0;
+    if (size_add_overflow(size, conflict_row_num, &_row_num)) {
+        swoole_warning("table row number overflow");
+        return 0;
+    }
+
+    /*
+     * header + data
+     */
+    size_t _row_memory_size = 0;
+    if (size_add_overflow(sizeof(TableRow), item_size, &_row_memory_size)) {
+        swoole_warning("table row memory size overflow");
+        return 0;
+    }
+    _row_memory_size = SW_MEM_ALIGNED_SIZE(_row_memory_size);
+
+    /**
+     * row data & header
+     */
+    size_t _memory_size = 0;
+    if (size_mul_overflow(_row_num, _row_memory_size, &_memory_size)) {
+        swoole_warning("table memory size overflow");
+        return 0;
+    }
+
+    /**
+     * memory pool for conflict rows
+     */
+    size_t conflict_pool_size = 0;
+    if (size_mul_overflow(_row_num - size, FixedPool::sizeof_struct_slice(), &conflict_pool_size) ||
+        size_add_overflow(conflict_pool_size, FixedPool::sizeof_struct_impl(), &conflict_pool_size) ||
+        size_add_overflow(_memory_size, conflict_pool_size, &_memory_size)) {
+        swoole_warning("table conflict pool memory size overflow");
+        return 0;
+    }
+
+    /**
+     * for iterator, Iterate through all the elements
+     */
+    size_t rows_index_size = 0;
+    if (size_mul_overflow(size, sizeof(TableRow *), &rows_index_size) ||
+        size_add_overflow(_memory_size, rows_index_size, &_memory_size)) {
+        swoole_warning("table rows index memory size overflow");
+        return 0;
+    }
+
+    swoole_trace("_memory_size=%lu, _row_num=%lu, _row_memory_size=%lu", _memory_size, _row_num, _row_memory_size);
+
+    return _memory_size;
+}
+
+size_t Table::get_memory_size() const {
+    return memory_size;
+}
+
+uint32_t Table::get_available_slice_num() const {
+    lock();
+    uint32_t num = pool->get_number_of_spare_slice();
+    unlock();
+    return num;
+}
+
+uint32_t Table::get_total_slice_num() const {
+    return pool->get_number_of_total_slice();
+}
+
+bool Table::create() {
+    if (created) {
+        return false;
+    }
+
+    size_t _memory_size = calc_memory_size();
+    if (_memory_size == 0) {
+        return false;
+    }
+    const size_t _total_memory_size = _memory_size;
+    size_t _row_memory_size = SW_MEM_ALIGNED_SIZE(sizeof(TableRow) + item_size);
+    if (_row_memory_size > std::numeric_limits<uint32_t>::max()) {
+        swoole_warning("table row memory size is too large");
+        return false;
+    }
+
+    std::unique_ptr<void, decltype(&sw_shm_free)> allocation(sw_shm_malloc(_memory_size), sw_shm_free);
+    if (!allocation) {
+        return false;
+    }
+
+    void *_memory = allocation.get();
+    auto new_rows = static_cast<TableRow **>(_memory);
+    _memory = static_cast<char *>(_memory) + size * sizeof(TableRow *);
+    _memory_size -= size * sizeof(TableRow *);
+
+    for (size_t i = 0; i < size; i++) {
+        new_rows[i] = reinterpret_cast<TableRow *>(static_cast<char *>(_memory) + (_row_memory_size * i));
+        memset(new_rows[i], 0, sizeof(TableRow));
+    }
+
+    _memory = static_cast<char *>(_memory) + _row_memory_size * size;
+    _memory_size -= _row_memory_size * size;
+    auto new_pool = std::make_unique<FixedPool>(static_cast<uint32_t>(_row_memory_size), _memory, _memory_size, true);
+    auto new_iterator = std::make_unique<TableIterator>(_row_memory_size);
+    memory = allocation.release();
+    rows = new_rows;
+    pool = new_pool.release();
+    iterator = new_iterator.release();
+    memory_size = _total_memory_size;
+    created = true;
+
+    return true;
+}
+
+void Table::destroy() {
+#ifdef SW_TABLE_DEBUG
+    printf("swoole_table: size=%ld, conflict_count=%d, conflict_max_level=%d, insert_count=%d\n",
+           size,
+           conflict_count,
+           conflict_max_level,
+           insert_count);
+#endif
+
+    for (const auto &column : *column_map) {
+        delete column.second;
+    }
+    delete column_map;
+    delete column_list;
+    delete iterator;
+    delete pool;
+    if (memory) {
+        sw_shm_free(memory);
+    }
+    memory = nullptr;
+    delete mutex;
+    sw_mem_pool()->free(this);
+}
+
+static bool holder_is_foreign(pid_t pid) {
+#ifdef _WIN32
+    return false;
+#else
+    if (pid <= 0) {
+        return false;
+    }
+    const pid_t pgid = getpgid(pid);
+    return pgid < 0 ? errno == ESRCH : pgid != getpgrp();
+#endif
+}
+
+void TableRow::lock() {
+    sw_atomic_t *lock = &lock_;
+    uint32_t i, n;
+    long t = 0;
+
+    while (true) {
+        if (*lock == 0 && sw_atomic_cmp_set(lock, 0, 1)) {
+        _success:
+            lock_pid = getpid();
+            return;
+        }
+        if (SW_CPU_NUM > 1) {
+            for (n = 1; n < SW_SPINLOCK_LOOP_N; n <<= 1) {
+                for (i = 0; i < n; i++) {
+                    sw_atomic_cpu_pause();
+                }
+                if (*lock == 0 && sw_atomic_cmp_set(lock, 0, 1)) {
+                    goto _success;
+                }
+            }
+        }
+        /**
+         * The process occupied by the resource no longer exists,
+         * indicating that OOM occurred during the locking process,
+         * forced to unlock
+         */
+        if (sw_kill(lock_pid, 0) < 0 && errno == ESRCH) {
+            *lock = 1;
+            swoole_warning("lock process[%d] not exists, force unlock", lock_pid);
+            goto _success;
+        }
+        /**
+         * Mark time
+         */
+        if (t == 0) {
+            t = swoole::time<std::chrono::milliseconds>(true);
+        }
+        /**
+         * After SW_TABLE_FORCE_UNLOCK_TIME the holder is only evicted when its pid has been reused by a
+         * process outside our process group. A live holder that is merely slow or stopped must keep the
+         * lock, otherwise two writers would modify the same bucket concurrently.
+         */
+        else if ((swoole::time<std::chrono::milliseconds>(true) - t) > SW_TABLE_FORCE_UNLOCK_TIME) {
+            if (holder_is_foreign(lock_pid)) {
+                *lock = 1;
+                swoole_warning("lock pid[%d] belongs to another process group, force unlock", lock_pid);
+                goto _success;
+            }
+            t = swoole::time<std::chrono::milliseconds>(true);
+        }
+        std::this_thread::yield();
+    }
+}
+
+void Table::forward() const {
+    iterator->lock();
+    for (; iterator->absolute_index < size; iterator->absolute_index++) {
+        TableRow *row = get_by_index(iterator->absolute_index);
+        if (row == nullptr) {
+            continue;
+        }
+        row->lock();
+        if (row->next == nullptr) {
+            iterator->absolute_index++;
+            memcpy(iterator->current_, row, iterator->row_memory_size_);
+            row->unlock();
+            iterator->unlock();
+            return;
+        } else {
+            uint32_t i = 0;
+            TableRow *tmp_row = row;
+            for (;; i++) {
+                if (tmp_row == nullptr) {
+                    iterator->collision_index = 0;
+                    break;
+                }
+                if (i == iterator->collision_index) {
+                    iterator->collision_index++;
+                    memcpy(iterator->current_, tmp_row, iterator->row_memory_size_);
+                    row->unlock();
+                    iterator->unlock();
+                    return;
+                }
+                tmp_row = tmp_row->next;
+            }
+        }
+        row->unlock();
+    }
+    sw_memset_zero(iterator->current_, sizeof(TableRow));
+    iterator->unlock();
+}
+
+TableRow *Table::find_row(
+    TableRow *root, const char *key, size_t keylen, TableRow **previous, uint32_t *conflict_level) const {
+    *previous = nullptr;
+    if (conflict_level) {
+        *conflict_level = 0;
+    }
+    if (!root->active) {
+        return nullptr;
+    }
+
+    TableRow *row = root;
+    uint32_t level = 1;
+    for (;;) {
+        if (sw_mem_equal(row->key, row->key_len, key, keylen)) {
+            if (conflict_level) {
+                *conflict_level = level;
+            }
+            return row;
+        }
+        if (row->next == nullptr) {
+            *previous = row;
+            if (conflict_level) {
+                *conflict_level = level;
+            }
+            return nullptr;
+        }
+        *previous = row;
+        row = row->next;
+        level++;
+    }
+}
+
+void Table::apply_values(TableRow *row, const TableValues &values) {
+    for (const auto &value : values) {
+        if (value.column->type == TableColumn::TYPE_STRING) {
+            row->set_value(value.column, value.data.data(), value.data.size());
+        } else {
+            memcpy(row->data + value.column->index, value.data.data(), value.column->size);
+        }
+    }
+}
+
+bool Table::match_values(const TableRow *row, const TableValues &expected) {
+    for (const auto &value : expected) {
+        if (value.column->type == TableColumn::TYPE_STRING) {
+            TableStringLength length;
+            memcpy(&length, row->data + value.column->index, sizeof(length));
+            if (length != value.data.size() ||
+                (length != 0 &&
+                 memcmp(row->data + value.column->index + sizeof(length), value.data.data(), length) != 0)) {
+                return false;
+            }
+        } else if (memcmp(row->data + value.column->index, value.data.data(), value.column->size) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void Table::delete_row(TableRow *root, TableRow *row, TableRow *previous) {
+    if (row->next == nullptr && row == root) {
+        row->clear();
+    } else if (row == root) {
+        // When deleting the root, move the first conflict row into it before releasing that conflict slice.
+        TableRow *next = row->next;
+        row->next = next->next;
+        memcpy(row->key, next->key, next->key_len + 1);
+        row->key_len = next->key_len;
+        memcpy(row->data, next->data, item_size);
+        free_row(next);
+    } else {
+        previous->next = row->next;
+        free_row(row);
+    }
+
+    sw_atomic_long_fetch_add(&(delete_count), 1);
+    sw_atomic_fetch_sub(&(row_num), 1);
+}
+
+TableRow *Table::get(const char *key, size_t keylen, TableRow **rowlock) const {
+    // The caller owns the returned bucket lock and must pass a non-null rowlock to release it.
+    if (sw_unlikely(rowlock == nullptr)) {
+        return nullptr;
+    }
+    *rowlock = nullptr;
+    if (!is_valid_key_length(keylen)) {
+        return nullptr;
+    }
+
+    TableRow *root = hash(key, keylen);
+    *rowlock = root;
+    root->lock();
+
+    TableRow *previous = nullptr;
+    return find_row(root, key, keylen, &previous);
+}
+
+TableRow *Table::set(const char *key, size_t keylen, TableRow **rowlock, int *out_flags) {
+    // The caller owns the returned bucket lock and must pass a non-null rowlock to release it.
+    if (sw_unlikely(rowlock == nullptr)) {
+        return nullptr;
+    }
+    *rowlock = nullptr;
+    if (out_flags) {
+        *out_flags = 0;
+    }
+    if (!is_valid_key_length(keylen)) {
+        return nullptr;
+    }
+
+    TableRow *root = hash(key, keylen);
+    *rowlock = root;
+    root->lock();
+
+    TableRow *previous = nullptr;
+    uint32_t conflict_level = 0;
+    TableRow *row = find_row(root, key, keylen, &previous, &conflict_level);
+    int flags = 0;
+
+    if (row == nullptr) {
+        if (root->active) {
+            conflict_count++;
+            if (conflict_level > conflict_max_level) {
+                conflict_max_level = conflict_level;
+            }
+            row = alloc_row();
+            if (row == nullptr) {
+                return nullptr;
+            }
+            init_row(row, key, keylen);
+            previous->next = row;
+            if (conflict_level > 1) {
+                flags |= SW_TABLE_FLAG_CONFLICT;
+            }
+        } else {
+            row = root;
+            init_row(row, key, keylen);
+        }
+        flags |= SW_TABLE_FLAG_NEW_ROW;
+    } else if (previous != nullptr) {
+        flags |= SW_TABLE_FLAG_CONFLICT;
+    }
+
+    if (out_flags) {
+        *out_flags = flags;
+    }
+
+    if (flags & SW_TABLE_FLAG_NEW_ROW) {
+        sw_atomic_long_fetch_add(&(insert_count), 1);
+    } else {
+        sw_atomic_long_fetch_add(&(update_count), 1);
+    }
+
+    return row;
+}
+
+bool Table::set(const char *key, size_t keylen, const TableValues &values, bool *out_of_space) {
+    if (out_of_space) {
+        *out_of_space = false;
+    }
+    if (!is_valid_key_length(keylen)) {
+        return false;
+    }
+
+    TableRow *rowlock = nullptr;
+    int out_flags = 0;
+    TableRow *row = set(key, keylen, &rowlock, &out_flags);
+    if (row == nullptr) {
+        if (rowlock) {
+            rowlock->unlock();
+            if (out_of_space) {
+                *out_of_space = true;
+            }
+        }
+        return false;
+    }
+
+    if (out_flags & SW_TABLE_FLAG_NEW_ROW) {
+        clear_row(row);
+    }
+    apply_values(row, values);
+    rowlock->unlock();
+    return true;
+}
+
+bool Table::add(const char *key, size_t keylen, const TableValues &values, bool *out_of_space) {
+    if (out_of_space) {
+        *out_of_space = false;
+    }
+    if (!is_valid_key_length(keylen)) {
+        return false;
+    }
+
+    TableRow *root = hash(key, keylen);
+    root->lock();
+
+    TableRow *previous = nullptr;
+    uint32_t conflict_level = 0;
+    if (find_row(root, key, keylen, &previous, &conflict_level) != nullptr) {
+        root->unlock();
+        return false;
+    }
+
+    TableRow *row = root;
+    if (root->active) {
+        row = alloc_row();
+        if (row == nullptr) {
+            if (out_of_space) {
+                *out_of_space = true;
+            }
+            root->unlock();
+            return false;
+        }
+        init_row(row, key, keylen);
+        previous->next = row;
+        conflict_count++;
+        if (conflict_level > conflict_max_level) {
+            conflict_max_level = conflict_level;
+        }
+    } else {
+        init_row(row, key, keylen);
+    }
+
+    clear_row(row);
+    apply_values(row, values);
+    sw_atomic_long_fetch_add(&(insert_count), 1);
+    root->unlock();
+    return true;
+}
+
+bool Table::update(const char *key, size_t keylen, const TableValues &values) {
+    if (!is_valid_key_length(keylen)) {
+        return false;
+    }
+
+    TableRow *root = hash(key, keylen);
+    root->lock();
+    TableRow *previous = nullptr;
+    TableRow *row = find_row(root, key, keylen, &previous);
+    if (row == nullptr) {
+        root->unlock();
+        return false;
+    }
+
+    apply_values(row, values);
+    sw_atomic_long_fetch_add(&(update_count), 1);
+    root->unlock();
+    return true;
+}
+
+bool Table::cmpset(const char *key, size_t keylen, const TableValues &expected, const TableValues &values) {
+    if (!is_valid_key_length(keylen)) {
+        return false;
+    }
+
+    TableRow *root = hash(key, keylen);
+    root->lock();
+    TableRow *previous = nullptr;
+    TableRow *row = find_row(root, key, keylen, &previous);
+    if (row == nullptr || !match_values(row, expected)) {
+        root->unlock();
+        return false;
+    }
+
+    apply_values(row, values);
+    sw_atomic_long_fetch_add(&(update_count), 1);
+    root->unlock();
+    return true;
+}
+
+bool Table::cmpdel(const char *key, size_t keylen, const TableValues &expected) {
+    if (!is_valid_key_length(keylen)) {
+        return false;
+    }
+
+    TableRow *root = hash(key, keylen);
+    root->lock();
+    TableRow *previous = nullptr;
+    TableRow *row = find_row(root, key, keylen, &previous);
+    if (row == nullptr || !match_values(row, expected)) {
+        root->unlock();
+        return false;
+    }
+
+    delete_row(root, row, previous);
+    root->unlock();
+    return true;
+}
+
+bool Table::getdel(const char *key, size_t keylen, const TableColumn *column, std::string *data) {
+    if (data == nullptr || !is_valid_key_length(keylen)) {
+        return false;
+    }
+
+    const size_t snapshot_size = column == nullptr ? item_size : column->size;
+    data->resize(snapshot_size);
+
+    TableRow *root = hash(key, keylen);
+    root->lock();
+    TableRow *previous = nullptr;
+    TableRow *row = find_row(root, key, keylen, &previous);
+    if (row == nullptr) {
+        root->unlock();
+        data->clear();
+        return false;
+    }
+
+    if (snapshot_size != 0) {
+        const char *source = row->data + (column == nullptr ? 0 : column->index);
+        memcpy(&(*data)[0], source, snapshot_size);
+    }
+    delete_row(root, row, previous);
+    root->unlock();
+    return true;
+}
+
+bool Table::del(const char *key, size_t keylen) {
+    if (!is_valid_key_length(keylen)) {
+        return false;
+    }
+
+    TableRow *root = hash(key, keylen);
+    root->lock();
+    TableRow *previous = nullptr;
+    TableRow *row = find_row(root, key, keylen, &previous);
+    if (row == nullptr) {
+        root->unlock();
+        return false;
+    }
+
+    delete_row(root, row, previous);
+    root->unlock();
+    return true;
+}
+
+TableColumn::TableColumn(const std::string &_name, Type _type, size_t _size) {
+    index = 0;
+    name = _name;
+    type = _type;
+    switch (_type) {
+    case TYPE_INT:
+        size = sizeof(long);
+        break;
+    case TYPE_FLOAT:
+        size = sizeof(double);
+        break;
+    case TYPE_STRING:
+        size = _size + sizeof(TableStringLength);
+        break;
+    default:
+        abort();
+        break;
+    }
+}
+
+void TableColumn::clear(TableRow *row) const {
+    if (type == TYPE_STRING) {
+        row->set_value(this, nullptr, 0);
+    } else if (type == TYPE_FLOAT) {
+        double _value = 0;
+        row->set_value(this, &_value, 0);
+    } else {
+        long _value = 0;
+        row->set_value(this, &_value, 0);
+    }
+}
+
+void TableRow::set_value(const TableColumn *col, const void *value, size_t vlen) {
+    switch (col->type) {
+    case TableColumn::TYPE_INT:
+        memcpy(data + col->index, value, sizeof(long));
+        break;
+    case TableColumn::TYPE_FLOAT:
+        memcpy(data + col->index, value, sizeof(double));
+        break;
+    default:
+        if (vlen > (col->size - sizeof(TableStringLength))) {
+            swoole_warning("[key=%s,field=%s]string value is too long", key, col->name.c_str());
+            vlen = col->size - sizeof(TableStringLength);
+        }
+        if (value == nullptr) {
+            vlen = 0;
+        }
+        memcpy(data + col->index, &vlen, sizeof(TableStringLength));
+        if (vlen > 0) {
+            memcpy(data + col->index + sizeof(TableStringLength), value, vlen);
+        }
+        break;
+    }
+}
+
+void TableRow::get_value(const TableColumn *col, double *dval) const {
+    memcpy(dval, data + col->index, sizeof(*dval));
+}
+
+void TableRow::get_value(const TableColumn *col, long *lval) const {
+    memcpy(lval, data + col->index, sizeof(*lval));
+}
+
+void TableRow::get_value(const TableColumn *col, char **value, TableStringLength *len) {
+    memcpy(len, data + col->index, sizeof(*len));
+    *value = data + col->index + sizeof(*len);
+}
+
+}  // namespace swoole
