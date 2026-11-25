@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""menu-screenshots.py - the pictures of tools/az-menu.sh for the README.
+"""menu-screenshots.py - the pictures of tools/azsupport-menu.sh for the README.
 
 Runs sessions of the menu in an 80x25 terminal (pyte), as the FreeBSD console
 shows it: bsddialog, the Terminus font (10x20) and the 16 VGA colors of vt(4).
@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 COLS, ROWS = 80, 25
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MENU = os.path.join(HERE, 'tools', 'az-menu.sh')
+MENU = os.path.join(HERE, 'tools', 'azsupport-menu.sh')
 
 # the palette of vt(4) (the VGA one): normal, then bright
 VGA = {
@@ -40,14 +40,14 @@ KEYS = {'enter': b'\r', 'down': b'\x1bOB', 'up': b'\x1bOA', 'pgdn': b'\x1b[6~', 
         'right': b'\x1bOC', 'left': b'\x1bOD'}
 
 
-# pkg for the session of the packages: the catalog of the repository az as a server
-# reads it (the versions of a build of az.yml and az-php.yml of 05.11.2026; the static
-# packages of PHP named phpXY-static and the libraries of az in the layout of
-# 08.11.2026: static ones in /usr/local/az/static, shared ones in lib/)
+# pkg for the session of the packages: the catalog of the repository azsupport as a server
+# reads it (the versions of a build of azsupport.yml and azsupport-php.yml of 05.11.2026; the static
+# packages of PHP named phpXY-static and the libraries of azsupport in the layout of
+# 08.11.2026: static ones in /usr/local/azsupport/static, shared ones in lib/)
 FAKE_PKG = r"""#!/bin/sh
 cat_az() {
     printf '%s\t%s\t%s\n' \
-        az 20261105_26110500 'Libraries of /usr/local/az: static ones in static/, for builds of PHP and the programs; shared ones in lib/, for the packages of PHP of pkg mode' \
+        azsupport 20261105_26110500 'Libraries of /usr/local/azsupport: static ones in static/, for builds of PHP and the programs; shared ones in lib/, for the packages of PHP of pkg mode' \
         curl 8.23.0_26110500 'Command line tool and library for transferring data with URLs (static, of azsupport/php-src)' \
         ffmpeg 9.0.2_26110500,1 'FFmpeg for the video sites, static (ffmpeg, ffprobe)' \
         ImageMagick6 6.9.13.59_26110500,1 'ImageMagick 6 for the video sites, static (convert6, identify6, ...)' \
@@ -70,13 +70,13 @@ case "$1" in
             '%n-%v: %c') cat_az | awk -F '\t' -v n="$n" '$1 == n { print $1 "-" $2 ": " $3 }' ;;
             '%e')
                 v="${n#php}"; v="${v%-static}"; b="${v%?}.${v#?}"
-                echo "PHP $b of https://github.com/azsupport/php-src, built by az-menu.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/az/static." ;;
+                echo "PHP $b of https://github.com/azsupport/php-src, built by azsupport-menu.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/azsupport/static." ;;
             '%At%Av'|'%At	%Av')
                 v="${n#php}"; v="${v%-static}"
-                printf 'configure\t%s\n' "--prefix=/usr/local --program-suffix=$v --sysconfdir=/usr/local/etc/php$v --libdir=/usr/local/lib/php$v --includedir=/usr/local/include/php$v --datadir=/usr/local/share/php$v --mandir=/usr/local/share/man --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-curl=/usr/local/az/static --enable-dom --enable-filter --enable-mbstring --enable-opcache --enable-session --enable-gd --enable-mysqlnd --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-zip --enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd --enable-memcached --with-libmemcached-dir=/usr/local/az/static --disable-memcached-sasl --with-imagick=/usr/local/az/static"
+                printf 'configure\t%s\n' "--prefix=/usr/local --program-suffix=$v --sysconfdir=/usr/local/etc/php$v --libdir=/usr/local/lib/php$v --includedir=/usr/local/include/php$v --datadir=/usr/local/share/php$v --mandir=/usr/local/share/man --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-curl=/usr/local/azsupport/static --enable-dom --enable-filter --enable-mbstring --enable-opcache --enable-session --enable-gd --enable-mysqlnd --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-zip --enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd --enable-memcached --with-libmemcached-dir=/usr/local/azsupport/static --disable-memcached-sasl --with-imagick=/usr/local/azsupport/static"
                 printf 'cflags\t%s\n' '-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing'
-                printf 'built_by\t%s\n' 'az-menu.sh r16 (b28c3f4391, 05.11.2026 00:34 CET)' ;;
-            '%dn-%dv') printf '%s\n' az-20261105_26110500 curl-8.23.0_26110500 ImageMagick7-7.1.2.34_26110500 ;;
+                printf 'built_by\t%s\n' 'azsupport-menu.sh r16 (b28c3f4391, 05.11.2026 00:34 CET)' ;;
+            '%dn-%dv') printf '%s\n' azsupport-20261105_26110500 curl-8.23.0_26110500 ImageMagick7-7.1.2.34_26110500 ;;
             *) cat_az ;;
         esac ;;
     *) exit 1 ;;
@@ -227,14 +227,14 @@ def main():
     with open(os.path.join(fake, 'uname'), 'w') as f:
         f.write('#!/bin/sh\ncase "$1" in -p|-m) echo amd64 ;; -r) echo 15.1-RELEASE ;; *) echo FreeBSD ;; esac\n')
     os.chmod(os.path.join(fake, 'uname'), 0o755)
-    # pkg as a server with the repository az sees it: the catalog of az (rquery), the
+    # pkg as a server with the repository azsupport sees it: the catalog of azsupport (rquery), the
     # update, nothing of it installed yet (query)
     with open(os.path.join(fake, 'pkg'), 'w') as f:
         f.write(FAKE_PKG)
     os.chmod(os.path.join(fake, 'pkg'), 0o755)
-    azconf = os.path.join(work, 'az.conf')
+    azconf = os.path.join(work, 'azsupport.conf')
     with open(azconf, 'w') as f:
-        f.write('az: { url: "https://github.com/azsupport/php-src/releases/download/az-fbsd15-amd64-v3", '
+        f.write('azsupport: { url: "https://github.com/azsupport/php-src/releases/download/azsupport-fbsd15-amd64-v3", '
                 'signature_type: "none", priority: 100, enabled: yes }\n')
     mkconf = os.path.join(work, 'make.conf')
     with open(mkconf, 'w') as f:
@@ -242,14 +242,14 @@ def main():
     env = {
         'PATH': fake + ':' + os.environ.get('PATH', '/usr/bin:/bin'), 'TERM': 'xterm', 'LANG': 'C.UTF-8',
         'LC_ALL': 'C.UTF-8', 'HOME': work, 'DIALOG': args.dialog, 'MAKE_CONF': mkconf,
-        'AZ_MENU_DB': '/var/db/az-menu', 'OUT': './config.menu.sh', 'INSTALLED': './config.installed.sh',
+        'AZSUPPORT_MENU_DB': '/var/db/azsupport-menu', 'OUT': './config.menu.sh', 'INSTALLED': './config.installed.sh',
         'LINES': str(ROWS), 'COLUMNS': str(COLS), 'TZ': 'Europe/Prague',
-        'AZ_REPO_CONF': azconf, 'AZ_MENU_WORK': os.path.join(work, 'az-menu'),
+        'AZSUPPORT_REPO_CONF': azconf, 'AZSUPPORT_MENU_WORK': os.path.join(work, 'azsupport-menu'),
     }
     menu = ['sh', MENU, '8.4']
 
     def fresh():
-        shutil.rmtree('/var/db/az-menu', ignore_errors=True)
+        shutil.rmtree('/var/db/azsupport-menu', ignore_errors=True)
         for f in ('config.menu.sh', 'config.installed.sh'):
             try:
                 os.unlink(os.path.join(work, f))
@@ -287,7 +287,7 @@ def main():
         ('enter', 3.0, None),
     ], painter, args.out, env, work)
 
-    # the packages of az (sh az-menu.sh outside a PHP source tree): ffmpeg,
+    # the packages of azsupport (sh azsupport-menu.sh outside a PHP source tree): ffmpeg,
     # ImageMagick 7 and the ready php74 ticked (the first page of the list: the
     # terminal of pyte follows the scrolling of a list badly), then Options on php74
     fresh()

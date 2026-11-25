@@ -38,10 +38,10 @@ have. So a release issue says what the release notes name (CVE and GHSA ids, on
 GitHub) and what the commit messages since the tag of the version built name (any
 git repository), and it stays open as a note until the port has the version.
 
-The libraries of /usr/local/az built from ports (static in /usr/local/az/static,
-shared in /usr/local/az/lib), and the packages built against them (FFmpeg,
+The libraries of /usr/local/azsupport built from ports (static in /usr/local/azsupport/static,
+shared in /usr/local/azsupport/lib), and the packages built against them (FFmpeg,
 ImageMagick): the ports of azsupport/ports build them (since 08.11.2026), each from
-a conf file of its own there (PORTS_CONF: az/az/files/deps.conf,
+a conf file of its own there (PORTS_CONF: azsupport/azsupport/files/deps.conf,
 multimedia/ffmpeg/files/ffmpeg.conf, graphics/ImageMagick7/files/imagemagick.conf),
 which this check reads from a checkout of azsupport/ports (--ports, default
 ports/ of this checkout: the workflow checks it out there):
@@ -119,7 +119,7 @@ Usage: python3 tools/upstream-check.py [--dry-run] [--repo OWNER/NAME]
   --days      freebsd-ports history to fetch (default 180); a reviewed revision
               older than that is reported, with all commits of these days
   --ports     a checkout of azsupport/ports, for the conf files of the bundles
-              (default: ports/ of this checkout); without them az, FFmpeg and
+              (default: ports/ of this checkout); without them azsupport, FFmpeg and
               ImageMagick are not checked, and their issues stay as they are
 """
 
@@ -338,7 +338,7 @@ def tag_version(tag, name=None):
 # name, where it goes, the workflow that builds it, the steps after a take line).
 # The builds are the ports of azsupport/ports, with their conf files and patches there.
 PORTS_CONF = {
-    "deps.conf": "az/az/files/deps.conf",
+    "deps.conf": "azsupport/azsupport/files/deps.conf",
     "ffmpeg.conf": "multimedia/ffmpeg/files/ffmpeg.conf",
     "imagemagick.conf": "graphics/ImageMagick7/files/imagemagick.conf",
 }
@@ -348,10 +348,10 @@ PORTS_DIR = os.path.join(ROOT, "ports")
 KEPT_BUNDLE = "the ports commit of %s of azsupport/ports"
 PORTS_BUILD = "build.yml of azsupport/ports"
 PORTS_STEPS = ("run %s on main with `publish` (https://github.com/azsupport/ports/actions/workflows/build.yml: "
-               "it builds and tests the packages and publishes the release `az-fbsd<major>-amd64-<level>` "
+               "it builds and tests the packages and publishes the release `azsupport-fbsd<major>-amd64-<level>` "
                "when everything passed).")
 BUNDLES = [(c, n, w, PORTS_BUILD, PORTS_STEPS % PORTS_BUILD) for c, n, w in (
-    ("deps.conf", "phpdeps", "the packages az (/usr/local/az) and curl"),
+    ("deps.conf", "phpdeps", "the packages azsupport (/usr/local/azsupport) and curl"),
     ("ffmpeg.conf", "ffmpeg", "the package ffmpeg"),
     ("imagemagick.conf", "imagemagick", "the packages ImageMagick6 and ImageMagick7"),
 )]
@@ -478,7 +478,7 @@ def check_bundle_releases(cfile, bundle, prefix, steps):
             "%s (the release file, its SHA-256 checked against a second source such as a signature "
             "or the checksums of another distribution, the source directory inside it: the workflow take-sources.yml "
             "of azsupport/ports), the patches of the port checked against it (its deps-take-check.yml; ones brought "
-            "up to %s into `az/az/files/deps/%s-%s/`), and the same steps." % (
+            "up to %s into `azsupport/azsupport/files/deps/%s-%s/`), and the same steps." % (
                 port, conf_ref(ports_conf(cfile)), steps, conf_ref(cfile), newest, name, newest),
         ]
         findings.append({
@@ -519,7 +519,7 @@ def check_takes(git):
                     "title": "%s: %s has %s now, the take line of %s %s can go" % (bundle, port, pv, name, ver),
                     "body": "freebsd-ports `%s` (main) has version %s; %s takes %s %s before it "
                             "(take line). To go back to the port: move the ports commit of %s to one "
-                            "with that version, delete the take line (and `az/az/files/deps/%s-%s/` of "
+                            "with that version, delete the take line (and `azsupport/azsupport/files/deps/%s-%s/` of "
                             "azsupport/ports, if there is one and no other conf file takes it), set the upstream "
                             "line to the version of the port, then %s The next check closes this issue." % (
                                 port, pv, conf_ref(cfile), name, ver, conf_ref(ports_conf(cfile)), name, ver, steps),
@@ -961,12 +961,12 @@ GIT_LOCAL_ENV = dict(GIT_ENV, GIT_NO_LAZY_FETCH="1")
 
 def ours(what):
     """What of ours a row of upstream.conf is for (its last column): a port of
-    azsupport/ports, a library of az ("az/az:<library>") or a branch of this fork
+    azsupport/ports, a library of azsupport ("azsupport/azsupport:<library>") or a branch of this fork
     ("freebsd/<version>")."""
     if what.startswith("freebsd/"):
         return "`%s` of this fork" % what
-    if what.startswith("az/az:"):
-        return "the library %s of az (`az/az` of azsupport/ports)" % what.split(":", 1)[1]
+    if what.startswith("azsupport/azsupport:"):
+        return "the library %s of azsupport (`azsupport/azsupport` of azsupport/ports)" % what.split(":", 1)[1]
     return "`%s` of azsupport/ports" % what
 
 
@@ -2653,11 +2653,11 @@ def port_finding(git, port, rev, kept, commits, moved, base):
                   "commits of that time." % rev, ""]
     newest = commits[0][0][:12] if commits else "<new revision>"
     if kept == KEPT_BUNDLE % PORTS_CONF["deps.conf"]:
-        lines += ["After the review, in azsupport/ports: take what /usr/local/az needs (patches of the port for "
-                  "a take line into `az/az/files/deps/<name>-<version>/`, of multimedia/ffmpeg into "
+        lines += ["After the review, in azsupport/ports: take what /usr/local/azsupport needs (patches of the port for "
+                  "a take line into `azsupport/azsupport/files/deps/<name>-<version>/`, of multimedia/ffmpeg into "
                   "`multimedia/ffmpeg/files/ffmpeg/` and of the ImageMagick ports into `graphics/ImageMagick6/files/` "
                   "and `graphics/ImageMagick7/files/` when they are not the port's own), then move the ports commit "
-                  "of `az/az/files/deps.conf` to `%s` (the ports of all the libraries, FFmpeg and ImageMagick move "
+                  "of `azsupport/azsupport/files/deps.conf` to `%s` (the ports of all the libraries, FFmpeg and ImageMagick move "
                   "with it), then %s The next check closes this issue." % (newest, PORTS_STEPS % PORTS_BUILD)]
     elif "of azsupport/ports" in kept:
         lines += ["After the review: in azsupport/ports the port named there as it should be with this (its own "
@@ -2760,7 +2760,7 @@ def main():
     args = ap.parse_args()
     PORTS_DIR = os.path.abspath(args.ports)
     if not all(os.path.exists(conf_file(c)) for c in PORTS_CONF):
-        warn("no conf files of the bundles in %s (a checkout of azsupport/ports): az, FFmpeg and ImageMagick "
+        warn("no conf files of the bundles in %s (a checkout of azsupport/ports): azsupport, FFmpeg and ImageMagick "
              "are not checked this time" % PORTS_DIR)
     if not args.dry_run and not args.repo:
         ap.error("--repo (or $GITHUB_REPOSITORY) is needed unless --dry-run")

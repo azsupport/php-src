@@ -1,0 +1,63 @@
+name: azsupport-menu.sh release
+
+# Publishes tools/azsupport-menu.sh with its version as the file of the release azsupport-menu
+# (https://github.com/azsupport/php-src/releases/download/azsupport-menu/azsupport-menu.sh): the
+# lines AZSUPPORT_MENU_REV (the revision: the number of commits that changed it,
+# php-menu.sh before it), AZSUPPORT_MENU_COMMIT (the last of them) and AZSUPPORT_MENU_TIME (its
+# time, in seconds since 1970) filled in, so that the top line of every screen of the menu and
+# "sh azsupport-menu.sh --version" show which version it is. tools/config-check.sh of the
+# commit of the run goes with it (azsupport-menu.sh fetches it from there). Runs when one
+# of the two changes on master; started by hand: Actions, "azsupport-menu.sh release",
+# "Run workflow".
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'tools/azsupport-menu.sh'
+      - 'tools/config-check.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: azsupport-menu
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: [self-hosted, azfork]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: The copy with its version, and the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          f=tools/azsupport-menu.sh
+          rev="r$(git log --follow --format=%H -- "$f" | wc -l | tr -d ' ')"
+          commit="$(git log -1 --format=%h -- "$f")"
+          full="$(git log -1 --format=%H -- "$f")"
+          time="$(git log -1 --format=%ct -- "$f")"
+          date="$(TZ=UTC git log -1 --date=format-local:'%d.%m.%Y %H:%M UTC' --format=%cd -- "$f")"
+          mkdir -p out
+          sed -e "s|^AZSUPPORT_MENU_REV=\"\"\$|AZSUPPORT_MENU_REV=\"$rev\"|" \
+              -e "s|^AZSUPPORT_MENU_COMMIT=\"\"\$|AZSUPPORT_MENU_COMMIT=\"$commit\"|" \
+              -e "s|^AZSUPPORT_MENU_TIME=\"\"\$|AZSUPPORT_MENU_TIME=\"$time\"|" "$f" > out/azsupport-menu.sh
+          grep -qx "AZSUPPORT_MENU_REV=\"$rev\"" out/azsupport-menu.sh && grep -qx "AZSUPPORT_MENU_COMMIT=\"$commit\"" out/azsupport-menu.sh &&
+            grep -qx "AZSUPPORT_MENU_TIME=\"$time\"" out/azsupport-menu.sh || { echo "the version lines of $f were not filled in"; exit 1; }
+          sh -n out/azsupport-menu.sh
+          cp tools/config-check.sh out/config-check.sh
+          (cd out && sha256sum azsupport-menu.sh config-check.sh > SHA256SUMS)
+          cd out && sh ./azsupport-menu.sh --version && cd ..
+          notes="azsupport-menu.sh $rev (commit $commit of $date): the copy with its version of tools/azsupport-menu.sh of https://github.com/azsupport/php-src (the packages of the repository azsupport, and PHP built as a package with the options chosen in dialogs), with tools/config-check.sh of commit ${GITHUB_SHA:0:9}. On a server: fetch https://github.com/$GITHUB_REPOSITORY/releases/download/azsupport-menu/azsupport-menu.sh, then sh azsupport-menu.sh. The commit: https://github.com/$GITHUB_REPOSITORY/commit/$full"
+          git tag -f azsupport-menu "$full"
+          git push -f origin refs/tags/azsupport-menu
+          if ! gh release view azsupport-menu --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create azsupport-menu --repo "$GITHUB_REPOSITORY" --title "azsupport-menu.sh" --notes "$notes" --verify-tag --latest=false
+          fi
+          gh release edit azsupport-menu --repo "$GITHUB_REPOSITORY" --title "azsupport-menu.sh $rev" --notes "$notes" --latest=false
+          gh release upload azsupport-menu --repo "$GITHUB_REPOSITORY" --clobber out/azsupport-menu.sh out/config-check.sh out/SHA256SUMS

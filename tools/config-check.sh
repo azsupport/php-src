@@ -45,7 +45,7 @@
 #   CFLAGS='-O3 -pipe -march=<of /etc/make.conf> -fstack-protector-strong -fno-strict-aliasing'
 #   CXXFLAGS=<the same; -std=c++17 first only for intl when c++ defaults to an older standard>
 #   LIBS='-lpthread'
-# and no LDFLAGS (the static libraries of /usr/local/az/static add their own), whatever the old build had: the
+# and no LDFLAGS (the static libraries of /usr/local/azsupport/static add their own), whatever the old build had: the
 # CFLAGS, CXXFLAGS, LDFLAGS, LIBS, CPPFLAGS, CC, CXX, CPP of config.nice and every
 # NAME=value option of the installed build (the environment of its configure run,
 # which autoconf records: PHP 5.6 keeps CFLAGS and the like there, the ports leave
@@ -76,11 +76,11 @@
 # features they were built with (php --ri), and lists the extension= lines to
 # remove after make install.
 # The static libraries PHP is built against are those of the static tree of the
-# package az, /usr/local/az/static (static/bin/pkg-config, the list of
-# versions at the root: /usr/local/az/share/doc/az/VERSIONS); the
-# shared libraries at the root (/usr/local/az/lib) are for the packages of
+# package azsupport, /usr/local/azsupport/static (static/bin/pkg-config, the list of
+# versions at the root: /usr/local/azsupport/share/doc/azsupport/VERSIONS); the
+# shared libraries at the root (/usr/local/azsupport/lib) are for the packages of
 # pkg mode, never for these builds. PHPDEPS=<dir> names another tree; the root
-# /usr/local/az given as PHPDEPS is taken as its static tree, the report
+# /usr/local/azsupport given as PHPDEPS is taken as its static tree, the report
 # says so.
 #
 # Exit status: 0 same options, 1 different (or no config.nice to compare with),
@@ -90,38 +90,38 @@ set -u
 out="${OUT:-./config.installed.sh}"
 mk_conf="${MAKE_CONF:-/etc/make.conf}"
 
-# The static libraries PHP is built against: those of /usr/local/az/static, the
-# static tree of the package az (with its libcurl, the curl of PHP, and ImageMagick
-# 7 of the package ImageMagick7: the repository az of azsupport/ports;
-# its list of versions at the root of az, share/doc/az/VERSIONS, one for
+# The static libraries PHP is built against: those of /usr/local/azsupport/static, the
+# static tree of the package azsupport (with its libcurl, the curl of PHP, and ImageMagick
+# 7 of the package ImageMagick7: the repository azsupport of azsupport/ports;
+# its list of versions at the root of azsupport, share/doc/azsupport/VERSIONS, one for
 # the static and the shared tree), when the root has that list and the tree its
 # bin/pkg-config; else /usr/local/phpdeps of before (the release
 # phpdeps-fbsd<major>-latest; VERSIONS). PHPDEPS names another directory. The shared
-# libraries at the root of az (lib/*.so, the packages of pkg mode) are never
+# libraries at the root of azsupport (lib/*.so, the packages of pkg mode) are never
 # taken: with libfoo.so next to libfoo.a the linker takes the .so, and their headers
 # are not those of the OpenSSL of the static tree. When the static libraries are
 # there, the options of the libraries they have point there, pkg-config is their
 # wrapper (them first, static link lines) and LDFLAGS put them first and keep their
 # symbols hidden, so that php, php-fpm and libphp.so need no library of
 # /usr/local/lib (deps_opts).
-az_root=/usr/local/az
+azsupport_root=/usr/local/azsupport
 if [ -z "${PHPDEPS:-}" ]; then
-    PHPDEPS="$az_root/static"
-    if [ ! -f "$az_root/share/doc/az/VERSIONS" ] || [ ! -x "$PHPDEPS/bin/pkg-config" ]; then
+    PHPDEPS="$azsupport_root/static"
+    if [ ! -f "$azsupport_root/share/doc/azsupport/VERSIONS" ] || [ ! -x "$PHPDEPS/bin/pkg-config" ]; then
         [ -f /usr/local/phpdeps/VERSIONS ] && PHPDEPS=/usr/local/phpdeps
     fi
 fi
 PHPDEPS="${PHPDEPS%/}"
-# the root of az given (its bin/pkg-config is the one of the shared libraries):
+# the root of azsupport given (its bin/pkg-config is the one of the shared libraries):
 # its static tree
 phpdeps_note=""
-if [ -x "$PHPDEPS/static/bin/pkg-config" ] && [ -f "$PHPDEPS/share/doc/az/VERSIONS" ]; then
-    phpdeps_note="PHPDEPS=$PHPDEPS is the root of az, whose shared libraries are for the packages of pkg mode: its static tree $PHPDEPS/static is taken"
+if [ -x "$PHPDEPS/static/bin/pkg-config" ] && [ -f "$PHPDEPS/share/doc/azsupport/VERSIONS" ]; then
+    phpdeps_note="PHPDEPS=$PHPDEPS is the root of azsupport, whose shared libraries are for the packages of pkg mode: its static tree $PHPDEPS/static is taken"
     PHPDEPS="$PHPDEPS/static"
 fi
-# the list of versions: at the root of az for its static tree, else in the tree
+# the list of versions: at the root of azsupport for its static tree, else in the tree
 # itself (/usr/local/phpdeps of before: VERSIONS)
-DEPS_VERSIONS="${PHPDEPS%/static}/share/doc/az/VERSIONS"
+DEPS_VERSIONS="${PHPDEPS%/static}/share/doc/azsupport/VERSIONS"
 [ -f "$DEPS_VERSIONS" ] || DEPS_VERSIONS="$PHPDEPS/VERSIONS"
 deps_there() { [ -f "$DEPS_VERSIONS" ] && [ -x "$PHPDEPS/bin/pkg-config" ]; }
 
@@ -194,7 +194,7 @@ cpu_lacks() {
 # PKG_CONFIG_PATH in the environment lines of file $2 and pkg-config; else the
 # base system.
 ossl_incdir() {
-    # with the static libraries of /usr/local/az/static installed, their OpenSSL (see deps_opts)
+    # with the static libraries of /usr/local/azsupport/static installed, their OpenSSL (see deps_opts)
     if deps_there; then
         echo "$PHPDEPS/include"; return
     fi
@@ -259,7 +259,7 @@ ossl_opts() {
 # curl_note.
 curl_note=""
 curl_opts() {
-    # with the static libraries of /usr/local/az/static installed, their libcurl (deps_opts)
+    # with the static libraries of /usr/local/azsupport/static installed, their libcurl (deps_opts)
     deps_there && return 0
     [ -f ext/curl/build-libcurl.sh ] && [ -f ext/curl/libcurl/include/curl/curlver.h ] || return 0
     co="$(grep -E -m 1 '^--with-curl(=|$)' "$1")" || return 0
@@ -484,7 +484,7 @@ deps_opts() {
     bwarn=""
     if [ -n "$blevel" ]; then
         blacks="$(cpu_lacks "$blevel")"
-        [ -n "$blacks" ] && bwarn="; WARNING: the libraries are built for -march=$blevel and this CPU lacks $blacks, so PHP built against them stops with \"Illegal instruction\" here: take the packages of a lower level (the repository az of the level of this CPU, x86-64-v3 or x86-64-v2: sh az-menu.sh --repo)"
+        [ -n "$blacks" ] && bwarn="; WARNING: the libraries are built for -march=$blevel and this CPU lacks $blacks, so PHP built against them stops with \"Illegal instruction\" here: take the packages of a lower level (the repository azsupport of the level of this CPU, x86-64-v3 or x86-64-v2: sh azsupport-menu.sh --repo)"
     fi
     deps_note="${phpdeps_note:+$phpdeps_note; }the libraries come from the static tree $PHPDEPS ($(head -n 1 "$DEPS_VERSIONS" | sed 's/, built.*//')): static, linked into PHP${sasl}${still:+; still from pkg: $still}${bwarn}; check after make install: ldd of bin/php*, sbin/php-fpm* | grep /usr/local/lib"
 }
@@ -494,7 +494,7 @@ deps_opts() {
 # (NAME='value' lines), run from inside the PHP source tree; prints the note.
 if [ "${1:-}" = "--deps-rewrite" ]; then
     [ $# -eq 3 ] || { echo "config-check: --deps-rewrite <options file> <env file>" >&2; exit 2; }
-    deps_there || { echo "config-check: no static libraries in $PHPDEPS: $([ -f "$DEPS_VERSIONS" ] || printf 'no %s; ' "$DEPS_VERSIONS")$([ -x "$PHPDEPS/bin/pkg-config" ] || printf 'no %s; ' "$PHPDEPS/bin/pkg-config")az has them in /usr/local/az/static (bin/pkg-config), its list of versions at the root (share/doc/az/VERSIONS)" >&2; exit 2; }
+    deps_there || { echo "config-check: no static libraries in $PHPDEPS: $([ -f "$DEPS_VERSIONS" ] || printf 'no %s; ' "$DEPS_VERSIONS")$([ -x "$PHPDEPS/bin/pkg-config" ] || printf 'no %s; ' "$PHPDEPS/bin/pkg-config")azsupport has them in /usr/local/azsupport/static (bin/pkg-config), its list of versions at the root (share/doc/azsupport/VERSIONS)" >&2; exit 2; }
     touch "$3"
     tmp="$(mktemp -d)" || exit 2
     deps_opts "$2" "$3"
@@ -537,7 +537,7 @@ if [ "${1:-}" = "--pkg" ]; then
         7*) fam=7 ;;
         *) fam=8 ;;
     esac
-    # the layout of the packages of tools/az-menu.sh: /usr/local, the version at the
+    # the layout of the packages of tools/azsupport-menu.sh: /usr/local, the version at the
     # end of the programs and in the directories of its own (bin/php84, etc/php84)
     prefix=/usr/local
     layout="--prefix=$prefix --program-suffix=$short --sysconfdir=$prefix/etc/php$short --libdir=$prefix/lib/php$short --includedir=$prefix/include/php$short --datadir=$prefix/share/php$short --mandir=$prefix/share/man"
@@ -767,7 +767,7 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt | pecl-ssh2)
         echo "  - make install puts the Apache module where $modphp has it: run pkg delete $modphp first,"
         echo "    or the next pkg upgrade writes the package's module over it."
     fi
-    opt FPM on && echo "  - php-fpm goes to $prefix/sbin/php-fpm$short; the rc.d script of the package php$short of az-menu.sh is php_fpm$short."
+    opt FPM on && echo "  - php-fpm goes to $prefix/sbin/php-fpm$short; the rc.d script of the package php$short of azsupport-menu.sh is php_fpm$short."
     set -- "$want"
     [ -n "$modphp" ] && set -- "$@" "$modphp"
     while IFS= read -r p; do set -- "$@" "$p"; done < "$tmp/ext_pkgs"

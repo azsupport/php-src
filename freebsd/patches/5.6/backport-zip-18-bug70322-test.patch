@@ -1,4 +1,4 @@
-Description: bug70322.phpt (ZipArchive::close() returns false and warns when a file it was to add is gone): the warning is "<the message of libzip>: No such file or directory", which libzip 1.6 and later word otherwise than "Read error" (the test failed with libzip 1.7.3, with and without the zip backports; az has libzip 1.12.1); the expectation of PHP 7.4, %s for the message of libzip
+Description: bug70322.phpt (ZipArchive::close() returns false and warns when a file it was to add is gone): the warning is "<the message of libzip>: No such file or directory", which libzip 1.6 and later word otherwise than "Read error" (the test failed with libzip 1.7.3, with and without the zip backports; azsupport has libzip 1.12.1); the expectation of PHP 7.4, %s for the message of libzip
 Origin: ext/zip/tests/bug70322.phpt of the PHP 7.4 security branch of Remi Collet (remicollet/php-src-security PHP-7.4-security-backports)
 
 diff --git a/ext/zip/tests/bug70322.phpt b/ext/zip/tests/bug70322.phpt

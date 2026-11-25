@@ -12,8 +12,8 @@
 # output to <prefix>.log: the libraries of ext/curl/deps (tools/curl-sources.sh
 # of the fork puts them there; ext/curl/deps/VERSIONS lists them) go into
 # <prefix>.deps, curl into <prefix>. The other two forms are for
-# tools/az-build.sh of azsupport/ports (the package az, with a copy of this
-# script, az/az/files/curl/build-libcurl.sh): one library from an unpacked source
+# tools/azsupport-build.sh of azsupport/ports (the package azsupport, with a copy of this
+# script, azsupport/azsupport/files/curl/build-libcurl.sh): one library from an unpacked source
 # into <prefix>, and curl against the libraries in <libraries>; --features prints
 # the feature options of curl (curl_features), one per line, for the shared
 # libcurl.so that it builds with the same ones.
@@ -68,7 +68,7 @@ deplibs="ssh2 psl idn2 nghttp2 cares brotlidec brotlicommon zstd"
 # ciphers 3des-cbc, arcfour and arcfour128, blowfish-cbc, cast128-cbc, as libssh2
 # after 1.11.1 has them off by default (b89858b8); a server that offers only those
 # is no longer reached. The RC4 of PHP (openssl_encrypt) is that of OpenSSL, not
-# touched. The libssh2 of the package az (tools/az-build.sh of azsupport/ports,
+# touched. The libssh2 of the package azsupport (tools/azsupport-build.sh of azsupport/ports,
 # static with this script, shared with the same switches) is the same.
 ssh2_algos="-DLIBSSH2_NO_HMAC_MD5 -DLIBSSH2_NO_3DES -DLIBSSH2_NO_RC4 -DLIBSSH2_NO_BLOWFISH -DLIBSSH2_NO_CAST"
 
@@ -275,8 +275,8 @@ openssl_opt() {
 
 # The features of the bundled libcurl: the configure options of build_curl after
 # those of the libraries, one per line. "build-libcurl.sh --features" prints them
-# for tools/az-build.sh of azsupport/ports, whose shared libcurl.so of
-# /usr/local/az gets the same ones as the static libcurl of PHP.
+# for tools/azsupport-build.sh of azsupport/ports, whose shared libcurl.so of
+# /usr/local/azsupport gets the same ones as the static libcurl of PHP.
 curl_features() {
     printf '%s\n' --enable-http --enable-ftp --enable-file \
         --enable-proxy --enable-cookies --enable-alt-svc --enable-hsts --enable-ipv6 \
