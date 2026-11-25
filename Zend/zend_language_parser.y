@@ -46,6 +46,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 
 %pure_parser
 %expect 3
+%define parse.error verbose
 
 %code requires {
 #ifdef ZTS
@@ -84,6 +85,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %token T_XOR_EQUAL    "^= (T_XOR_EQUAL)"
 %token T_SL_EQUAL     "<<= (T_SL_EQUAL)"
 %token T_SR_EQUAL     ">>= (T_SR_EQUAL)"
+%token T_POW_EQUAL    "**= (T_POW_EQUAL)"
 %left '?' ':'
 %left T_BOOLEAN_OR
 %token T_BOOLEAN_OR   "|| (T_BOOLEAN_OR)"
@@ -119,6 +121,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %token T_OBJECT_CAST "(object) (T_OBJECT_CAST)"
 %token T_BOOL_CAST   "(bool) (T_BOOL_CAST)"
 %token T_UNSET_CAST  "(unset) (T_UNSET_CAST)"
+%token T_POW          "** (T_POW)"
 %right '['
 %nonassoc T_NEW T_CLONE
 %token T_NEW       "new (T_NEW)"
@@ -214,8 +217,6 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %token T_DIR             "__DIR__ (T_DIR)"
 %token T_NS_SEPARATOR    "\\ (T_NS_SEPARATOR)"
 %token T_ELLIPSIS        "... (T_ELLIPSIS)"
-%token T_POW             "** (T_POW)"
-%token T_POW_EQUAL       "**= (T_POW_EQUAL)"
 
 %% /* Rules */
 
