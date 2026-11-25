@@ -24,7 +24,7 @@ on:
         required: true
         default: '5.6 7.4 8.1 8.2 8.3 8.4'
       variants:
-        description: 'The variants (BENCH_VARIANTS of bench.sh: base base-pgo base-nsi llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo gcc-lto gcc-nsi gcc-nsi-lto); the first is the baseline'
+        description: 'The variants (BENCH_VARIANTS of bench.sh: base base-pgo base-nsi base-hard llvm llvm-pgo llvm-pgo-lto gcc gcc-pgo gcc-lto gcc-nsi gcc-nsi-lto); the first is the baseline'
         required: true
         default: 'base gcc gcc-lto'
       repeat:
