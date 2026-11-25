@@ -1,0 +1,487 @@
+/*
+  +----------------------------------------------------------------------+
+  | Swoole                                                               |
+  +----------------------------------------------------------------------+
+  | This source file is subject to version 2.0 of the Apache license,    |
+  | that is bundled with this package in the file LICENSE, and is        |
+  | available through the world-wide-web at the following url:           |
+  | http://www.apache.org/licenses/LICENSE-2.0.html                      |
+  | If you did not receive a copy of the Apache2.0 license and are unable|
+  | to obtain it through the world-wide-web, please send a note to       |
+  | license@swoole.com so we can mail you a copy immediately.            |
+  +----------------------------------------------------------------------+
+  | Author: Tianfeng Han  <rango@swoole.com>                             |
+  +----------------------------------------------------------------------+
+*/
+
+#include "php_swoole_http_server.h"
+
+#ifndef _WIN32
+#include "swoole_process_pool.h"
+#endif
+
+BEGIN_EXTERN_C()
+#include "rfc1867.h"
+END_EXTERN_C()
+
+using HttpRequest = swoole::http::Request;
+using HttpResponse = swoole::http::Response;
+using HttpContext = swoole::http::Context;
+
+using swoole::Connection;
+using swoole::DataHead;
+using swoole::RecvData;
+using swoole::Server;
+using swoole::SessionId;
+
+namespace WebSocket = swoole::websocket;
+
+#ifndef _WIN32
+zend_class_entry *swoole_http_server_ce;
+zend_object_handlers swoole_http_server_handlers;
+
+static SW_THREAD_LOCAL std::queue<HttpContext *> queued_http_contexts;
+
+struct SessionAddresses {
+    zend::Variable server;
+    zend::Variable client;
+};
+
+static SW_THREAD_LOCAL std::unordered_map<SessionId, SessionAddresses> session_addresses;
+
+static bool http_context_send_data(HttpContext *ctx, const char *data, size_t length);
+static bool http_context_sendfile(HttpContext *ctx, zend_string *file, off_t offset, size_t length, bool &delete_file);
+static bool http_context_disconnect(HttpContext *ctx);
+
+static void http_context_discard(HttpContext *ctx) {
+    ctx->end_ = 1;
+    ctx->onAfterResponse = nullptr;
+    zval_ptr_dtor(&ctx->request.zobject);
+    zval_ptr_dtor(&ctx->response.zobject);
+}
+
+static void http_server_process_request(const Server *serv, zend::Callable *cb, HttpContext *ctx) {
+    zval args[2];
+    args[0] = ctx->request.zobject;
+    args[1] = ctx->response.zobject;
+    const bool success = ctx->http2 ? swoole_http2_server_call_request(ctx, cb, args)
+                                    : zend::function::call(cb, 2, args, nullptr, serv->is_enable_coroutine());
+    if (UNEXPECTED(!success)) {
+        php_swoole_error(E_WARNING, "%s->onRequest handler error", ZSTR_VAL(swoole_http_server_ce->name));
+#ifdef SW_HTTP_SERVICE_UNAVAILABLE_PACKET
+        ctx->send(ctx, SW_STRL(SW_HTTP_SERVICE_UNAVAILABLE_PACKET));
+#endif
+        ctx->close(ctx);
+    }
+}
+
+int php_swoole_http_server_onReceive(Server *serv, RecvData *req) {
+    auto session_id = req->info.fd;
+    auto server_fd = req->info.server_fd;
+
+    Connection *conn = serv->get_connection_verify_no_ssl(session_id);
+    if (!conn) {
+        swoole_error_log(SW_LOG_TRACE, SW_ERROR_SESSION_NOT_EXIST, "session[%ld] is closed", session_id);
+        return SW_ERR;
+    }
+
+    auto *port = serv->get_port_by_server_fd(server_fd);
+    // other server port
+    if (!(port->open_http_protocol && php_swoole_server_isset_callback(serv, port, SW_SERVER_CB_onRequest)) &&
+        !(port->open_websocket_protocol && php_swoole_server_isset_callback(serv, port, SW_SERVER_CB_onMessage))) {
+        return php_swoole_server_onReceive(serv, req);
+    }
+    // websocket client
+    if (conn->is_websocket_active()) {
+        return swoole_websocket_onMessage(serv, req);
+    }
+
+    if (conn->http2_stream) {
+        return swoole_http2_server_onReceive(serv, conn, req);
+    }
+
+    HttpContext *ctx = swoole_http_context_new(session_id);
+    ctx->init(serv);
+    ctx->onBeforeRequest = swoole_http_server_onBeforeRequest;
+    ctx->upload_preprocessed = (req->info.ext_flags & swoole::http_server::SW_HTTP_EXT_FLAG_UPLOAD_PREPROCESSED) != 0;
+
+    zval *zdata = &ctx->request.zdata;
+    php_swoole_get_recv_data(serv, zdata, req);
+
+    swoole_trace_log(SW_TRACE_SERVER,
+                     "http request from %ld with %d bytes: <<EOF\n%.*s\nEOF",
+                     session_id,
+                     (int) Z_STRLEN_P(zdata),
+                     (int) Z_STRLEN_P(zdata),
+                     Z_STRVAL_P(zdata));
+
+    zval *zrequest_object = &ctx->request.zobject;
+    zval *zresponse_object = &ctx->response.zobject;
+
+    llhttp_t *parser = &ctx->parser;
+    swoole_llhttp_parser_init(parser, HTTP_REQUEST, (void *) ctx);
+
+    size_t parsed_n = ctx->parse(Z_STRVAL_P(zdata), Z_STRLEN_P(zdata));
+    if (sw_unlikely(ctx->parser.error != HPE_OK || !ctx->completed)) {
+        ctx->send(ctx, SW_STRL(SW_HTTP_BAD_REQUEST_PACKET));
+        ctx->close(ctx);
+        if (ctx->parser.error != HPE_OK) {
+            swoole_warning("Invalid HTTP request discarded: %ld bytes unprocessed. Reason: %s",
+                           Z_STRLEN_P(zdata) - parsed_n,
+                           llhttp_get_error_reason(&ctx->parser));
+        } else {
+            swoole_warning("Incomplete HTTP request: parsed successfully but missing required components");
+        }
+        goto _dtor_and_return;
+    }
+
+    do {
+        zval *zserver = &ctx->request.zserver;
+        HashTable *ht = Z_ARR_P(zserver);
+        swoole_http_server_populate_ip_and_port(serv, ht, conn, session_id, ctx->keepalive);
+        http_server_add_server_array(
+            ht, SW_ZSTR_KNOWN(SW_ZEND_STR_MASTER_TIME), (zend_long) conn->get_last_recv_time());
+    } while (false);
+
+    if (swoole_isset_hook(static_cast<swGlobalHookType>(PHP_SWOOLE_HOOK_BEFORE_REQUEST))) {
+        swoole_call_hook(static_cast<swGlobalHookType>(PHP_SWOOLE_HOOK_BEFORE_REQUEST), ctx);
+    }
+
+    // begin to check and call registered callback
+    do {
+        zend::Callable *cb = nullptr;
+
+        if (conn->is_websocket_status(WebSocket::STATUS_CONNECTION)) {
+            cb = php_swoole_server_get_callback(serv, server_fd, SW_SERVER_CB_onHandshake);
+            if (cb == nullptr) {
+                swoole_websocket_onHandshake(serv, port, ctx);
+                goto _dtor_and_return;
+            } else {
+                conn->websocket_status = WebSocket::STATUS_HANDSHAKE;
+                ctx->upgrade = 1;
+            }
+        } else {
+            cb = php_swoole_server_get_callback(serv, server_fd, SW_SERVER_CB_onRequest);
+            if (cb == nullptr) {
+                swoole_websocket_onRequest(ctx);
+                goto _dtor_and_return;
+            }
+        }
+        ctx->private_data_2 = cb;
+        if (ctx->onBeforeRequest && !ctx->onBeforeRequest(ctx)) {
+            return SW_OK;
+        }
+        http_server_process_request(serv, cb, ctx);
+    } while (false);
+
+_dtor_and_return:
+    zval_ptr_dtor(zrequest_object);
+    zval_ptr_dtor(zresponse_object);
+
+    return SW_OK;
+}
+
+void php_swoole_http_server_cleanup_connection(SessionId session_id) {
+    session_addresses.erase(session_id);
+}
+
+void php_swoole_http_server_onClose(Server *serv, DataHead *info) {
+    php_swoole_http_server_cleanup_connection(info->fd);
+    php_swoole_server_onClose(serv, info);
+}
+
+void php_swoole_http_server_minit(int module_number) {
+    SW_INIT_CLASS_ENTRY_EX(swoole_http_server, "Swoole\\Http\\Server", nullptr, nullptr, swoole_server);
+    SW_SET_CLASS_NOT_SERIALIZABLE(swoole_http_server);
+    SW_SET_CLASS_CLONEABLE(swoole_http_server, sw_zend_class_clone_deny);
+    SW_SET_CLASS_UNSET_PROPERTY_HANDLER(swoole_http_server, sw_zend_class_unset_property_deny);
+}
+
+void php_swoole_http_server_rinit() {
+    // for is_uploaded_file and move_uploaded_file
+    if (!SG(rfc1867_uploaded_files)) {
+        ALLOC_HASHTABLE(SG(rfc1867_uploaded_files));
+        zend_hash_init(SG(rfc1867_uploaded_files), 8, nullptr, nullptr, 0);
+    }
+}
+
+void php_swoole_http_server_rshutdown() {
+    if (SG(rfc1867_uploaded_files)) {
+        destroy_uploaded_files_hash();
+        SG(rfc1867_uploaded_files) = nullptr;
+    }
+
+    // A fatal bailout can leave HTTP/2 sessions here; free them before Zend tears down the allocator nghttp2 uses.
+    swoole_http2_server_release_sessions();
+    session_addresses.clear();
+    while (!queued_http_contexts.empty()) {
+        HttpContext *ctx = queued_http_contexts.front();
+        queued_http_contexts.pop();
+        http_context_discard(ctx);
+    }
+}
+#endif
+
+HttpContext *swoole_http_context_new(SessionId fd) {
+    auto *ctx = new HttpContext();
+
+    zval *zrequest_object = &ctx->request.zobject;
+    ZVAL_OBJ(zrequest_object, swoole_http_request_ce->create_object(swoole_http_request_ce));
+    php_swoole_http_request_set_context(zrequest_object, ctx);
+
+    zval *zresponse_object = &ctx->response.zobject;
+    ZVAL_OBJ(zresponse_object, swoole_http_response_ce->create_object(swoole_http_response_ce));
+    php_swoole_http_response_set_context(zresponse_object, ctx);
+
+    http_server_set_object_fd_property(Z_OBJ_P(zrequest_object), swoole_http_request_ce, fd);
+    http_server_set_object_fd_property(Z_OBJ_P(zresponse_object), swoole_http_response_ce, fd);
+
+    swoole_http_init_and_read_property(swoole_http_request_ce,
+                                       zrequest_object,
+                                       &ctx->request.zserver,
+                                       SW_ZSTR_KNOWN(SW_ZEND_STR_SERVER),
+                                       HT_MIN_SIZE << 1);
+    swoole_http_init_and_read_property(
+        swoole_http_request_ce, zrequest_object, &ctx->request.zheader, SW_ZSTR_KNOWN(SW_ZEND_STR_HEADER));
+
+    ctx->fd = fd;
+
+    return ctx;
+}
+
+#ifndef _WIN32
+void HttpContext::init(Server *serv) {
+    parse_cookie = serv->http_parse_cookie;
+    parse_body = serv->http_parse_post;
+    parse_files = serv->http_parse_files;
+#ifdef SW_HAVE_COMPRESSION
+    enable_compression = serv->http_compression;
+    compression_level = serv->http_compression_level;
+    compression_min_length = serv->compression_min_length;
+    compression_types = serv->http_compression_types;
+#endif
+    upload_tmp_dir = serv->upload_tmp_dir;
+    bind(serv);
+}
+
+void HttpContext::bind(Server *serv) {
+    private_data = serv;
+    send = http_context_send_data;
+    sendfile = http_context_sendfile;
+    close = http_context_disconnect;
+    ZVAL_NULL(&zsocket);
+}
+#endif
+
+void HttpContext::copy(const HttpContext *ctx) {
+    parse_cookie = ctx->parse_cookie;
+    parse_body = ctx->parse_body;
+    parse_files = ctx->parse_files;
+#ifdef SW_HAVE_COMPRESSION
+    enable_compression = ctx->enable_compression;
+    compression_level = ctx->compression_level;
+    compression_min_length = ctx->compression_min_length;
+    compression_types = ctx->compression_types;
+#endif
+    zsocket = ctx->zsocket;
+    Z_TRY_ADDREF(zsocket);
+    private_data = ctx->private_data;
+    upload_tmp_dir = ctx->upload_tmp_dir;
+    send = ctx->send;
+    sendfile = ctx->sendfile;
+    close = ctx->close;
+    onBeforeRequest = ctx->onBeforeRequest;
+    onAfterResponse = ctx->onAfterResponse;
+}
+
+bool HttpContext::is_available() const {
+    if (Z_ISUNDEF(response.zobject)) {
+        return false;
+    }
+    if (is_co_socket()) {
+        return !php_swoole_socket_is_closed(&zsocket);
+    } else {
+#ifndef _WIN32
+        auto *serv = get_async_server();
+        auto *conn = serv->get_connection_by_session_id(fd);
+        if (!conn || conn->is_close_requested()) {
+            return false;
+        }
+#endif
+    }
+    return true;
+}
+
+void HttpContext::free() {
+    // http context can only be freed after request and response were freed
+    // If is an HTTP2 request, must wait for the stream to release before releasing the HTTP context
+    if (!Z_ISUNDEF(request.zobject) || !Z_ISUNDEF(response.zobject) || stream_id > 0) {
+        return;
+    }
+
+    HttpRequest *req = &request;
+    HttpResponse *res = &response;
+    if (req->path) {
+        zend_string_release(req->path);
+    }
+    if (Z_TYPE(req->zdata) == IS_STRING) {
+        zend_string_release(Z_STR(req->zdata));
+    }
+
+    delete req->chunked_body;
+    delete req->h2_data_buffer;
+    delete req->parser_state;
+
+    if (res->reason) {
+        zend_string_release(res->reason);
+    }
+    destroy_multipart_parser();
+    if (is_co_socket()) {
+        zval_ptr_dtor(&zsocket);
+    }
+
+    delete write_buffer;
+    delete this;
+}
+
+#ifndef _WIN32
+bool http_context_send_data(HttpContext *ctx, const char *data, size_t length) {
+    auto *serv = ctx->get_async_server();
+    bool retval = serv->send(ctx->fd, data, length);
+    // The protocol parsers run outside a coroutine, so their sends can't wait; they fail instead.
+    if (!retval && swoole_get_last_error() == SW_ERROR_OUTPUT_SEND_YIELD && swoole_coroutine_is_in()) {
+        auto sdata = zend_string_init(data, length, false);
+        auto rv = php_swoole_server_send_yield(serv, ctx->fd, sdata);
+        zend_string_release(sdata);
+        return rv;
+    }
+    return retval;
+}
+
+static bool http_context_sendfile(HttpContext *ctx, zend_string *file, off_t offset, size_t length, bool &delete_file) {
+    auto *serv = ctx->get_async_server();
+    return serv->sendfile(ctx->fd, file->val, file->len, offset, length, delete_file);
+}
+
+static bool http_context_disconnect(HttpContext *ctx) {
+    auto *serv = ctx->get_async_server();
+    return serv->close(ctx->fd, false);
+}
+
+bool swoole_http_server_onBeforeRequest(HttpContext *ctx) {
+    ctx->onBeforeRequest = nullptr;
+    ctx->onAfterResponse = swoole_http_server_onAfterResponse;
+    if (!sw_server() || !sw_worker() || sw_worker()->is_shutdown()) {
+        http_context_discard(ctx);
+        return false;
+    }
+
+    auto serv = ctx->get_async_server();
+    auto worker = sw_worker();
+
+    swoole_trace("concurrency=%u, max_concurrency=%u", serv->get_concurrency(), serv->get_max_concurrency());
+    serv->increment_concurrency();
+    worker->concurrency++;
+    if (worker->concurrency > serv->worker_max_concurrency) {
+        swoole_trace_log(SW_TRACE_COROUTINE,
+                         "exceed worker_max_concurrency[%u] limit, request[%p] queued",
+                         serv->worker_max_concurrency,
+                         ctx);
+        queued_http_contexts.push(ctx);
+        return false;
+    }
+
+    return true;
+}
+
+void swoole_http_server_onAfterResponse(HttpContext *ctx) {
+    ctx->onAfterResponse = nullptr;
+
+    if (sw_unlikely(!sw_server() || !sw_worker())) {
+        return;
+    }
+
+    if (sw_unlikely(sw_worker()->is_shutdown())) {
+        while (!queued_http_contexts.empty()) {
+            HttpContext *_ctx = queued_http_contexts.front();
+            queued_http_contexts.pop();
+            if (!_ctx->http2 || !_ctx->end_) {
+                _ctx->send(_ctx, SW_STRL(SW_HTTP_SERVICE_UNAVAILABLE_PACKET));
+                _ctx->close(_ctx);
+            }
+            http_context_discard(_ctx);
+        }
+        return;
+    }
+
+    auto serv = ctx->get_async_server();
+    auto worker = sw_worker();
+    swoole_trace("concurrency=%u, max_concurrency=%u", serv->get_concurrency(), serv->get_max_concurrency());
+    serv->decrement_concurrency();
+    worker->concurrency--;
+
+    if (!queued_http_contexts.empty()) {
+        HttpContext *_ctx = queued_http_contexts.front();
+        swoole_trace("[POP 1] concurrency=%u, ctx=%p, request=%p", worker->concurrency, _ctx, &_ctx->request.zobject);
+        queued_http_contexts.pop();
+        swoole_event_defer(
+            [](void *private_data) {
+                auto *ctx = static_cast<HttpContext *>(private_data);
+                auto *serv = ctx->get_async_server();
+                auto *cb = static_cast<zend::Callable *>(ctx->private_data_2);
+                swoole_trace("[POP 2] ctx=%p, request=%p", ctx, &ctx->request.zobject);
+                http_server_process_request(serv, cb, ctx);
+                zval_ptr_dtor(&ctx->request.zobject);
+                zval_ptr_dtor(&ctx->response.zobject);
+            },
+            _ctx);
+    }
+}
+
+/**
+ * The client-side and server-side addresses are resolved through the same memory block, so each result
+ * has to be copied into the cache before the other one is resolved, or both entries would be identical.
+ */
+static void http_server_session_track_ip(Server *server, HashTable *ht, Connection *conn, SessionId session_id) {
+    auto iter = session_addresses.find(session_id);
+    if (iter == session_addresses.end()) {
+        zend::Variable client_addr(conn->info.get_addr());
+        zend::Variable server_addr(server->get_local_addr(conn));
+        SessionAddresses entry{std::move(server_addr), std::move(client_addr)};
+        iter = session_addresses.emplace(session_id, std::move(entry)).first;
+    }
+
+    SessionAddresses &addrs = iter->second;
+    addrs.server.add_ref();
+    addrs.client.add_ref();
+    http_server_add_server_array(ht, SW_ZSTR_KNOWN(SW_ZEND_STR_SERVER_ADDR), addrs.server.ptr());
+    http_server_add_server_array(ht, SW_ZSTR_KNOWN(SW_ZEND_STR_REMOTE_ADDR), addrs.client.ptr());
+}
+
+/**
+ * the addresses of a keep-alive session stay cached until php_swoole_http_server_onClose() erases them
+ * so cache them only when the close event of the session reaches the same worker
+ */
+bool swoole_http_server_can_cache_session_addr(const Server *server) {
+    return server->is_base_mode() || (server->is_process_mode() && server->dispatch_mode == Server::DISPATCH_FDMOD);
+}
+
+void swoole_http_server_populate_ip_and_port(
+    Server *server, HashTable *ht, Connection *conn, SessionId session_id, bool keepalive) {
+    http_server_add_server_array(ht, SW_ZSTR_KNOWN(SW_ZEND_STR_SERVER_PORT), (zend_long) conn->local_port);
+    http_server_add_server_array(ht, SW_ZSTR_KNOWN(SW_ZEND_STR_REMOTE_PORT), (zend_long) conn->info.get_port());
+
+    if (conn->info.is_loopback_addr()) {
+        auto key = conn->info.type == SW_SOCK_TCP6 ? SW_ZEND_STR_ADDR_LOOPBACK_V6 : SW_ZEND_STR_ADDR_LOOPBACK_V4;
+        http_server_add_server_array(ht, SW_ZSTR_KNOWN(SW_ZEND_STR_SERVER_ADDR), SW_ZSTR_KNOWN(key));
+        http_server_add_server_array(ht, SW_ZSTR_KNOWN(SW_ZEND_STR_REMOTE_ADDR), SW_ZSTR_KNOWN(key));
+    } else {
+        if (keepalive && swoole_http_server_can_cache_session_addr(server)) {
+            http_server_session_track_ip(server, ht, conn, session_id);
+        } else {
+            http_server_add_server_array(ht, SW_ZSTR_KNOWN(SW_ZEND_STR_SERVER_ADDR), server->get_local_addr(conn));
+            http_server_add_server_array(ht, SW_ZSTR_KNOWN(SW_ZEND_STR_REMOTE_ADDR), server->get_remote_addr(conn));
+        }
+    }
+}
+#endif

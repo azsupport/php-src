@@ -1,0 +1,85 @@
+#!/bin/sh -e
+__CURRENT__=$(pwd)
+__DIR__=$(cd "$(dirname "$0")";pwd)
+
+if [ "$(uname -m)" = "aarch64" ]; then
+  arch="arm64"
+else
+  arch="x64"
+fi
+
+cd "${__DIR__}/"
+
+apt update
+bash ./install-deps-on-ubuntu.sh
+
+# sshd
+apt install -y openssh-server
+if ! id -u swoole_ssh2_test_user > /dev/null 2>&1; then
+    useradd -m -s /bin/bash swoole_ssh2_test_user
+fi
+echo 'swoole_ssh2_test_user:swoole_ssh2_test_pass' | chpasswd
+mkdir -p /home/swoole_ssh2_test_user/.ssh
+cat ../tests/swoole_ssh2/testkey_ed25519.pub ../tests/swoole_ssh2/testkey_ecdsa.pub \
+    > /home/swoole_ssh2_test_user/.ssh/authorized_keys
+chmod 700 /home/swoole_ssh2_test_user/.ssh
+chown -R swoole_ssh2_test_user:swoole_ssh2_test_user /home/swoole_ssh2_test_user/.ssh
+if ! id -u swoole_ssh2_truncated_scp_user > /dev/null 2>&1; then
+    useradd -m -s /bin/sh swoole_ssh2_truncated_scp_user
+fi
+echo 'swoole_ssh2_truncated_scp_user:swoole_ssh2_truncated_scp_pass' | chpasswd
+install -m 0555 ./truncated_scp_server.sh /usr/local/bin/swoole-truncated-scp-server
+mkdir -p /etc/ssh/sshd_config.d
+printf '%s\n' 'AcceptEnv SWOOLE_TEST_*' 'PasswordAuthentication yes' 'AllowTcpForwarding yes' \
+    > /etc/ssh/sshd_config.d/swoole-tests.conf
+printf '%s\n' 'Match User swoole_ssh2_truncated_scp_user' \
+    '    ForceCommand /usr/local/bin/swoole-truncated-scp-server' >> /etc/ssh/sshd_config.d/swoole-tests.conf
+mkdir -p /run/sshd
+sshd -t || { echo 'sshd configuration is invalid'; exit 1; }
+sshd -T -C user=swoole_ssh2_test_user,host=localhost,addr=127.0.0.1 | grep -qx 'allowtcpforwarding yes' || {
+    echo 'SSH forwarding is disabled for the SSH2 test user'
+    exit 1
+}
+service ssh start
+
+# MariaDB ODBC Connector
+MARIADB_CONNECTOR_VERSION=3.1.22
+wget https://github.com/mariadb-corporation/mariadb-connector-odbc/archive/refs/tags/${MARIADB_CONNECTOR_VERSION}.tar.gz
+tar zxf ${MARIADB_CONNECTOR_VERSION}.tar.gz
+mkdir build
+cd build
+cmake ../mariadb-connector-odbc-${MARIADB_CONNECTOR_VERSION}/ -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONC_WITH_UNIT_TESTS=Off -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_SSL=OPENSSL
+cmake --build . --config RelWithDebInfo --parallel "${SWOOLE_BUILD_JOBS:-1}"
+make -j"${SWOOLE_BUILD_JOBS:-1}" install
+echo '/usr/local/lib/mariadb/' > /etc/ld.so.conf.d/odbc-mariadb.conf
+ldconfig
+
+wget -nv -O instantclient-basiclite-linux${arch}.zip https://download.oracle.com/otn_software/linux/instantclient/1930000/instantclient-basiclite-linux.${arch}-19.30.0.0.0dbru.zip
+unzip instantclient-basiclite-linux${arch}.zip && rm instantclient-basiclite-linux${arch}.zip
+wget -nv -O instantclient-sdk-linux${arch}.zip https://download.oracle.com/otn_software/linux/instantclient/1930000/instantclient-sdk-linux.${arch}-19.30.0.0.0dbru.zip
+unzip instantclient-sdk-linux${arch}.zip && rm instantclient-sdk-linux${arch}.zip
+mv instantclient_*_* ./instantclient
+rm ./instantclient/sdk/include/ldap.h
+# ldconfig caches libaio's real SONAME, not the libaio.so.1 alias Oracle 19 needs.
+# Keep the alias in the loader's default library directory so it can find it without LD_LIBRARY_PATH.
+libaio_dir="/usr/lib/$(gcc -print-multiarch)"
+if [ ! -e "${libaio_dir}/libaio.so.1" ] && [ -e "${libaio_dir}/libaio.so.1t64" ]; then
+    ln -s libaio.so.1t64 "${libaio_dir}/libaio.so.1"
+fi
+# fix debug build warning: zend_signal: handler was replaced for signal (2) after startup
+echo DISABLE_INTERRUPT=on > ./instantclient/network/admin/sqlnet.ora
+mv ./instantclient /usr/local/
+echo '/usr/local/instantclient' > /etc/ld.so.conf.d/oracle-instantclient.conf
+ldconfig
+
+oracle_dependencies=$(ldd /usr/local/instantclient/libclntsh.so.19.1)
+printf '%s\n' "$oracle_dependencies"
+if printf '%s\n' "$oracle_dependencies" | grep -q 'not found'; then
+    echo 'Oracle Instant Client has unresolved shared library dependencies'
+    exit 1
+fi
+
+cd "${__DIR__}/"
+bash ./install-liburing.sh
+
+cd -
