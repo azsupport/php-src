@@ -94,6 +94,12 @@ zend_class_entry *php_session_update_timestamp_iface_entry;
 		return FAILURE;													\
 	}
 
+#define SESSION_CHECK_UPLOAD_PROGRESS_STATE \
+	if (PS(rfc1867_enabled) && stage == ZEND_INI_STAGE_RUNTIME) { \
+		zend_throw_error(NULL, "Session ini settings cannot be changed at runtime when session.upload_progress.enabled is On");	\
+		return FAILURE;													\
+	}
+
 #define SESSION_FORBIDDEN_CHARS "=,;.[ \t\r\n\013\014"
 
 #define APPLY_TRANS_SID (PS(use_trans_sid) && !PS(use_only_cookies))
@@ -540,6 +546,7 @@ static PHP_INI_MH(OnUpdateSaveHandler) /* {{{ */
 	const ps_module *tmp;
 	int err_type = E_ERROR;
 
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 
@@ -575,6 +582,7 @@ static PHP_INI_MH(OnUpdateSerializer) /* {{{ */
 {
 	const ps_serializer *tmp;
 
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 
@@ -619,6 +627,7 @@ static PHP_INI_MH(OnUpdateTransSid) /* {{{ */
 
 static PHP_INI_MH(OnUpdateSaveDir) /* {{{ */
 {
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 
@@ -653,6 +662,7 @@ static PHP_INI_MH(OnUpdateSaveDir) /* {{{ */
 
 static PHP_INI_MH(OnUpdateName) /* {{{ */
 {
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 
@@ -680,6 +690,7 @@ static PHP_INI_MH(OnUpdateName) /* {{{ */
 
 static PHP_INI_MH(OnUpdateCookieLifetime) /* {{{ */
 {
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 	if (atol(ZSTR_VAL(new_value)) < 0) {
@@ -693,6 +704,7 @@ static PHP_INI_MH(OnUpdateCookieLifetime) /* {{{ */
 
 static PHP_INI_MH(OnUpdateSessionLong) /* {{{ */
 {
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 	return OnUpdateLong(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
@@ -702,6 +714,7 @@ static PHP_INI_MH(OnUpdateSessionLong) /* {{{ */
 
 static PHP_INI_MH(OnUpdateSessionString) /* {{{ */
 {
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 	return OnUpdateString(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
@@ -711,6 +724,7 @@ static PHP_INI_MH(OnUpdateSessionString) /* {{{ */
 
 static PHP_INI_MH(OnUpdateSessionBool) /* {{{ */
 {
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	return OnUpdateBool(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
@@ -723,6 +737,7 @@ static PHP_INI_MH(OnUpdateSidLength) /* {{{ */
 	zend_long val;
 	char *endptr = NULL;
 
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	val = ZEND_STRTOL(ZSTR_VAL(new_value), &endptr, 10);
@@ -743,6 +758,7 @@ static PHP_INI_MH(OnUpdateSidBits) /* {{{ */
 	zend_long val;
 	char *endptr = NULL;
 
+	SESSION_CHECK_UPLOAD_PROGRESS_STATE;
 	SESSION_CHECK_OUTPUT_STATE;
 	SESSION_CHECK_ACTIVE_STATE;
 	val = ZEND_STRTOL(ZSTR_VAL(new_value), &endptr, 10);
