@@ -1420,6 +1420,14 @@ nocentralerror:
 	}
 
 	if (FAILURE == phar_zip_applysignature(phar, &pass, &main_metadata_str TSRMLS_CC)) {
+		/* the error of the signature to the caller: without it the flush failed
+		 * silently, and the file kept the archive of the flush before */
+		if (error) {
+			spprintf(error, 4096, "phar zip flush of \"%s\" failed: %s", phar->fname, temperr ? temperr : "unable to write the signature");
+		}
+		if (temperr) {
+			efree(temperr);
+		}
 		goto temperror;
 	}
 
