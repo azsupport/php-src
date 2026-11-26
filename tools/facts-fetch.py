@@ -28,9 +28,9 @@ tools/ubuntu-cve-fetch.py pushes them); nothing is decided here: the importers o
       version per release) and the unstable changelogs of their source packages (the date of
       each version and the CVEs it names); the notices of Ubuntu (USN, osv/usn of
       canonical/ubuntu-security-notices: date, CVEs, source packages and fixed versions; only
-      those naming a CVE of --cves when given); with --ports (lines "<origin> <YYYY-MM-DD>"),
-      the commits of freebsd/freebsd-ports that changed <origin>/Makefile since that day, with
-      their version lines (the GitHub API, GITHUB_TOKEN).
+      those naming a CVE of --cves when given); with --ports (lines "<origin> <YYYY-MM-DD>
+      [<YYYY-MM-DD>]"), the commits of freebsd/freebsd-ports that changed <origin>/Makefile since
+      the first day (up to the second), with their version lines (the GitHub API, GITHUB_TOKEN).
       Out: distro/cve-dates/<YYYY-MM-DD>/<run>/ (debian-dsa.tsv, debian-dla.tsv,
       debian-tracker.tsv, debian-changelog.tsv, ubuntu-usn.tsv, freebsd-commits.tsv, state.txt).
 
@@ -514,8 +514,9 @@ def do_cve_dates(a, out, run, day):
                     d = json.load(open(f, encoding="utf-8"))
                 except ValueError:
                     continue
-                ids = [x for x in (d.get("upstream") or []) + (d.get("related") or []) if x.startswith("CVE-")]
-                ids = sorted(set(ids))
+                ids = [re.sub(r"^UBUNTU-", "", x) for x in (d.get("upstream") or []) + (d.get("related") or []) +
+                       (d.get("aliases") or [])]
+                ids = sorted({x for x in ids if x.startswith("CVE-")})
                 if cves and not cves.intersection(ids):
                     continue
                 per = {}
@@ -547,11 +548,12 @@ def do_cve_dates(a, out, run, day):
                 if len(w) < 2 or not re.match(r"^[a-z0-9-]+/[A-Za-z0-9._+-]+$", w[0]) or not re.match(r"^\d{4}-\d{2}-\d{2}$", w[1]):
                     continue
                 origin, since = w[0], w[1]
+                until = ("&until=%sT23:59:59Z" % w[2]) if len(w) > 2 and re.match(r"^\d{4}-\d{2}-\d{2}$", w[2]) else ""
                 try:
                     page, commits = 1, []
                     while page <= 5:
-                        lst = gh_json("repos/freebsd/freebsd-ports/commits?path=%s/Makefile&since=%sT00:00:00Z"
-                                      "&per_page=100&page=%d" % (origin, since, page))
+                        lst = gh_json("repos/freebsd/freebsd-ports/commits?path=%s/Makefile&since=%sT00:00:00Z%s"
+                                      "&per_page=100&page=%d" % (origin, since, until, page))
                         commits += lst
                         if len(lst) < 100:
                             break
