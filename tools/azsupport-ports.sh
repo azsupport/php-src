@@ -1,5 +1,5 @@
 #!/bin/sh
-# azsupport-menu.sh - build PHP of this fork as a package of pkg (phpXY-static, in the
+# azsupport-ports.sh - build PHP of this fork as a package of pkg (phpXY-static, in the
 # place of phpXY of the ports), and choose what goes into it with dialogs, the
 # way the FreeBSD ports do it with "make config": the options of lang/phpXY and
 # mod_phpXY, the extensions of phpXY-extensions plus the PECL extensions this
@@ -12,7 +12,7 @@
 # screen of the item under the cursor at once.
 #
 # The script stands alone: fetched by itself onto a server (fetch
-# https://github.com/azsupport/php-src/releases/download/azsupport-menu/azsupport-menu.sh, the
+# https://github.com/azsupport/php-src/releases/download/azsupport-ports/azsupport-ports.sh, the
 # copy with its version: the top line of every screen and --version show it), it
 # takes the source of the branch from the release freebsd-X.Y-latest of the fork
 # (its SHA-256 checked), and the static libraries PHP is linked with (azsupport, with
@@ -23,7 +23,7 @@
 # and offers to install it. Inside a PHP source tree it builds that one.
 #
 # Usage (FreeBSD /bin/sh; from csh run it with sh), inside the PHP source tree or not:
-#   sh azsupport-menu.sh                   outside a PHP source tree: the packages of the
+#   sh azsupport-ports.sh                  outside a PHP source tree: the packages of the
 #                                   repository azsupport (curl, ffmpeg, ImageMagick6 and 7,
 #                                   GraphicsMagick, mc, yt-dlp; azsupport; per version of PHP
 #                                   the core phpXY with mod_phpXY and its packages
@@ -32,28 +32,28 @@
 #                                   what it is built with) or, for phpXY-static,
 #                                   built here with your options;
 #                                   inside one: the menu for the branch of this tree
-#   sh azsupport-menu.sh 8.4               the menu for that branch (outside a tree)
-#   sh azsupport-menu.sh --reset           start from the defaults, not the saved choices
-#   sh azsupport-menu.sh --template=NAME   start from a template (roundcube: php-fpm for
+#   sh azsupport-ports.sh 8.4              the menu for that branch (outside a tree)
+#   sh azsupport-ports.sh --reset          start from the defaults, not the saved choices
+#   sh azsupport-ports.sh --template=NAME  start from a template (roundcube: php-fpm for
 #                                   Roundcube), not from the saved choices
-#   sh azsupport-menu.sh --batch [+ID -ID ID=value ...]
+#   sh azsupport-ports.sh --batch [+ID -ID ID=value ...]
 #                                   no dialogs: the saved choices (or the defaults),
 #                                   items turned on (+GD, +REDIS.LZ4) or off (-CGI),
 #                                   values typed in (PREFIX=/usr/local,
 #                                   MYSQL_SOCK=/tmp/mysql.sock, MYSQL_SOCK= for none)
-#   sh azsupport-menu.sh --batch --build [--install] ...
+#   sh azsupport-ports.sh --batch --build [--install] ...
 #                                   also build the package phpXY-static (and
 #                                   install it)
-#   sh azsupport-menu.sh --repo            write /usr/local/etc/pkg/repos/azsupport.conf (the
+#   sh azsupport-ports.sh --repo           write /usr/local/etc/pkg/repos/azsupport.conf (the
 #                                   repository of the x86-64 level of this CPU,
 #                                   with the public key) and pkg update -r azsupport; it
 #                                   says the level and why, and the SHA-256 of the key
-#   sh azsupport-menu.sh --list            the items of the branch, with their state, the
+#   sh azsupport-ports.sh --list           the items of the branch, with their state, the
 #                                   values and the templates
-#   sh azsupport-menu.sh --version         the version of this copy (its revision: the
+#   sh azsupport-ports.sh --version        the version of this copy (its revision: the
 #                                   number of commits that changed it, the last
 #                                   of them, its date)
-#   sh azsupport-menu.sh --package <branch> <source tree> <stage> <configure script>
+#   sh azsupport-ports.sh --package <branch> <source tree> <stage> <configure script>
 #                                   the package phpXY-static of a build make
 #                                   install put into the stage (the build test,
 #                                   tools/build-test.sh); the package file on stdout
@@ -101,7 +101,7 @@
 # one version). Its annotation "mode" is static.
 #
 # The choices are saved as the ports save theirs, in
-# /var/db/azsupport-menu/phpXY.options (AZSUPPORT_MENU_DB to change; those of php-menu.sh in
+# /var/db/azsupport-ports/phpXY.options (AZSUPPORT_PORTS_DB to change; those of php-menu.sh in
 # /var/db/php-menu are read when there are none), and are the start of the next
 # run. Dialogs: bsddialog (FreeBSD 14 and later), else dialog (FreeBSD 13);
 # DIALOG=/path/to/one to choose.
@@ -110,42 +110,42 @@ set -u
 BRANCHES="5.6 7.4 8.1 8.2 8.3 8.4"
 out="${OUT:-./config.menu.sh}"
 installed="${INSTALLED:-./config.installed.sh}"
-db="${AZSUPPORT_MENU_DB:-/var/db/azsupport-menu}"
+db="${AZSUPPORT_PORTS_DB:-/var/db/azsupport-ports}"
 mk_conf="${MAKE_CONF:-/etc/make.conf}"
 TAB="$(printf '\t')"
 
-die() { echo "azsupport-menu: $*" >&2; exit 2; }
+die() { echo "azsupport-ports: $*" >&2; exit 2; }
 
-# The version of this file. The workflow azsupport-menu.yml writes these lines into the
-# copy of the release azsupport-menu: the revision (the number of commits that changed
-# this file, php-menu.sh before it), the last of those commits and its time (in
+# The version of this file. The workflow azsupport-ports.yml writes these lines into the
+# copy of the release azsupport-ports: the revision (the number of commits that changed
+# this file, under its earlier names too), the last of those commits and its time (in
 # seconds since 1970, shown in the time zone of the server). In a checkout of the
 # fork git gives them; a copy of master has none.
-AZSUPPORT_MENU_REV=""
-AZSUPPORT_MENU_COMMIT=""
-AZSUPPORT_MENU_TIME=""
-if [ -z "$AZSUPPORT_MENU_COMMIT" ] && command -v git >/dev/null 2>&1 &&
+AZSUPPORT_PORTS_REV=""
+AZSUPPORT_PORTS_COMMIT=""
+AZSUPPORT_PORTS_TIME=""
+if [ -z "$AZSUPPORT_PORTS_COMMIT" ] && command -v git >/dev/null 2>&1 &&
     [ "$(git -C "$(dirname "$0")" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
     _d="$(dirname "$0")"; _f="$(basename "$0")"
-    AZSUPPORT_MENU_COMMIT="$(git -C "$_d" log -1 --format=%h -- "$_f" 2>/dev/null)"
-    if [ -n "$AZSUPPORT_MENU_COMMIT" ]; then
-        AZSUPPORT_MENU_TIME="$(git -C "$_d" log -1 --format=%ct -- "$_f" 2>/dev/null)"
+    AZSUPPORT_PORTS_COMMIT="$(git -C "$_d" log -1 --format=%h -- "$_f" 2>/dev/null)"
+    if [ -n "$AZSUPPORT_PORTS_COMMIT" ]; then
+        AZSUPPORT_PORTS_TIME="$(git -C "$_d" log -1 --format=%ct -- "$_f" 2>/dev/null)"
         # a shallow clone has not all the commits to count
         [ "$(git -C "$_d" rev-parse --is-shallow-repository 2>/dev/null)" = true ] ||
-            AZSUPPORT_MENU_REV="r$(git -C "$_d" log --follow --format=%h -- "$_f" 2>/dev/null | wc -l | tr -d ' ')"
-        git -C "$_d" diff --quiet HEAD -- "$_f" 2>/dev/null || AZSUPPORT_MENU_COMMIT="$AZSUPPORT_MENU_COMMIT+changed"
+            AZSUPPORT_PORTS_REV="r$(git -C "$_d" log --follow --format=%h -- "$_f" 2>/dev/null | wc -l | tr -d ' ')"
+        git -C "$_d" diff --quiet HEAD -- "$_f" 2>/dev/null || AZSUPPORT_PORTS_COMMIT="$AZSUPPORT_PORTS_COMMIT+changed"
     fi
 fi
 # "r58 (163d3c28d, 04.11.2026 23:30 CET)"; the short one for the top line of the screens
 menu_date() { date -r "$1" "$2" 2>/dev/null || date -d "@$1" "$2" 2>/dev/null; }
-if [ -n "$AZSUPPORT_MENU_COMMIT" ]; then
-    AZSUPPORT_MENU_VERSION="${AZSUPPORT_MENU_REV:+$AZSUPPORT_MENU_REV }($AZSUPPORT_MENU_COMMIT, $(menu_date "${AZSUPPORT_MENU_TIME:-0}" '+%d.%m.%Y %H:%M %Z'))"
-    AZSUPPORT_MENU_SHORT="${AZSUPPORT_MENU_REV:+$AZSUPPORT_MENU_REV }$AZSUPPORT_MENU_COMMIT $(menu_date "${AZSUPPORT_MENU_TIME:-0}" '+%d.%m.%Y %H:%M')"
+if [ -n "$AZSUPPORT_PORTS_COMMIT" ]; then
+    AZSUPPORT_PORTS_VERSION="${AZSUPPORT_PORTS_REV:+$AZSUPPORT_PORTS_REV }($AZSUPPORT_PORTS_COMMIT, $(menu_date "${AZSUPPORT_PORTS_TIME:-0}" '+%d.%m.%Y %H:%M %Z'))"
+    AZSUPPORT_PORTS_SHORT="${AZSUPPORT_PORTS_REV:+$AZSUPPORT_PORTS_REV }$AZSUPPORT_PORTS_COMMIT $(menu_date "${AZSUPPORT_PORTS_TIME:-0}" '+%d.%m.%Y %H:%M')"
 else
-    AZSUPPORT_MENU_VERSION="(no version: not the copy of the release azsupport-menu)"
-    AZSUPPORT_MENU_SHORT="(no version)"
+    AZSUPPORT_PORTS_VERSION="(no version: not the copy of the release azsupport-ports)"
+    AZSUPPORT_PORTS_SHORT="(no version)"
 fi
-AZSUPPORT_MENU_SITES="azsupport.com  github.com/azsupport"
+AZSUPPORT_PORTS_SITES="azsupport.com  github.com/azsupport"
 # js <string>: the string as a string of JSON
 js() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$TAB/\\\\t/g")"; }
 
@@ -1383,8 +1383,8 @@ fi
 branch="" batch="" reset="" list="" changes="" values="" template="" build="" install="" repo=""
 for a in "$@"; do
     case "$a" in
-        -h|--help) echo "azsupport-menu.sh $AZSUPPORT_MENU_VERSION, $AZSUPPORT_MENU_SITES"; echo; sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
-        --version) echo "azsupport-menu.sh $AZSUPPORT_MENU_VERSION, $AZSUPPORT_MENU_SITES"; exit 0 ;;
+        -h|--help) echo "azsupport-ports.sh $AZSUPPORT_PORTS_VERSION, $AZSUPPORT_PORTS_SITES"; echo; sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+        --version) echo "azsupport-ports.sh $AZSUPPORT_PORTS_VERSION, $AZSUPPORT_PORTS_SITES"; exit 0 ;;
         --batch) batch=1 ;;
         --build) build=1 ;;
         --install) install=1 ;;
@@ -1396,7 +1396,7 @@ for a in "$@"; do
         [+-][A-Z]*) changes="$changes $a" ;;
         [A-Z]*=*) values="$values$a
 " ;;
-        *) die "unknown argument: $a (sh azsupport-menu.sh --help)" ;;
+        *) die "unknown argument: $a (sh azsupport-ports.sh --help)" ;;
     esac
 done
 [ -z "$changes$values" ] || [ -n "$batch" ] || die "+ID, -ID and ID=value are for --batch"
@@ -1414,8 +1414,8 @@ AZSUPPORT_URL="${AZSUPPORT_URL:-https://github.com/azsupport/php-src}"
 AZSUPPORT_REPO_URL="${AZSUPPORT_REPO_URL:-https://github.com/azsupport/ports}"
 AZSUPPORT_REPO_CONF="${AZSUPPORT_REPO_CONF:-/usr/local/etc/pkg/repos/azsupport.conf}"
 AZSUPPORT_REPO_KEY="${AZSUPPORT_REPO_KEY:-/usr/local/etc/pkg/keys/azsupport.pub}"
-work="${AZSUPPORT_MENU_WORK:-/var/tmp/azsupport-menu}"
-say() { echo "azsupport-menu: $*"; }
+work="${AZSUPPORT_PORTS_WORK:-/var/tmp/azsupport-ports}"
+say() { echo "azsupport-ports: $*"; }
 # the x86-64 level of the repository azsupport for this CPU (cc -march=native; the packages are
 # built for x86-64-v3 and -v2, and for x86-64-v4 on aZ's word only): x86-64-v3 with
 # AVX2, BMI2, FMA, F16C, LZCNT and MOVBE, else x86-64-v2; x86-64-v4 with AVX512F,
@@ -1534,7 +1534,7 @@ fi
 rc_script() {
     sed -e "s|@S@|$short|g" -e "s|@AZ@|$php_prefix|g" <<'RCEOF'
 #!/bin/sh
-# php-fpm of PHP @S@ (the package php@S@ of azsupport-menu.sh of
+# php-fpm of PHP @S@ (the package php@S@ of azsupport-ports.sh of
 # https://github.com/azsupport/php-src): the rc.d script php_fpm of the FreeBSD
 # port lang/php84 with names of its own, so that the php-fpm of several versions
 # of PHP run at once (php_fpm@S@_enable="YES" in /etc/rc.conf).
@@ -1646,7 +1646,7 @@ RCEOF
 mod_sample() {
     case "$branch" in 5.*) mn=php5_module ;; 7.*) mn=php7_module ;; *) mn=php_module ;; esac
     cat <<EOF
-# PHP $branch as an Apache module (php$short of azsupport-menu.sh): copy this file to
+# PHP $branch as an Apache module (php$short of azsupport-ports.sh): copy this file to
 # 280_mod_php$short.conf in modules.d of the Apache instance that is to load it
 # (one PHP module per instance), then restart that instance.
 LoadModule $mn libexec/apache24/libphp$short.so
@@ -1668,12 +1668,12 @@ fetch_source() {
     mkdir -p "$work" || return 1
     f="php-$branch-fbsd-latest.tar.xz"
     u="$AZSUPPORT_URL/releases/download/freebsd-$branch-latest/$f"
-    echo "azsupport-menu: fetching $u" >&2
+    echo "azsupport-ports: fetching $u" >&2
     rm -f "$work/$f" "$work/$f.sha256"
     fetch -q -o "$work/$f" "$u" && fetch -q -o "$work/$f.sha256" "$u.sha256" || return 1
     want="$(awk '{ print $1; exit }' "$work/$f.sha256")"
     got="$(sha256 -q "$work/$f")"
-    [ -n "$want" ] && [ "$got" = "$want" ] || { echo "azsupport-menu: $f: SHA-256 $got, not $want of $f.sha256" >&2; return 1; }
+    [ -n "$want" ] && [ "$got" = "$want" ] || { echo "azsupport-ports: $f: SHA-256 $got, not $want of $f.sha256" >&2; return 1; }
     top="$(tar -tf "$work/$f" | head -n 1 | sed 's#/.*##')"
     [ -n "$top" ] || return 1
     rm -rf "${work:?}/$top"
@@ -1740,7 +1740,7 @@ package_php() {
     cflags="$(sed -n "s/^CFLAGS='\([^']*\)'.*/\1/p" "$out_abs")"
     files="bin/php$short, sbin/php-fpm$short with the rc.d script php_fpm$short, etc/php$short, the Apache module libphp$short.so"
     comment="PHP $branch of azsupport/php-src (php$short, php-fpm$short, libphp$short.so), static"
-    desc="PHP $branch of https://github.com/azsupport/php-src, built by azsupport-menu.sh: $files, in the place of the package of the port. Static: its extensions are built into it, linked with the static libraries of $AZS; it takes the place of php$short of pkg mode (the core with the packages php$short-*), pkg installs one of the two. configure: $opts"
+    desc="PHP $branch of https://github.com/azsupport/php-src, built by azsupport-ports.sh: $files, in the place of the package of the port. Static: its extensions are built into it, linked with the static libraries of $AZS; it takes the place of php$short of pkg mode (the core with the packages php$short-*), pkg installs one of the two. configure: $opts"
     # +MANIFEST (JSON, written by the shell: no python on a server needed)
     {
         printf '{\n "name": %s,\n "origin": %s,\n "version": %s,\n' "$(js "$pn")" "$(js "$origin")" "$(js "${ver}_$stamp")"
@@ -1754,7 +1754,7 @@ package_php() {
             printf '%s\n  %s: {"origin": %s, "version": %s}' "$sep" "$(js "$dn")" "$(js "${dr%%=*}")" "$(js "${dr#*=}")"
             sep=","
         done
-        printf '\n },\n "annotations": {"configure": %s, "cflags": %s, "mode": %s, "built_by": %s}\n}\n' "$(js "$opts")" "$(js "$cflags")" "$(js "$mode")" "$(js "azsupport-menu.sh $AZSUPPORT_MENU_VERSION")"
+        printf '\n },\n "annotations": {"configure": %s, "cflags": %s, "mode": %s, "built_by": %s}\n}\n' "$(js "$opts")" "$(js "$cflags")" "$(js "$mode")" "$(js "azsupport-ports.sh $AZSUPPORT_PORTS_VERSION")"
     } > "$m/+MANIFEST" || return 1
     rm -f "$work/$pn"-[0-9]*.pkg
     pkg create -m "$m" -p "$pl" -r "$st" -o "$work" > "$work/create-$pn.log" 2>&1 ||
@@ -1767,7 +1767,7 @@ package_php() {
 # --package <branch> <source tree> <stage> <configure script>: the package
 # phpXY-static of a build that make install put into the stage, everything built
 # into one PHP (tools/build-test.sh); the script has the options and the
-# environment of the build, as the one this menu writes. Into AZSUPPORT_MENU_WORK; the
+# environment of the build, as the one this menu writes. Into AZSUPPORT_PORTS_WORK; the
 # package file goes to stdout.
 if [ -n "$pkg_branch" ]; then
     branch="$pkg_branch"; short="$(echo "$pkg_branch" | tr -d .)"; out_abs="$pkg_cfg"; batch=1
@@ -1811,13 +1811,13 @@ dlg() { "$DIALOG" --backtitle "$backtitle" "$@" 2>&1 >/dev/tty; }
 # FreeBSD, and pkg takes yt-dlp of azsupport by its priority), and the menu of each build
 # (its BUILD makes the package phpXY-static and offers to install it).
 azsupport_packages_menu() {
-    backtitle="azsupport-menu $AZSUPPORT_MENU_SHORT  $AZSUPPORT_MENU_SITES"
+    backtitle="azsupport-ports $AZSUPPORT_PORTS_SHORT  $AZSUPPORT_PORTS_SITES"
     [ "$(id -u)" = 0 ] || die "the packages are installed with pkg: run it as root"
     if [ ! -f "$AZSUPPORT_REPO_CONF" ]; then
         cpu_level_find
         dlg --title "The repository azsupport" --yesno "There is no repository azsupport ($AZSUPPORT_REPO_CONF). Write it, for this CPU (x86-64-$(cpu_level))?
 
-$(repo_conf)" 0 0 || die "no repository azsupport: sh azsupport-menu.sh --repo writes it"
+$(repo_conf)" 0 0 || die "no repository azsupport: sh azsupport-ports.sh --repo writes it"
         repo_key
         mkdir -p "$(dirname "$AZSUPPORT_REPO_CONF")" && repo_conf > "$AZSUPPORT_REPO_CONF" || die "cannot write $AZSUPPORT_REPO_CONF"
     fi
@@ -1872,7 +1872,7 @@ $(repo_conf)" 0 0 || die "no repository azsupport: sh azsupport-menu.sh --repo w
                         # the menu of the modules of that version: the choices are
                         # saved, and OK builds the package with them
                         b_="$(echo "${ftag%.build}" | sed 's/^php//; s/-static$//; s/^\(.\)/\1./')"
-                        if AZSUPPORT_MENU_CHOOSE=1 sh "$0" "$b_"; then
+                        if AZSUPPORT_PORTS_CHOOSE=1 sh "$0" "$b_"; then
                             case "$chosen" in *" $ftag "*) ;; *) chosen="$chosen$ftag " ;; esac
                         fi ;;
                     "") ;;
@@ -2005,7 +2005,7 @@ $(repo_conf)" 0 0 || die "no repository azsupport: sh azsupport-menu.sh --repo w
 }
 
 if [ -z "$branch" ]; then
-    [ -z "$batch" ] && [ -z "$list" ] || die "not in a PHP source tree: name the branch (sh azsupport-menu.sh 8.4)"
+    [ -z "$batch" ] && [ -z "$list" ] || die "not in a PHP source tree: name the branch (sh azsupport-ports.sh 8.4)"
     azsupport_packages_menu
 fi
 case " $BRANCHES " in
@@ -2013,7 +2013,7 @@ case " $BRANCHES " in
     *) die "PHP $branch is no branch of this fork ($BRANCHES)" ;;
 esac
 short="$(echo "$branch" | tr -d .)"
-backtitle="azsupport-menu $AZSUPPORT_MENU_SHORT  $AZSUPPORT_MENU_SITES"
+backtitle="azsupport-ports $AZSUPPORT_PORTS_SHORT  $AZSUPPORT_PORTS_SITES"
 # choices of php-menu.sh, the name of this script before
 olddb=""
 [ -f "$db/php$short.options" ] || [ ! -f "/var/db/php-menu/php$short.options" ] || olddb=/var/db/php-menu
@@ -2582,7 +2582,7 @@ compose() {
     fi
     {
         echo "#!/bin/sh"
-        echo "# Written by azsupport-menu.sh $AZSUPPORT_MENU_VERSION on $(date '+%d.%m.%Y %H:%M'): PHP $branch, the choices of the menu"
+        echo "# Written by azsupport-ports.sh $AZSUPPORT_PORTS_VERSION on $(date '+%d.%m.%Y %H:%M'): PHP $branch, the choices of the menu"
         echo "# ($db/php$short.options) on $base."
         [ -n "$moved" ] && echo "# The build was in $moved; it goes to $(val_get PREFIX) now."
         [ -n "$deps_note" ] && printf '%s\n' "$deps_note" | fold -s -w 78 | sed 's/^/# /'
@@ -2595,14 +2595,14 @@ compose() {
     } > "$tmp/script"
 }
 # config_check: tools/config-check.sh next to this script, else that of the fork
-# (fetched into $work at each run: with the copy of the release azsupport-menu the one of
+# (fetched into $work at each run: with the copy of the release azsupport-ports the one of
 # that release, else that of master), for the rewrite of the options for the
 # static tree /usr/local/azsupport/static
 config_check() {
     _d="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
     if [ -f "$_d/config-check.sh" ]; then echo "$_d/config-check.sh"; return 0; fi
     _u="https://raw.githubusercontent.com/azsupport/php-src/master/tools/config-check.sh"
-    case "$AZSUPPORT_MENU_COMMIT" in ""|*+changed) ;; *) [ -n "$AZSUPPORT_MENU_REV" ] && _u="$AZSUPPORT_URL/releases/download/azsupport-menu/config-check.sh" ;; esac
+    case "$AZSUPPORT_PORTS_COMMIT" in ""|*+changed) ;; *) [ -n "$AZSUPPORT_PORTS_REV" ] && _u="$AZSUPPORT_URL/releases/download/azsupport-ports/config-check.sh" ;; esac
     mkdir -p "$work" || return 1
     if fetch -q -o "$work/config-check.sh.new" "$_u" 2>/dev/null; then
         mv "$work/config-check.sh.new" "$work/config-check.sh"
@@ -2620,15 +2620,15 @@ write_config() {
 }
 
 save_choices() {
-    mkdir -p "$db" 2>/dev/null || { echo "azsupport-menu: cannot create $db, choices not saved" >&2; return 0; }
+    mkdir -p "$db" 2>/dev/null || { echo "azsupport-ports: cannot create $db, choices not saved" >&2; return 0; }
     {
-        echo "# Options of PHP $branch for azsupport-menu.sh, written $(date '+%d.%m.%Y %H:%M')"
+        echo "# Options of PHP $branch for azsupport-ports.sh, written $(date '+%d.%m.%Y %H:%M')"
         echo "_OPTIONS_READ=php$short"
         while IFS="$TAB" read -r _ _ _ id _; do
             if is_on "$id"; then echo "OPTIONS_FILE_SET+=$id"; else echo "OPTIONS_FILE_UNSET+=$id"; fi
         done < "$tmp/items"
         while IFS="$TAB" read -r vid _; do echo "VALUE_$vid=$(val_get "$vid")"; done < "$tmp/vals_def"
-    } > "$db/php$short.options" 2>/dev/null || echo "azsupport-menu: cannot write $db/php$short.options" >&2
+    } > "$db/php$short.options" 2>/dev/null || echo "azsupport-ports: cannot write $db/php$short.options" >&2
 }
 
 # packages the chosen items name in their help ("package foo")
@@ -2636,13 +2636,13 @@ packages() { engine packages | sort | tr '\n' ' ' | sed 's/ *$//'; }
 
 report() {
     n="$(awk 'END { print NR }' "$tmp/opts.u")"
-    echo "azsupport-menu.sh $AZSUPPORT_MENU_VERSION, $AZSUPPORT_MENU_SITES"
-    echo "azsupport-menu: wrote $out (PHP $branch, $n options), choices in $db/php$short.options"
+    echo "azsupport-ports.sh $AZSUPPORT_PORTS_VERSION, $AZSUPPORT_PORTS_SITES"
+    echo "azsupport-ports: wrote $out (PHP $branch, $n options), choices in $db/php$short.options"
     [ -n "$moved" ] && echo "the build was in $moved; it goes to $(val_get PREFIX) now (programs with the version at the end: bin/php$short, sbin/php-fpm$short)"
     p="$(packages)"
     [ -n "$p" ] && echo "packages the choices name: $p"
     [ -n "$deps_note" ] && echo "$deps_note"
-    [ -n "$build" ] || echo "next, in the PHP $branch source tree: sh $out && make && make install; or the package: sh azsupport-menu.sh --batch --build"
+    [ -n "$build" ] || echo "next, in the PHP $branch source tree: sh $out && make && make install; or the package: sh azsupport-ports.sh --batch --build"
 }
 
 # an item on; in a radio screen it replaces the one that was on; the item its
@@ -2663,7 +2663,7 @@ item_on() {
 # confirm <question>: yes or no (a dialog; in --batch: yes)
 confirm() {
     [ -n "$batch" ] && return 0
-    dlg --title "azsupport-menu" --yesno "$1" 0 0
+    dlg --title "azsupport-ports" --yesno "$1" 0 0
 }
 
 # build_here: the libraries from the repository azsupport, the source (this tree, or the
@@ -2687,7 +2687,7 @@ build_here() {
         fi
     done
     if [ -n "$missing" ]; then
-        [ -f "$AZSUPPORT_REPO_CONF" ] || die "PHP needs$missing and there is no repository azsupport: sh azsupport-menu.sh --repo writes $AZSUPPORT_REPO_CONF"
+        [ -f "$AZSUPPORT_REPO_CONF" ] || die "PHP needs$missing and there is no repository azsupport: sh azsupport-ports.sh --repo writes $AZSUPPORT_REPO_CONF"
         confirm "PHP $branch is built against the static libraries of $AZS: install$missing from the repository azsupport?" ||
             die "not built"
         pkg install -y -r azsupport $missing || die "pkg install$missing failed"
@@ -2763,7 +2763,7 @@ start_menu() {
 engine help > "$tmp/help"
 fix_radios
 if [ -n "$template" ]; then
-    tpl_known "$template" || die "PHP $branch has no template $template (sh azsupport-menu.sh $branch --list)"
+    tpl_known "$template" || die "PHP $branch has no template $template (sh azsupport-ports.sh $branch --list)"
     apply_template "$template"
 fi
 if [ -n "$list" ]; then
@@ -2785,7 +2785,7 @@ if [ -n "$batch" ]; then
     while IFS= read -r c; do
         [ -n "$c" ] || continue
         vid="${c%%=*}"
-        val_known "$vid" || die "PHP $branch has no value $vid (sh azsupport-menu.sh $branch --list)"
+        val_known "$vid" || die "PHP $branch has no value $vid (sh azsupport-ports.sh $branch --list)"
         v="$(val_clean "$vid" "${c#*=}")" || die "$vid: not a path for configure: ${c#*=}"
         val_set "$vid" "$v"
     done <<EOF
@@ -2794,7 +2794,7 @@ EOF
     for c in $changes; do
         id="${c#?}"
         scr="$(awk -F '\t' -v id="$id" '$4 == id { print $3; exit }' "$tmp/items")"
-        [ -n "$scr" ] || die "PHP $branch has no item $id (sh azsupport-menu.sh $branch --list)"
+        [ -n "$scr" ] || die "PHP $branch has no item $id (sh azsupport-ports.sh $branch --list)"
         case "$c" in
             +*) item_on "$id" ;;
             -*) set_off "$id" ;;
@@ -2802,9 +2802,9 @@ EOF
     done
     fix_radios
     closure
-    [ -n "$msgs" ] && printf '%s\n' "$msgs" | sed 's/^/azsupport-menu: /' >&2
+    [ -n "$msgs" ] && printf '%s\n' "$msgs" | sed 's/^/azsupport-ports: /' >&2
     conflicts
-    if [ -n "$bad" ]; then printf '%s\n' "$bad" | sed 's/^/azsupport-menu: /' >&2; exit 1; fi
+    if [ -n "$bad" ]; then printf '%s\n' "$bad" | sed 's/^/azsupport-ports: /' >&2; exit 1; fi
     write_config
     save_choices
     report
@@ -2842,11 +2842,11 @@ An absolute path of letters, digits and . _ / + - (no spaces)." 0 0
 }
 
 if [ -z "$template" ]; then
-    start_menu "$start" || { echo "azsupport-menu: cancelled, nothing written" >&2; exit 1; }
+    start_menu "$start" || { echo "azsupport-ports: cancelled, nothing written" >&2; exit 1; }
 fi
-show_screen core && show_screen ext && sub_screens rest || { echo "azsupport-menu: cancelled, nothing written" >&2; exit 1; }
+show_screen core && show_screen ext && sub_screens rest || { echo "azsupport-ports: cancelled, nothing written" >&2; exit 1; }
 while :; do
-    if [ -n "${AZSUPPORT_MENU_CHOOSE:-}" ]; then
+    if [ -n "${AZSUPPORT_PORTS_CHOOSE:-}" ]; then
         set -- SAVE "Save the choices: OK in the list of packages builds php$short with them"
     else
         set -- WRITE "Write ${out##*/} and save the choices" \
@@ -2862,12 +2862,12 @@ while :; do
         set -- "$@" "$vid" "$desc: ${v:-none}"
     done < "$tmp/vals_def"
     [ -s "$tmp/tpls" ] && set -- "$@" TEMPLATES "Start again from a template or the defaults"
-    if [ -n "${AZSUPPORT_MENU_CHOOSE:-}" ]; then
+    if [ -n "${AZSUPPORT_PORTS_CHOOSE:-}" ]; then
         set -- "$@" SHOW "Show the configure script of the choices" QUIT "Back to the list of packages without saving"
     else
         set -- "$@" SHOW "Show the script it writes" QUIT "Quit without writing"
     fi
-    dflt=WRITE; [ -n "${AZSUPPORT_MENU_CHOOSE:-}" ] && dflt=SAVE
+    dflt=WRITE; [ -n "${AZSUPPORT_PORTS_CHOOSE:-}" ] && dflt=SAVE
     choice="$(dlg --title "PHP $branch" --default-item "$dflt" --menu \
         "Write the configure script, go back to a screen, or change a path (choices: $db/php$short.options)" 0 0 0 "$@")" || choice=QUIT
     case "$choice" in
@@ -2905,7 +2905,7 @@ while :; do
         OPTIONS) sub_screens ;;
         TEMPLATES) start_menu "the choices made so far" ;;
         SHOW) compose; dlg --title "$out" --textbox "$tmp/script" 0 0 ;;
-        QUIT) command -v clear >/dev/null 2>&1 && clear; echo "azsupport-menu: nothing written" >&2; exit 1 ;;
+        QUIT) command -v clear >/dev/null 2>&1 && clear; echo "azsupport-ports: nothing written" >&2; exit 1 ;;
         *) val_known "$choice" && edit_value "$choice" ;;
     esac
 done

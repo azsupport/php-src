@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""menu-screenshots.py - the pictures of tools/azsupport-menu.sh for the README.
+"""menu-screenshots.py - the pictures of tools/azsupport-ports.sh for the README.
 
 Runs sessions of the menu in an 80x25 terminal (pyte), as the FreeBSD console
 shows it: bsddialog, the Terminus font (10x20) and the 16 VGA colors of vt(4).
@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 COLS, ROWS = 80, 25
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MENU = os.path.join(HERE, 'tools', 'azsupport-menu.sh')
+MENU = os.path.join(HERE, 'tools', 'azsupport-ports.sh')
 
 # the palette of vt(4) (the VGA one): normal, then bright
 VGA = {
@@ -70,12 +70,12 @@ case "$1" in
             '%n-%v: %c') cat_az | awk -F '\t' -v n="$n" '$1 == n { print $1 "-" $2 ": " $3 }' ;;
             '%e')
                 v="${n#php}"; v="${v%-static}"; b="${v%?}.${v#?}"
-                echo "PHP $b of https://github.com/azsupport/php-src, built by azsupport-menu.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/azsupport/static." ;;
+                echo "PHP $b of https://github.com/azsupport/php-src, built by azsupport-ports.sh: bin/php$v, sbin/php-fpm$v with the rc.d script php_fpm$v, etc/php$v, the Apache module libphp$v.so, in the place of the package of the port; linked with the static libraries of /usr/local/azsupport/static." ;;
             '%At%Av'|'%At	%Av')
                 v="${n#php}"; v="${v%-static}"
                 printf 'configure\t%s\n' "--prefix=/usr/local --program-suffix=$v --sysconfdir=/usr/local/etc/php$v --libdir=/usr/local/lib/php$v --includedir=/usr/local/include/php$v --datadir=/usr/local/share/php$v --mandir=/usr/local/share/man --with-layout=GNU --localstatedir=/var --disable-all --with-libxml --enable-embed --enable-fpm --with-fpm-user=www --with-fpm-group=www --with-curl=/usr/local/azsupport/static --enable-dom --enable-filter --enable-mbstring --enable-opcache --enable-session --enable-gd --enable-mysqlnd --with-mysqli=mysqlnd --enable-pdo --with-pdo-mysql=mysqlnd --with-openssl --with-zip --enable-redis --enable-igbinary --enable-redis-igbinary --enable-redis-zstd --enable-memcached --with-libmemcached-dir=/usr/local/azsupport/static --disable-memcached-sasl --with-imagick=/usr/local/azsupport/static"
                 printf 'cflags\t%s\n' '-O3 -pipe -march=x86-64-v3 -fstack-protector-strong -fno-strict-aliasing'
-                printf 'built_by\t%s\n' 'azsupport-menu.sh r16 (b28c3f4391, 05.11.2026 00:34 CET)' ;;
+                printf 'built_by\t%s\n' 'azsupport-ports.sh r16 (b28c3f4391, 05.11.2026 00:34 CET)' ;;
             '%dn-%dv') printf '%s\n' azsupport-20261105_26110500 curl-8.23.0_26110500 ImageMagick7-7.1.2.34_26110500 ;;
             *) cat_az ;;
         esac ;;
@@ -242,14 +242,14 @@ def main():
     env = {
         'PATH': fake + ':' + os.environ.get('PATH', '/usr/bin:/bin'), 'TERM': 'xterm', 'LANG': 'C.UTF-8',
         'LC_ALL': 'C.UTF-8', 'HOME': work, 'DIALOG': args.dialog, 'MAKE_CONF': mkconf,
-        'AZSUPPORT_MENU_DB': '/var/db/azsupport-menu', 'OUT': './config.menu.sh', 'INSTALLED': './config.installed.sh',
+        'AZSUPPORT_PORTS_DB': '/var/db/azsupport-ports', 'OUT': './config.menu.sh', 'INSTALLED': './config.installed.sh',
         'LINES': str(ROWS), 'COLUMNS': str(COLS), 'TZ': 'Europe/Prague',
-        'AZSUPPORT_REPO_CONF': azconf, 'AZSUPPORT_MENU_WORK': os.path.join(work, 'azsupport-menu'),
+        'AZSUPPORT_REPO_CONF': azconf, 'AZSUPPORT_PORTS_WORK': os.path.join(work, 'azsupport-ports'),
     }
     menu = ['sh', MENU, '8.4']
 
     def fresh():
-        shutil.rmtree('/var/db/azsupport-menu', ignore_errors=True)
+        shutil.rmtree('/var/db/azsupport-ports', ignore_errors=True)
         for f in ('config.menu.sh', 'config.installed.sh'):
             try:
                 os.unlink(os.path.join(work, f))
@@ -287,7 +287,7 @@ def main():
         ('enter', 3.0, None),
     ], painter, args.out, env, work)
 
-    # the packages of azsupport (sh azsupport-menu.sh outside a PHP source tree): ffmpeg,
+    # the packages of azsupport (sh azsupport-ports.sh outside a PHP source tree): ffmpeg,
     # ImageMagick 7 and the ready php74 ticked (the first page of the list: the
     # terminal of pyte follows the scrolling of a list badly), then Options on php74
     fresh()

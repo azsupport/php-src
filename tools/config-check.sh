@@ -484,7 +484,7 @@ deps_opts() {
     bwarn=""
     if [ -n "$blevel" ]; then
         blacks="$(cpu_lacks "$blevel")"
-        [ -n "$blacks" ] && bwarn="; WARNING: the libraries are built for -march=$blevel and this CPU lacks $blacks, so PHP built against them stops with \"Illegal instruction\" here: take the packages of a lower level (the repository azsupport of the level of this CPU, x86-64-v3 or x86-64-v2: sh azsupport-menu.sh --repo)"
+        [ -n "$blacks" ] && bwarn="; WARNING: the libraries are built for -march=$blevel and this CPU lacks $blacks, so PHP built against them stops with \"Illegal instruction\" here: take the packages of a lower level (the repository azsupport of the level of this CPU, x86-64-v3 or x86-64-v2: sh azsupport-ports.sh --repo)"
     fi
     deps_note="${phpdeps_note:+$phpdeps_note; }the libraries come from the static tree $PHPDEPS ($(head -n 1 "$DEPS_VERSIONS" | sed 's/, built.*//')): static, linked into PHP${sasl}${still:+; still from pkg: $still}${bwarn}; check after make install: ldd of bin/php*, sbin/php-fpm* | grep /usr/local/lib"
 }
@@ -537,7 +537,7 @@ if [ "${1:-}" = "--pkg" ]; then
         7*) fam=7 ;;
         *) fam=8 ;;
     esac
-    # the layout of the packages of tools/azsupport-menu.sh: /usr/local, the version at the
+    # the layout of the packages of tools/azsupport-ports.sh: /usr/local, the version at the
     # end of the programs and in the directories of its own (bin/php84, etc/php84)
     prefix=/usr/local
     layout="--prefix=$prefix --program-suffix=$short --sysconfdir=$prefix/etc/php$short --libdir=$prefix/lib/php$short --includedir=$prefix/include/php$short --datadir=$prefix/share/php$short --mandir=$prefix/share/man"
@@ -767,7 +767,7 @@ pecl-openswoole | pecl-excimer | pecl-gmagick | pecl-mcrypt | pecl-ssh2)
         echo "  - make install puts the Apache module where $modphp has it: run pkg delete $modphp first,"
         echo "    or the next pkg upgrade writes the package's module over it."
     fi
-    opt FPM on && echo "  - php-fpm goes to $prefix/sbin/php-fpm$short; the rc.d script of the package php$short of azsupport-menu.sh is php_fpm$short."
+    opt FPM on && echo "  - php-fpm goes to $prefix/sbin/php-fpm$short; the rc.d script of the package php$short of azsupport-ports.sh is php_fpm$short."
     set -- "$want"
     [ -n "$modphp" ] && set -- "$@" "$modphp"
     while IFS= read -r p; do set -- "$@" "$p"; done < "$tmp/ext_pkgs"

@@ -1,7 +1,7 @@
 name: delete releases
 # Delete releases of builds with their tags: a session of Claude may not delete
 # releases. Only the tags of builds (azsupport-fbsd*, ffmpeg-fbsd*, imagemagick-fbsd*,
-# phpdeps-fbsd*); never freebsd-* (the tarballs of the branches) or azsupport-menu.
+# phpdeps-fbsd*); never freebsd-* (the tarballs of the branches) or azsupport-ports.
 # Started by hand: Actions, "delete releases", "Run workflow", or gh api.
 on:
   workflow_dispatch:
@@ -27,6 +27,8 @@ jobs:
           for t in $TAGS; do
             case "$t" in
               azsupport-fbsd*|ffmpeg-fbsd*|imagemagick-fbsd*|phpdeps-fbsd*) ;;
+              # once: the release of the name of tools/azsupport-ports.sh until 26.11.2026
+              azsupport-menu) ;;
               *) echo "::error::$t: not a release of a build, left as it is"; rc=1; continue ;;
             esac
             if gh release delete "$t" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y; then

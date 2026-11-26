@@ -16,7 +16,7 @@
 | Один PHP, в который встроено всё | расширения, [встроенные расширения PECL](#встроенные-расширения-pecl), [curl](#встроенный-curl) с его библиотеками, [PCRE](#встроенная-pcre), а при желании и [OPcache](#встроенный-opcache-и-запрет-загрузки-расширений), без загрузки расширений во время работы |
 | Несколько версий рядом | PHP 5.6, 7.4, 8.1, 8.2, 8.3 и 8.4: пакетами репозитория azsupport (ядро `phpXY` и по пакету на модуль или `phpXY-static`, собранный на сервере) все в `/usr/local`, с версией в именах (`bin/php84`, `sbin/php-fpm84` со своим rc.d-скриптом `php_fpm84`, `etc/php84`), или каждая в своём `/usr/local/phpXY`; у каждой свой файл модуля Apache (`libphp84.so`, …, `libphp56.so`) |
 | Скорость | пакеты [azsupport/ports](https://github.com/azsupport/ports) собирают PHP на GCC 16: с ним Zend VM держит свои регистры в глобальных регистровых переменных (у clang их нет): `Zend/bench.php` и `micro_bench.php` на 33–44% быстрее, чем с clang 19 базовой системы, у 7.4 и на 36–38% у 8.3 без OPcache (5–15% с его JIT), и через `libphp.so` mod_php — столько же (по замерам бенчмарка сборок, он хранится приватно) |
-| Скрипты | [`config-check.sh`](tools/config-check.sh) записывает опции configure того PHP, что стоит на сервере; [`azsupport-menu.sh`](tools/azsupport-menu.sh) ставит пакеты azsupport или выбирает, что войдёт в PHP, диалогами — как `make config` портов, — и собирает его пакет |
+| Скрипты | [`config-check.sh`](tools/config-check.sh) записывает опции configure того PHP, что стоит на сервере; [`azsupport-ports.sh`](tools/azsupport-ports.sh) ставит пакеты azsupport или выбирает, что войдёт в PHP, диалогами — как `make config` портов, — и собирает его пакет |
 | Пакеты | репозиторий pkg [azsupport](#пакеты-репозиторий-azsupport) для FreeBSD 15, собранный из портов FreeBSD в [azsupport/ports](https://github.com/azsupport/ports): `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `mc` и `yt-dlp` вместо пакетов портов (их библиотеки — пакет `azsupport`) и PHP этого форка так, как он в портах (ядро `phpXY`, `mod_phpXY` и по пакету на модуль) |
 | Проверки | ежедневная [проверка апстрима](#проверка-апстрима): встроенный код, порты FreeBSD и конец поддержки PHP |
 
@@ -30,7 +30,7 @@
 - [Сборка на FreeBSD из тарбола релиза](#сборка-на-freebsd-из-тарбола-релиза)
   (файл модуля Apache, `LoadModule`)
   - [PHP 8.4](#php-84), [8.3](#php-83), [8.2](#php-82), [8.1](#php-81), [7.4](#php-74), [5.6](#php-56)
-  - [azsupport-menu.sh: пакеты и что войдёт в PHP](#azsupport-menush-пакеты-и-что-войдёт-в-php)
+  - [azsupport-ports.sh: пакеты и что войдёт в PHP](#azsupport-portssh-пакеты-и-что-войдёт-в-php)
   - [Встроенный OPcache и запрет загрузки расширений](#встроенный-opcache-и-запрет-загрузки-расширений)
   - [Встроенные расширения PECL](#встроенные-расширения-pecl)
   - [OpenSSL](#openssl)
@@ -296,7 +296,7 @@ Id сборки:
 затем конфигурирует, собирает и ставит. Пакеты ставятся вместо этого в `/usr/local`,
 как пакеты портов: готовые — из [репозитория azsupport](#пакеты-репозиторий-azsupport) (ядро
 `phpXY` и по пакету на модуль), или `phpXY-static`, собранный с опциями установленного
-PHP скриптом [`azsupport-menu.sh`](#azsupport-menush-пакеты-и-что-войдёт-в-php).
+PHP скриптом [`azsupport-ports.sh`](#azsupport-portssh-пакеты-и-что-войдёт-в-php).
 
 - Вставляйте блок как есть: команды работают и в `sh`, и в `csh`, а комментариев в них
   нет нарочно — интерактивный csh не считает `#` комментарием.
@@ -426,7 +426,7 @@ make install
 [Встроенная PCRE](#встроенная-pcre)); FreeType находится через `pkg-config` (в пакете
 `freetype2` больше нет `freetype-config`).
 
-Для 5.6 `config-check.sh` и `azsupport-menu.sh` добавляют ещё `--enable-zend-signals`
+Для 5.6 `config-check.sh` и `azsupport-ports.sh` добавляют ещё `--enable-zend-signals`
 (с PHP 7.1 включено по умолчанию, в 5.6 было выключено): сигнал, например таймаут
 `max_execution_time`, тогда ждёт, пока менеджер памяти выйдет из критического участка,
 а не врывается в него с фатальной ошибкой. Тесты PHP 5.6 дают с ней тот же результат,
@@ -442,7 +442,7 @@ make install
 | Старый `config.nice` | сравнивается с этими опциями. Скрипт находит его сам: `/root/php-<установленная версия>/config.nice` или новейший `/root/php-<установленная версия>-fbsd-*/config.nice` от прошлой сборки этого форка; другой можно указать вторым аргументом (`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`) |
 | Кавычки PHP 5.6 | 5.6 записывает опции с пробелами в сломанных кавычках (`'CFLAGS=-O3 '-pipe' ...''`): скрипт читает их так, как прочитал бы shell, — одной опцией |
 | Бинарник не запускается | опции берутся из `php-config --configure-options`, а он печатает их совсем без кавычек, так что `CFLAGS=-O3 -pipe ...` распадается на отдельные слова: скрипт возвращает слова после `ИМЯ=значение` в его значение |
-| PHP из пакетов | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (или `--pkg php74`, если пакетами стоит несколько версий PHP) пишет `config.installed.sh` для сборки в раскладке пакетов `azsupport-menu.sh` (`/usr/local`, `bin/php74`, `etc/php74`): по опции на каждый установленный пакет расширения плюс опции порта `phpXY`, `CFLAGS` и `CPUTYPE` из `/etc/make.conf`. Он перечисляет то, что не переносит (пакеты PECL, утилиты), и печатает строку `pkg set -A 0`, которая сохранит библиотеки, когда пакеты потом удалят |
+| PHP из пакетов | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (или `--pkg php74`, если пакетами стоит несколько версий PHP) пишет `config.installed.sh` для сборки в раскладке пакетов `azsupport-ports.sh` (`/usr/local`, `bin/php74`, `etc/php74`): по опции на каждый установленный пакет расширения плюс опции порта `phpXY`, `CFLAGS` и `CPUTYPE` из `/etc/make.conf`. Он перечисляет то, что не переносит (пакеты PECL, утилиты), и печатает строку `pkg set -A 0`, которая сохранит библиотеки, когда пакеты потом удалят |
 | Пакеты встроенных расширений PECL | сохраняют то, с чем были собраны, — как показывает `php --ri` PHP из пакетов: lz4 и zstd для redis (в `databases/php-redis` включены по умолчанию), SASL, сериализатор JSON и `MemcachedServer` для memcached (умолчания порта `databases/pecl-memcached`), igbinary, хуки swoole |
 | Стоит `mod_phpXY` | одна сборка делает только один модуль SAPI (`./configure`: «You can build only one SAPI module»), а порты собирают модуль Apache (`mod_phpXY`) и embed-библиотеку (опция `EMBED` у `phpXY`, `libphp7.so` в `/usr/local/lib`) отдельно: скрипт оставляет модуль Apache, опускает `--enable-embed` и говорит, линкуется ли с embed-библиотекой какой-нибудь пакет (`pkg shlib -R libphp7.so`) |
 
@@ -466,20 +466,20 @@ LIBS='-lpthread'
 Собрать прямо из ветки тоже можно, но тогда нужны autoconf, bison и re2c (сначала
 `./buildconf --force`).
 
-### azsupport-menu.sh: пакеты и что войдёт в PHP
+### azsupport-ports.sh: пакеты и что войдёт в PHP
 
-[`tools/azsupport-menu.sh`](tools/azsupport-menu.sh) самостоятелен: скачанный на сервер сам по себе,
+[`tools/azsupport-ports.sh`](tools/azsupport-ports.sh) самостоятелен: скачанный на сервер сам по себе,
 он берёт исходники PHP из релиза `freebsd-<версия>-latest` этого форка (с проверкой
 SHA-256), а пакеты — из [репозитория azsupport](#пакеты-репозиторий-azsupport):
 
 ```sh
-fetch https://github.com/azsupport/php-src/releases/download/azsupport-menu/azsupport-menu.sh
-sh azsupport-menu.sh
+fetch https://github.com/azsupport/php-src/releases/download/azsupport-ports/azsupport-ports.sh
+sh azsupport-ports.sh
 ```
 
-Эта копия (релиз `azsupport-menu`, его делает [`azsupport-menu.yml`](.github/workflows/azsupport-menu.yml) при
+Эта копия (релиз `azsupport-ports`, его делает [`azsupport-ports.yml`](.github/workflows/azsupport-ports.yml) при
 каждом изменении скрипта) показывает свою версию в верхней строке каждого экрана и по
-`sh azsupport-menu.sh --version`: ревизию (число коммитов, которые его меняли), последний из этих
+`sh azsupport-ports.sh --version`: ревизию (число коммитов, которые его меняли), последний из этих
 коммитов и его дату, например `r58 163d3c28d 04.11.2026 22:30`. Запущенный так (без
 версии и не в дереве исходников PHP), он показывает пакеты azsupport
 галочками: каждый — готовый из репозитория (кнопка **Options** показывает, с чем он
@@ -506,7 +506,7 @@ Options, сначала идёт меню его версии.
 <p><img src="docs/images/menu-packages.png" alt="Пакеты azsupport" width="800"></p>
 <p><img src="docs/images/menu-packages-options.png" alt="С чем собран готовый php74" width="800"></p>
 
-Меню версии (`sh azsupport-menu.sh 8.4` или `sh azsupport-menu.sh` внутри дерева исходников) — это
+Меню версии (`sh azsupport-ports.sh 8.4` или `sh azsupport-ports.sh` внутри дерева исходников) — это
 `make config` портов для этого форка: диалоги (bsddialog на FreeBSD 14 и новее, dialog
 на 13) с описаниями из портов. В отличие от портов, всё встраивается в один PHP.
 
@@ -539,7 +539,7 @@ C каждой ветки:
 `config.installed.sh`:
 
 ```sh
-sh azsupport-menu.sh
+sh azsupport-ports.sh
 sh config.menu.sh
 ```
 
@@ -552,18 +552,18 @@ sh config.menu.sh
 | Вводится на последнем экране | каталог установки (по умолчанию `/usr/local`, как у портов): PHP ставится туда в раскладке пакетов (ниже: `--prefix`, `--program-suffix=84`, `--sysconfdir=<каталог>/etc/php84`, `--libdir`, `--includedir` и `--datadir` с `php84`, `--mandir=<каталог>/share/man`); сборка из `/usr/local/phpXY` переезжает в `/usr/local` вместе с прочими путями внутри её старого каталога. С mysqli или pdo_mysql (5.6: с расширением mysql) — сокет MySQL (`/tmp/mysql.sock`): один `--with-mysql-sock` задаёт значение по умолчанию и `mysqli.default_socket`, и `pdo_mysql.default_socket` |
 | Библиотеки | при установленном `azsupport` — статические библиотеки его статического дерева `/usr/local/azsupport/static` (через `config-check.sh` с `PHPDEPS=/usr/local/azsupport/static`; imagick — через `static/bin/MagickWand-config` из `ImageMagick7`), так что `php`, `php-fpm` и `libphp84.so` не требуют ничего из `/usr/local/lib` |
 | Не пишется | `--infodir` (PHP не ставит info-страниц); `--localstatedir=/var` — только вместе с FPM (его читает один php-fpm) |
-| Выбор | сохраняется так же, как его сохраняют порты, — в `/var/db/azsupport-menu/phpXY.options` (выбор `php-menu.sh`, как скрипт назывался до 04.11.2026, читается из `/var/db/php-menu`, если своего нет) — и становится началом следующего запуска (`--reset` начинает заново) |
+| Выбор | сохраняется так же, как его сохраняют порты, — в `/var/db/azsupport-ports/phpXY.options` (выбор `php-menu.sh`, как скрипт назывался до 04.11.2026, читается из `/var/db/php-menu`, если своего нет) — и становится началом следующего запуска (`--reset` начинает заново) |
 | В конце | пакеты, которые нужны выбору |
-| Без диалогов | `sh azsupport-menu.sh --batch +GD -CGI` пишет скрипт; пункт со своего экрана включает и своё расширение (`+PDO_MYSQL` — PDO); `--batch --build` ещё и собирает пакет, `--batch --build --install` и ставит его |
-| `--repo` | `sh azsupport-menu.sh --repo` пишет `/usr/local/etc/pkg/repos/azsupport.conf` под уровень x86-64 процессора (с открытым ключом `freebsd/azsupport.pub`, если он есть, в `/usr/local/etc/pkg/keys/azsupport.pub`: подпись каталога проверяется) и обновляет каталог azsupport |
-| `--list` | `sh azsupport-menu.sh --list` показывает пункты, пути, их состояние и шаблоны |
+| Без диалогов | `sh azsupport-ports.sh --batch +GD -CGI` пишет скрипт; пункт со своего экрана включает и своё расширение (`+PDO_MYSQL` — PDO); `--batch --build` ещё и собирает пакет, `--batch --build --install` и ставит его |
+| `--repo` | `sh azsupport-ports.sh --repo` пишет `/usr/local/etc/pkg/repos/azsupport.conf` под уровень x86-64 процессора (с открытым ключом `freebsd/azsupport.pub`, если он есть, в `/usr/local/etc/pkg/keys/azsupport.pub`: подпись каталога проверяется) и обновляет каталог azsupport |
+| `--list` | `sh azsupport-ports.sh --list` показывает пункты, пути, их состояние и шаблоны |
 
 **Шаблоны.** Сначала меню спрашивает, с чего начать: с того, что оно нашло (сохранённый
 выбор, установленная сборка или значения по умолчанию), или с шаблона — набора выборов
 под одно приложение; в главном меню это есть ещё раз («Templates»). Шаблон включает свои
 пункты и выключает остальные SAPI и расширения, которые в нём названы; прочее остаётся
 по умолчанию, то, что нужно его пунктам, включается тоже, а на экранах после этого можно
-поменять что угодно. Без диалогов: `sh azsupport-menu.sh --batch --template=roundcube`.
+поменять что угодно. Без диалогов: `sh azsupport-ports.sh --batch --template=roundcube`.
 
 **Пакет `phpXY-static`** (origin `azsupport/php84-static`; на версию — он или `phpXY` из репозитория azsupport), для 8.4:
 
@@ -598,7 +598,7 @@ configure, `CFLAGS` и режим `static` (`pkg info -A php84-static`).
 начать, опции сборки, расширения, драйверы PDO через кнопку Options, опции curl, GD,
 mbstring и OpenSSL, главное меню и скрипт, который оно пишет:
 
-<p><img src="docs/images/menu-roundcube.gif" alt="azsupport-menu.sh с шаблоном roundcube" width="800"></p>
+<p><img src="docs/images/menu-roundcube.gif" alt="azsupport-ports.sh с шаблоном roundcube" width="800"></p>
 
 Кнопка Options на PDO и экран, который она открывает:
 
@@ -622,7 +622,7 @@ mbstring и OpenSSL, главное меню и скрипт, который о�
 <p><img src="docs/images/menu-bare-memcached.png" alt="Опции memcached" width="800"></p>
 <p><img src="docs/images/menu-bare-redis.png" alt="Опции redis" width="800"></p>
 <p><img src="docs/images/menu-bare-script.png" alt="Скрипт базовой сборки" width="800"></p>
-<p><img src="docs/images/menu-bare.gif" alt="azsupport-menu.sh по умолчанию" width="800"></p>
+<p><img src="docs/images/menu-bare.gif" alt="azsupport-ports.sh по умолчанию" width="800"></p>
 
 </details>
 
@@ -633,7 +633,7 @@ Pillow): bsddialog в терминале 80x25, шрифт Terminus и 16 цве
 
 Две опции configure этого форка, во всех ветках (патчи
 `freebsd/patches/<версия>/feature-*.patch`). Обе выключены, пока их не задать;
-`azsupport-menu.sh` включает обе по умолчанию — в том числе когда начинает с
+`azsupport-ports.sh` включает обе по умолчанию — в том числе когда начинает с
 `config.installed.sh` сборки, сделанной до них.
 
 | Что | `--enable-opcache-static` | `--disable-extension-loading` |
@@ -884,22 +884,22 @@ php-src несёт старую PCRE с известными ошибками б
 
 | Пакет | Что в нём |
 |---|---|
-| `azsupport` | библиотеки сборок в `/usr/local/azsupport`: разделяемые в `lib` (run path `/usr/local/azsupport/lib`, без ldconfig) — для PHP-пакетов, статические в `/usr/local/azsupport/static` — для программ и для сборки PHP на сервере ([`azsupport-menu.sh`](#azsupport-menush-пакеты-и-что-войдёт-в-php) и [`config-check.sh`](tools/config-check.sh), у которых `PHPDEPS` — `/usr/local/azsupport/static`). OpenSSL, zlib и bzip2 — базовой системы |
+| `azsupport` | библиотеки сборок в `/usr/local/azsupport`: разделяемые в `lib` (run path `/usr/local/azsupport/lib`, без ldconfig) — для PHP-пакетов, статические в `/usr/local/azsupport/static` — для программ и для сборки PHP на сервере ([`azsupport-ports.sh`](#azsupport-portssh-пакеты-и-что-войдёт-в-php) и [`config-check.sh`](tools/config-check.sh), у которых `PHPDEPS` — `/usr/local/azsupport/static`). OpenSSL, zlib и bzip2 — базовой системы |
 | `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `mc`, `yt-dlp` | программы, вместо пакетов портов: [FFmpeg](#ffmpeg-для-видеосайтов), [ImageMagick 6 и 7](#imagemagick-6-и-7-для-видеосайтов), [mc](https://github.com/azsupport/ports/blob/main/README.ru.md#пакеты) (Midnight Commander с SFTP, без X11 и переводов; zip, 7z, rar и ISO открывает через `tar` базы) |
 | `phpXY`, `mod_phpXY`, `phpXY-<модуль>` | PHP этого форка так, как он в портах: ядро (CLI, php-fpm, phpize), модуль Apache и по пакету на модуль (`php74-gd`, `php74-redis`, …), версии рядом |
 
-На сервере от root `azsupport-menu.sh --repo` записывает репозиторий под уровень его
+На сервере от root `azsupport-ports.sh --repo` записывает репозиторий под уровень его
 процессора и обновляет его каталог: x86-64-v3 (релиз `azsupport-fbsd15-amd64-v3` из
 azsupport/ports), если `cc -march=native` знает у процессора AVX2, BMI2, FMA, F16C,
 LZCNT и MOVBE, иначе x86-64-v2 (`azsupport-fbsd15-amd64-v2`); x86-64-v4
 (`azsupport-fbsd15-amd64-v4`) — если ещё и AVX512F, AVX512BW, AVX512CD, AVX512DQ и AVX512VL и
 этот релиз есть (собирается только по запросу и пока не опубликован, так что до тех пор
 x86-64-v3), с открытым ключом; он пишет, какой уровень взял и почему, и SHA-256 ключа.
-Дальше пакеты ставятся через `pkg install -r azsupport` или через меню `sh azsupport-menu.sh`:
+Дальше пакеты ставятся через `pkg install -r azsupport` или через меню `sh azsupport-ports.sh`:
 
 ```sh
-fetch https://github.com/azsupport/php-src/releases/download/azsupport-menu/azsupport-menu.sh
-sh azsupport-menu.sh --repo
+fetch https://github.com/azsupport/php-src/releases/download/azsupport-ports/azsupport-ports.sh
+sh azsupport-ports.sh --repo
 pkg install -r azsupport curl ffmpeg ImageMagick6 ImageMagick7
 pkg install -r azsupport php84 mod_php84 php84-opcache php84-gd php84-mbstring php84-openssl-legacy
 ```
@@ -907,7 +907,7 @@ pkg install -r azsupport php84 mod_php84 php84-opcache php84-gd php84-mbstring p
 То же вручную и строки установки каждой версии PHP — в
 [README azsupport/ports](https://github.com/azsupport/ports/blob/main/README.ru.md#сервер-и-репозиторий-az).
 
-Каталог подписан ключом aZ. `azsupport-menu.sh --repo` берёт его открытый ключ
+Каталог подписан ключом aZ. `azsupport-ports.sh --repo` берёт его открытый ключ
 [`freebsd/azsupport.pub`](freebsd/azsupport.pub) (тот же ключ, что `keys/azsupport.pub` в azsupport/ports;
 рядом со скриптом, из клона форка, откуда он запущен, иначе — с `master`), кладёт его в
 `/usr/local/etc/pkg/keys/azsupport.pub` и пишет `signature_type: "pubkey"`: `pkg update -r azsupport`
@@ -918,8 +918,8 @@ pkg install -r azsupport php84 mod_php84 php84-opcache php84-gd php84-mbstring p
 |---|---|
 | `priority: 100` | для пакета, который есть в обоих, pkg предпочитает azsupport репозиторию FreeBSD (приоритет 0) |
 | С пакетов портов | `pkg install -r azsupport <пакет>` ставит пакет azsupport на место пакета порта. В `ffmpeg`, `ImageMagick6` и `ImageMagick7` из azsupport нет разделяемых библиотек портов (`libavcodec.so`, `libMagickWand-7.so` в `/usr/local/lib`, …): если они нужны другому пакету (`pkg info -r ffmpeg`), оставьте пакет порта |
-| Статический PHP | `phpXY-static` (origin `azsupport/phpXY-static`), всё вшито в один PHP и слинковано со статическими библиотеками `azsupport`, собирает на сервере `azsupport-menu.sh` с опциями, выбранными в его меню ([его файлы](#azsupport-menush-пакеты-и-что-войдёт-в-php)); на версию pkg ставит либо его, либо `phpXY` из репозитория — файлы у них те же. Готовых `phpXY-static` в репозитории нет |
-| С `/usr/local/phpXY` | `sh azsupport-menu.sh` начинает с опций PHP, установленного там, и собирает пакет `phpXY-static` в `/usr/local`: php.ini тогда — `/usr/local/etc/phpXY/php.ini`, php-fpm — `service php_fpmXY`, а модуль Apache остаётся файлом `libexec/apache24/libphpXY.so`. Старый каталог остаётся, пока его не удалить |
+| Статический PHP | `phpXY-static` (origin `azsupport/phpXY-static`), всё вшито в один PHP и слинковано со статическими библиотеками `azsupport`, собирает на сервере `azsupport-ports.sh` с опциями, выбранными в его меню ([его файлы](#azsupport-portssh-пакеты-и-что-войдёт-в-php)); на версию pkg ставит либо его, либо `phpXY` из репозитория — файлы у них те же. Готовых `phpXY-static` в репозитории нет |
+| С `/usr/local/phpXY` | `sh azsupport-ports.sh` начинает с опций PHP, установленного там, и собирает пакет `phpXY-static` в `/usr/local`: php.ini тогда — `/usr/local/etc/phpXY/php.ini`, php-fpm — `service php_fpmXY`, а модуль Apache остаётся файлом `libexec/apache24/libphpXY.so`. Старый каталог остаётся, пока его не удалить |
 
 ## FFmpeg для видеосайтов
 

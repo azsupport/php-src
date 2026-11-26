@@ -1,0 +1,63 @@
+name: azsupport-ports.sh release
+
+# Publishes tools/azsupport-ports.sh with its version as the file of the release azsupport-ports
+# (https://github.com/azsupport/php-src/releases/download/azsupport-ports/azsupport-ports.sh): the
+# lines AZSUPPORT_PORTS_REV (the revision: the number of commits that changed it, under
+# its earlier names too: git log --follow), AZSUPPORT_PORTS_COMMIT (the last of them) and
+# AZSUPPORT_PORTS_TIME (its time, in seconds since 1970) filled in, so that the top line of
+# every screen of the menu and "sh azsupport-ports.sh --version" show which version it is. tools/config-check.sh of the
+# commit of the run goes with it (azsupport-ports.sh fetches it from there). Runs when one
+# of the two changes on master; started by hand: Actions, "azsupport-ports.sh release",
+# "Run workflow".
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'tools/azsupport-ports.sh'
+      - 'tools/config-check.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: azsupport-ports
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: [self-hosted, azfork]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: The copy with its version, and the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          f=tools/azsupport-ports.sh
+          rev="r$(git log --follow --format=%H -- "$f" | wc -l | tr -d ' ')"
+          commit="$(git log -1 --format=%h -- "$f")"
+          full="$(git log -1 --format=%H -- "$f")"
+          time="$(git log -1 --format=%ct -- "$f")"
+          date="$(TZ=UTC git log -1 --date=format-local:'%d.%m.%Y %H:%M UTC' --format=%cd -- "$f")"
+          mkdir -p out
+          sed -e "s|^AZSUPPORT_PORTS_REV=\"\"\$|AZSUPPORT_PORTS_REV=\"$rev\"|" \
+              -e "s|^AZSUPPORT_PORTS_COMMIT=\"\"\$|AZSUPPORT_PORTS_COMMIT=\"$commit\"|" \
+              -e "s|^AZSUPPORT_PORTS_TIME=\"\"\$|AZSUPPORT_PORTS_TIME=\"$time\"|" "$f" > out/azsupport-ports.sh
+          grep -qx "AZSUPPORT_PORTS_REV=\"$rev\"" out/azsupport-ports.sh && grep -qx "AZSUPPORT_PORTS_COMMIT=\"$commit\"" out/azsupport-ports.sh &&
+            grep -qx "AZSUPPORT_PORTS_TIME=\"$time\"" out/azsupport-ports.sh || { echo "the version lines of $f were not filled in"; exit 1; }
+          sh -n out/azsupport-ports.sh
+          cp tools/config-check.sh out/config-check.sh
+          (cd out && sha256sum azsupport-ports.sh config-check.sh > SHA256SUMS)
+          cd out && sh ./azsupport-ports.sh --version && cd ..
+          notes="azsupport-ports.sh $rev (commit $commit of $date): the copy with its version of tools/azsupport-ports.sh of https://github.com/azsupport/php-src (the packages of the repository azsupport, and PHP built as a package with the options chosen in dialogs), with tools/config-check.sh of commit ${GITHUB_SHA:0:9}. On a server: fetch https://github.com/$GITHUB_REPOSITORY/releases/download/azsupport-ports/azsupport-ports.sh, then sh azsupport-ports.sh. The commit: https://github.com/$GITHUB_REPOSITORY/commit/$full"
+          git tag -f azsupport-ports "$full"
+          git push -f origin refs/tags/azsupport-ports
+          if ! gh release view azsupport-ports --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create azsupport-ports --repo "$GITHUB_REPOSITORY" --title "azsupport-ports.sh" --notes "$notes" --verify-tag --latest=false
+          fi
+          gh release edit azsupport-ports --repo "$GITHUB_REPOSITORY" --title "azsupport-ports.sh $rev" --notes "$notes" --latest=false
+          gh release upload azsupport-ports --repo "$GITHUB_REPOSITORY" --clobber out/azsupport-ports.sh out/config-check.sh out/SHA256SUMS

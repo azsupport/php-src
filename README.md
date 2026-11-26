@@ -14,7 +14,7 @@ small, curated set of FreeBSD ports patches and fixes for current FreeBSD.
 | One PHP with everything built in | the extensions, the [bundled PECL extensions](#bundled-pecl-extensions), [curl](#bundled-curl) with its libraries, [PCRE](#bundled-pcre), and [OPcache](#built-in-opcache-and-no-extension-loading) too, with no extensions loaded at run time if wanted |
 | Versions side by side | PHP 5.6, 7.4, 8.1, 8.2, 8.3 and 8.4: as the packages of the repository azsupport (the core `phpXY` with one package per module, or `phpXY-static` built on the server) all in `/usr/local`, with the version in their names (`bin/php84`, `sbin/php-fpm84` with its rc.d script `php_fpm84`, `etc/php84`), or each in its own `/usr/local/phpXY`; each with its own Apache module file (`libphp84.so`, ..., `libphp56.so`) |
 | Speed | the packages of [azsupport/ports](https://github.com/azsupport/ports) build PHP with GCC 16, with which the Zend VM keeps its registers in global register variables (clang has none): `Zend/bench.php` and `micro_bench.php` 33–44% faster than with the clang 19 of the base system for 7.4, 36–38% for 8.3 without OPcache (5–15% with its JIT), and through the `libphp.so` of mod_php as much (measured by the benchmark of the builds, kept privately) |
-| Scripts | [`config-check.sh`](tools/config-check.sh) writes the configure options of the PHP a server has; [`azsupport-menu.sh`](tools/azsupport-menu.sh) installs the packages of azsupport, or chooses what goes into PHP with dialogs, as `make config` of the ports, and builds its package |
+| Scripts | [`config-check.sh`](tools/config-check.sh) writes the configure options of the PHP a server has; [`azsupport-ports.sh`](tools/azsupport-ports.sh) installs the packages of azsupport, or chooses what goes into PHP with dialogs, as `make config` of the ports, and builds its package |
 | Packages | the repository of pkg [azsupport](#packages-the-repository-azsupport) for FreeBSD 15, built from the FreeBSD ports by [azsupport/ports](https://github.com/azsupport/ports): `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `mc` and `yt-dlp` in the place of the packages of the ports (their libraries are the package `azsupport`), and the PHP of this fork as the ports have it (the core `phpXY`, `mod_phpXY` and one package per module) |
 | Checks | a daily [upstream check](#upstream-check) of the bundled code, the FreeBSD ports and the end of PHP support |
 
@@ -28,7 +28,7 @@ Provided as is, without warranty, by [aZsupport.com](https://azsupport.com).
 - [Building on FreeBSD from a release tarball](#building-on-freebsd-from-a-release-tarball)
   (the Apache module file, `LoadModule`)
   - [PHP 8.4](#php-84), [8.3](#php-83), [8.2](#php-82), [8.1](#php-81), [7.4](#php-74), [5.6](#php-56)
-  - [azsupport-menu.sh: the packages, and what goes into PHP](#azsupport-menush-the-packages-and-what-goes-into-php)
+  - [azsupport-ports.sh: the packages, and what goes into PHP](#azsupport-portssh-the-packages-and-what-goes-into-php)
   - [Built-in OPcache and no extension loading](#built-in-opcache-and-no-extension-loading)
   - [Bundled PECL extensions](#bundled-pecl-extensions)
   - [OpenSSL](#openssl)
@@ -294,7 +294,7 @@ writes `config.installed.sh` with [`tools/config-check.sh`](tools/config-check.s
 then configures, builds and installs. The packages go into `/usr/local` instead, as
 those of the ports: ready ones from the [repository azsupport](#packages-the-repository-azsupport)
 (the core `phpXY` with one package per module), or `phpXY-static` built with the
-options of the installed PHP by [`azsupport-menu.sh`](#azsupport-menush-the-packages-and-what-goes-into-php).
+options of the installed PHP by [`azsupport-ports.sh`](#azsupport-portssh-the-packages-and-what-goes-into-php).
 
 - Paste a block as it is: the commands work in both `sh` and `csh` and have no
   comments on purpose, because an interactive csh does not treat `#` as a comment.
@@ -425,7 +425,7 @@ package (`--with-pcre-regex=/usr/local` is left out with the bundled PCRE 8.45, 
 [Bundled PCRE](#bundled-pcre)); FreeType is found through `pkg-config` (the
 `freetype2` package no longer ships `freetype-config`).
 
-For 5.6, `config-check.sh` and `azsupport-menu.sh` also add `--enable-zend-signals`
+For 5.6, `config-check.sh` and `azsupport-ports.sh` also add `--enable-zend-signals`
 (on by default from PHP 7.1, off in 5.6): a signal, such as the timeout of
 `max_execution_time`, then waits until the memory manager has left its critical
 section, instead of breaking into it with the fatal error. The 5.6 test suite gives
@@ -441,7 +441,7 @@ the same result with and without it (build tests of 29.10.2026). Without it:
 | Old `config.nice` | compared with those options. The script finds it itself: `/root/php-<installed version>/config.nice`, or the newest `/root/php-<installed version>-fbsd-*/config.nice` from an earlier build of this fork; another one can be given as the second argument (`sh config-check.sh /usr/local/php74 /root/php-7.4.33/config.nice`) |
 | The quoting of PHP 5.6 | 5.6 records options with spaces in a broken quoting (`'CFLAGS=-O3 '-pipe' ...''`): the script reads them as the shell would, as one option |
 | The binary does not run | the options come from `php-config --configure-options`, which prints them without any quotes, so `CFLAGS=-O3 -pipe ...` comes out as separate words: the script puts the words after a `NAME=value` back into its value |
-| PHP from packages | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (or `--pkg php74` when several PHP versions are installed as packages) writes `config.installed.sh` for a build in the layout of the packages of `azsupport-menu.sh` (`/usr/local`, `bin/php74`, `etc/php74`): one option per installed extension package and the port options of `phpXY`, `CFLAGS` and `CPUTYPE` from `/etc/make.conf`. It lists what it does not carry over (PECL packages, tools) and prints the `pkg set -A 0` line that keeps the libraries when the packages are removed later |
+| PHP from packages | `lang/phpXY`, `phpXY-*`, `mod_phpXY`: `sh config-check.sh --pkg` (or `--pkg php74` when several PHP versions are installed as packages) writes `config.installed.sh` for a build in the layout of the packages of `azsupport-ports.sh` (`/usr/local`, `bin/php74`, `etc/php74`): one option per installed extension package and the port options of `phpXY`, `CFLAGS` and `CPUTYPE` from `/etc/make.conf`. It lists what it does not carry over (PECL packages, tools) and prints the `pkg set -A 0` line that keeps the libraries when the packages are removed later |
 | Packages of the bundled PECL extensions | keep what they were built with, as `php --ri` of the package PHP shows it: lz4 and zstd for redis (on by default in `databases/php-redis`), SASL, the JSON serializer and `MemcachedServer` for memcached (the defaults of the port `databases/pecl-memcached`), igbinary, swoole's hooks |
 | `mod_phpXY` installed | one build makes only one SAPI module (`./configure`: "You can build only one SAPI module"), and the ports build the Apache module (`mod_phpXY`) and the embed library (the `EMBED` option of `phpXY`, `libphp7.so` in `/usr/local/lib`) separately: the script keeps the Apache module, leaves `--enable-embed` out and says whether a package links against the embed library (`pkg shlib -R libphp7.so`) |
 
@@ -465,21 +465,21 @@ LIBS='-lpthread'
 Building straight from a branch also works, but then autoconf, bison and re2c
 are required (`./buildconf --force` first).
 
-### azsupport-menu.sh: the packages, and what goes into PHP
+### azsupport-ports.sh: the packages, and what goes into PHP
 
-[`tools/azsupport-menu.sh`](tools/azsupport-menu.sh) stands alone: fetched onto a server by itself,
+[`tools/azsupport-ports.sh`](tools/azsupport-ports.sh) stands alone: fetched onto a server by itself,
 it takes the sources of PHP from the release `freebsd-<version>-latest` of this fork
 (their SHA-256 checked) and the packages from the
 [repository azsupport](#packages-the-repository-azsupport):
 
 ```sh
-fetch https://github.com/azsupport/php-src/releases/download/azsupport-menu/azsupport-menu.sh
-sh azsupport-menu.sh
+fetch https://github.com/azsupport/php-src/releases/download/azsupport-ports/azsupport-ports.sh
+sh azsupport-ports.sh
 ```
 
-That copy (the release `azsupport-menu`, made by [`azsupport-menu.yml`](.github/workflows/azsupport-menu.yml)
+That copy (the release `azsupport-ports`, made by [`azsupport-ports.yml`](.github/workflows/azsupport-ports.yml)
 whenever the script changes) shows its version on the top line of every screen and
-with `sh azsupport-menu.sh --version`: its revision (the number of commits that changed it),
+with `sh azsupport-ports.sh --version`: its revision (the number of commits that changed it),
 the last of those commits and its date, for example `r58 163d3c28d 04.11.2026 22:30`.
 Started so (no version named, not in a PHP source tree), it lists the packages of azsupport
 with check boxes: each one ready from the repository (the button **Options** shows
@@ -507,7 +507,7 @@ php74: what it is built with.
 <p><img src="docs/images/menu-packages.png" alt="The packages of azsupport" width="800"></p>
 <p><img src="docs/images/menu-packages-options.png" alt="What the ready php74 is built with" width="800"></p>
 
-The menu of a version (`sh azsupport-menu.sh 8.4`, or `sh azsupport-menu.sh` inside a source tree)
+The menu of a version (`sh azsupport-ports.sh 8.4`, or `sh azsupport-ports.sh` inside a source tree)
 is the `make config` of the ports for this fork: dialogs (bsddialog on FreeBSD 14 and
 later, dialog on 13) with the descriptions of the ports. Unlike the ports,
 everything is built into one PHP.
@@ -541,7 +541,7 @@ inside the source tree after `config-check.sh`, build with the script the menu w
 instead of `config.installed.sh`:
 
 ```sh
-sh azsupport-menu.sh
+sh azsupport-ports.sh
 sh config.menu.sh
 ```
 
@@ -554,18 +554,18 @@ sh config.menu.sh
 | Typed in on the last screen | the install directory (`/usr/local` by default, as the ports): PHP goes there in the layout of the packages (below: `--prefix`, `--program-suffix=84`, `--sysconfdir=<dir>/etc/php84`, `--libdir`, `--includedir` and `--datadir` with `php84`, `--mandir=<dir>/share/man`); a build of `/usr/local/phpXY` moves to `/usr/local`, with the other paths inside its old directory. With mysqli or pdo_mysql (5.6: the mysql extension) the MySQL socket (`/tmp/mysql.sock`): one `--with-mysql-sock` is the default of `mysqli.default_socket` and `pdo_mysql.default_socket` |
 | The libraries | with `azsupport` installed, the static libraries of its static tree `/usr/local/azsupport/static` (through `config-check.sh` with `PHPDEPS=/usr/local/azsupport/static`; imagick with `static/bin/MagickWand-config` of `ImageMagick7`), so that `php`, `php-fpm` and `libphp84.so` need nothing of `/usr/local/lib` |
 | Left out | `--infodir` (PHP installs no info pages); `--localstatedir=/var` comes with FPM only (php-fpm alone reads it) |
-| The choices | saved the way the ports save theirs, in `/var/db/azsupport-menu/phpXY.options` (those of `php-menu.sh`, its name before 04.11.2026, in `/var/db/php-menu` are read when there are none), and the start of the next run (`--reset` starts over) |
+| The choices | saved the way the ports save theirs, in `/var/db/azsupport-ports/phpXY.options` (those of `php-menu.sh`, its name before 04.11.2026, in `/var/db/php-menu` are read when there are none), and the start of the next run (`--reset` starts over) |
 | At the end | the packages the choices need |
-| Without dialogs | `sh azsupport-menu.sh --batch +GD -CGI` writes the script; an item of a screen of its own turns on its extension too (`+PDO_MYSQL`: PDO); `--batch --build` also builds the package, `--batch --build --install` installs it |
-| `--repo` | `sh azsupport-menu.sh --repo` writes `/usr/local/etc/pkg/repos/azsupport.conf` for the x86-64 level of the CPU (with the public key `freebsd/azsupport.pub`, when there is one, in `/usr/local/etc/pkg/keys/azsupport.pub`: the signature of the catalog is checked) and updates the catalog of azsupport |
-| `--list` | `sh azsupport-menu.sh --list` shows the items, the paths, their state and the templates |
+| Without dialogs | `sh azsupport-ports.sh --batch +GD -CGI` writes the script; an item of a screen of its own turns on its extension too (`+PDO_MYSQL`: PDO); `--batch --build` also builds the package, `--batch --build --install` installs it |
+| `--repo` | `sh azsupport-ports.sh --repo` writes `/usr/local/etc/pkg/repos/azsupport.conf` for the x86-64 level of the CPU (with the public key `freebsd/azsupport.pub`, when there is one, in `/usr/local/etc/pkg/keys/azsupport.pub`: the signature of the catalog is checked) and updates the catalog of azsupport |
+| `--list` | `sh azsupport-ports.sh --list` shows the items, the paths, their state and the templates |
 
 **Templates.** The menu first asks where to start: what it found (the saved choices,
 the installed build or the defaults) or a template, a set of choices for one
 application; the main menu offers it again ("Templates"). A template turns its items
 on and the other SAPIs and extensions it names off; the rest keeps its defaults, what
 its items need is turned on as well, and every screen can still change it afterwards.
-Without dialogs: `sh azsupport-menu.sh --batch --template=roundcube`.
+Without dialogs: `sh azsupport-ports.sh --batch --template=roundcube`.
 
 **The package `phpXY-static`** (origin `azsupport/php84-static`; per version it or `phpXY` of the repository azsupport), for 8.4:
 
@@ -602,7 +602,7 @@ Terminus font): where to start, the build options, the extensions, the drivers o
 through the button Options, the options of curl, GD, mbstring and OpenSSL, the main
 menu and the script it writes:
 
-<p><img src="docs/images/menu-roundcube.gif" alt="azsupport-menu.sh with the roundcube template" width="800"></p>
+<p><img src="docs/images/menu-roundcube.gif" alt="azsupport-ports.sh with the roundcube template" width="800"></p>
 
 The button Options on PDO, and the screen it opens:
 
@@ -627,7 +627,7 @@ the CLI and OPcache, redis with igbinary and zstd, memcached without SASL):
 <p><img src="docs/images/menu-bare-memcached.png" alt="The options of memcached" width="800"></p>
 <p><img src="docs/images/menu-bare-redis.png" alt="The options of redis" width="800"></p>
 <p><img src="docs/images/menu-bare-script.png" alt="The script of the base build" width="800"></p>
-<p><img src="docs/images/menu-bare.gif" alt="azsupport-menu.sh with the defaults" width="800"></p>
+<p><img src="docs/images/menu-bare.gif" alt="azsupport-ports.sh with the defaults" width="800"></p>
 
 </details>
 
@@ -639,7 +639,7 @@ of the FreeBSD console.
 
 Two configure options of this fork, in every branch (the patches
 `freebsd/patches/<version>/feature-*.patch`). Both are off unless given;
-`azsupport-menu.sh` turns both on by default, also when it starts from the
+`azsupport-ports.sh` turns both on by default, also when it starts from the
 `config.installed.sh` of a build made before them.
 
 | What | `--enable-opcache-static` | `--disable-extension-loading` |
@@ -898,22 +898,22 @@ Until then this fork built them itself (the workflows `azsupport.yml` and `azsup
 
 | Package | What |
 |---|---|
-| `azsupport` | the libraries of the builds in `/usr/local/azsupport`: the shared ones in `lib` (the run path `/usr/local/azsupport/lib`, no ldconfig) for the PHP packages, the static ones in `/usr/local/azsupport/static` for the programs and for a build of PHP on a server ([`azsupport-menu.sh`](#azsupport-menush-the-packages-and-what-goes-into-php) and [`config-check.sh`](tools/config-check.sh), whose `PHPDEPS` is `/usr/local/azsupport/static`). OpenSSL, zlib and bzip2 are those of the base system |
+| `azsupport` | the libraries of the builds in `/usr/local/azsupport`: the shared ones in `lib` (the run path `/usr/local/azsupport/lib`, no ldconfig) for the PHP packages, the static ones in `/usr/local/azsupport/static` for the programs and for a build of PHP on a server ([`azsupport-ports.sh`](#azsupport-portssh-the-packages-and-what-goes-into-php) and [`config-check.sh`](tools/config-check.sh), whose `PHPDEPS` is `/usr/local/azsupport/static`). OpenSSL, zlib and bzip2 are those of the base system |
 | `curl`, `ffmpeg`, `ImageMagick6`, `ImageMagick7`, `GraphicsMagick`, `mc`, `yt-dlp` | the programs, in the place of the packages of the ports: [FFmpeg](#ffmpeg-for-the-video-sites), [ImageMagick 6 and 7](#imagemagick-6-and-7-for-the-video-sites), [mc](https://github.com/azsupport/ports#the-packages) (Midnight Commander with SFTP, no X11 and no translations; zip, 7z, rar and ISO open with `tar` of the base system) |
 | `phpXY`, `mod_phpXY`, `phpXY-<module>` | the PHP of this fork as the ports have it: the core (CLI, php-fpm, phpize), the Apache module and one package per module (`php74-gd`, `php74-redis`, ...), the versions side by side |
 
-On a server, as root, `azsupport-menu.sh --repo` writes the repository for the level of its
+On a server, as root, `azsupport-ports.sh --repo` writes the repository for the level of its
 CPU and updates its catalog: x86-64-v3 (the release `azsupport-fbsd15-amd64-v3` of
 azsupport/ports) when `cc -march=native` has AVX2, BMI2, FMA, F16C, LZCNT and MOVBE,
 else x86-64-v2 (`azsupport-fbsd15-amd64-v2`); x86-64-v4 (`azsupport-fbsd15-amd64-v4`) when it also
 has AVX512F, AVX512BW, AVX512CD, AVX512DQ and AVX512VL and that release is there (it is
 built only on request and not published yet, so x86-64-v3 until then), with the public
 key; it says the level it took and why, and the SHA-256 of the key. The packages then
-go in with `pkg install -r azsupport`, or through the menu of `sh azsupport-menu.sh`:
+go in with `pkg install -r azsupport`, or through the menu of `sh azsupport-ports.sh`:
 
 ```sh
-fetch https://github.com/azsupport/php-src/releases/download/azsupport-menu/azsupport-menu.sh
-sh azsupport-menu.sh --repo
+fetch https://github.com/azsupport/php-src/releases/download/azsupport-ports/azsupport-ports.sh
+sh azsupport-ports.sh --repo
 pkg install -r azsupport curl ffmpeg ImageMagick6 ImageMagick7
 pkg install -r azsupport php84 mod_php84 php84-opcache php84-gd php84-mbstring php84-openssl-legacy
 ```
@@ -921,7 +921,7 @@ pkg install -r azsupport php84 mod_php84 php84-opcache php84-gd php84-mbstring p
 The same by hand, and the install lines of every version of PHP: the
 [README of azsupport/ports](https://github.com/azsupport/ports#a-server-and-the-repository-az).
 
-The catalog is signed with the key of aZ. `azsupport-menu.sh --repo` takes its public key
+The catalog is signed with the key of aZ. `azsupport-ports.sh --repo` takes its public key
 [`freebsd/azsupport.pub`](freebsd/azsupport.pub) (the same key as `keys/azsupport.pub` of
 azsupport/ports; next to the script, in the checkout of the fork it runs from, else
 fetched from `master`), puts it into `/usr/local/etc/pkg/keys/azsupport.pub` and writes
@@ -933,8 +933,8 @@ that the README of azsupport/ports names.
 |---|---|
 | `priority: 100` | for a package both have, pkg prefers azsupport to the repository of FreeBSD (priority 0) |
 | From the packages of the ports | `pkg install -r azsupport <package>` puts the package of azsupport in the place of that of the port. `ffmpeg`, `ImageMagick6` and `ImageMagick7` of azsupport do not have the shared libraries of the ports (`libavcodec.so`, `libMagickWand-7.so` in `/usr/local/lib`, ...): when another package needs them (`pkg info -r ffmpeg`), keep the package of the port |
-| The static PHP | `phpXY-static` (origin `azsupport/phpXY-static`), everything built into one PHP and linked with the static libraries of `azsupport`, is built on the server by `azsupport-menu.sh` with the options chosen in its menu ([its files](#azsupport-menush-the-packages-and-what-goes-into-php)); per version pkg installs it or `phpXY` of the repository, they have the same files. The repository has no ready `phpXY-static` |
-| From `/usr/local/phpXY` | `sh azsupport-menu.sh` starts from the options of the PHP installed there and builds the package `phpXY-static`, in `/usr/local`: php.ini is then `/usr/local/etc/phpXY/php.ini`, php-fpm `service php_fpmXY`, the Apache module keeps its file `libexec/apache24/libphpXY.so`. The old directory stays until it is removed |
+| The static PHP | `phpXY-static` (origin `azsupport/phpXY-static`), everything built into one PHP and linked with the static libraries of `azsupport`, is built on the server by `azsupport-ports.sh` with the options chosen in its menu ([its files](#azsupport-portssh-the-packages-and-what-goes-into-php)); per version pkg installs it or `phpXY` of the repository, they have the same files. The repository has no ready `phpXY-static` |
+| From `/usr/local/phpXY` | `sh azsupport-ports.sh` starts from the options of the PHP installed there and builds the package `phpXY-static`, in `/usr/local`: php.ini is then `/usr/local/etc/phpXY/php.ini`, php-fpm `service php_fpmXY`, the Apache module keeps its file `libexec/apache24/libphpXY.so`. The old directory stays until it is removed |
 
 ## FFmpeg for the video sites
 
