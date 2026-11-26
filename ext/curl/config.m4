@@ -62,6 +62,7 @@ if test "$PHP_CURL" != "no"; then
     AC_MSG_CHECKING([for openssl support in libcurl])
     AC_TRY_RUN([
 #include <curl/curl.h>
+#include <strings.h>
 
 int main(int argc, char *argv[])
 {
@@ -89,6 +90,7 @@ int main(int argc, char *argv[])
     AC_MSG_CHECKING([for gnutls support in libcurl])
     AC_TRY_RUN([
 #include <curl/curl.h>
+#include <strings.h>
 
 int main(int argc, char *argv[])
 {
