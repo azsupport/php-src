@@ -1,0 +1,67 @@
+name: FreeBSD pkg fetch
+
+# The official package catalogs of FreeBSD (https://pkg.freebsd.org/<abi>/<branch>/
+# packagesite.pkg, latest and quarterly): a line per package with its version, flatsize
+# and run dependencies, by tools/facts-fetch.py freebsd-pkg. pkg.freebsd.org is closed
+# to the sandbox of Claude Code, GitHub is not: the files go into the branch runs of the
+# private azsupport/azsupport (secret RUNS_TOKEN), distro/freebsd-pkg/<YYYY-MM-DD>/<run id>/,
+# the report of the run into freebsd-pkg-fetch/<YYYY-MM-DD>/<run id>-fetch.md there
+# (tools/runs-report.sh); db/official-freebsd.tsv of that repository is made from them.
+# Started by hand (Actions, "FreeBSD pkg fetch", "Run workflow") or by the API:
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/freebsd-pkg-fetch.yml/dispatches -f ref=master
+
+run-name: FreeBSD pkg fetch
+
+on:
+  workflow_dispatch:
+    inputs:
+      abis:
+        description: 'ABIs, separated by spaces'
+        required: false
+        type: string
+        default: 'FreeBSD:15:amd64'
+      branches:
+        description: 'Package branches, separated by spaces'
+        required: false
+        type: string
+        default: 'latest quarterly'
+      origins:
+        description: 'Only the packages of these origins, separated by spaces (empty: all)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: freebsd-pkg-fetch
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The catalogs, pushed to azsupport/azsupport (branch runs)
+        id: fetch
+        env:
+          ABIS: ${{ inputs.abis }}
+          BRANCHES: ${{ inputs.branches }}
+          ORIGINS: ${{ inputs.origins }}
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: |
+          printf '%s\n' $ORIGINS > "$RUNNER_TEMP/origins.txt"
+          python3 -I tools/facts-fetch.py freebsd-pkg --abis "$ABIS" --branches "$BRANCHES" \
+            --origins "$RUNNER_TEMP/origins.txt" --out "$RUNNER_TEMP/out" --report report.md --push
+
+      - name: Report
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: abis=${{ inputs.abis }} branches=${{ inputs.branches }}
+          RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
+        run: |
+          [ -s report.md ] || printf '### FreeBSD pkg fetch\n\nNo report: the step before ended before writing one (its log).\n' > report.md
+          sh tools/runs-report.sh report.md fetch
