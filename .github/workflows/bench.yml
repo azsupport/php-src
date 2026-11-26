@@ -15,6 +15,11 @@ name: PHP benchmark on FreeBSD
 # Started by hand: Actions, "PHP benchmark on FreeBSD", "Run workflow", or
 # gh api -X POST repos/azsupport/php-src/actions/workflows/bench.yml/dispatches -f ref=master
 #   -f 'inputs[versions]=5.6 7.4 8.1 8.2 8.3 8.4' -f 'inputs[variants]=base gcc gcc-lto'
+# The compilers alone (flags=ports: the flags the ports build PHP with, for every variant;
+# gcc_repo=azsupport: gcc16 of the package repository azsupport, as the ports build PHP;
+# modules: json mbstring igbinary redis built shared and timed by bench-modules.php):
+#   -f 'inputs[variants]=base llvm gcc' -f 'inputs[flags]=ports' -f 'inputs[gcc_repo]=azsupport'
+#   -f 'inputs[modules]=json mbstring igbinary redis' -F 'inputs[embed]=true'
 
 on:
   workflow_dispatch:
@@ -39,6 +44,18 @@ on:
         description: 'Also through a shared libphp (the embed SAPI built shared, as mod_php)'
         type: boolean
         default: false
+      flags:
+        description: 'The flags of every variant: empty (those of bench.sh) or ports (those lang/phpXY of azsupport/ports builds PHP with)'
+        required: false
+        default: ''
+      gcc_repo:
+        description: 'The repository of gcc16: empty (FreeBSD) or azsupport (the GCC the ports build PHP with)'
+        required: false
+        default: ''
+      modules:
+        description: 'Modules built shared and timed by bench-modules.php (a part of: json mbstring igbinary redis), empty: none'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -111,9 +128,12 @@ jobs:
           BENCH_VARIANTS: ${{ inputs.variants }}
           BENCH_TESTS: ${{ inputs.tests && '1' || '0' }}
           BENCH_EMBED: ${{ inputs.embed && '1' || '0' }}
+          BENCH_FLAGS: ${{ inputs.flags }}
+          BENCH_GCC_REPO: ${{ inputs.gcc_repo }}
+          BENCH_MODULES: ${{ inputs.modules }}
         with:
           release: '15.1'
-          envs: 'BENCH_VERSION BENCH_REPEAT BENCH_VARIANTS BENCH_TESTS BENCH_EMBED'
+          envs: 'BENCH_VERSION BENCH_REPEAT BENCH_VARIANTS BENCH_TESTS BENCH_EMBED BENCH_FLAGS BENCH_GCC_REPO BENCH_MODULES'
           prepare: |
             mkdir -p bench-results
             sh tools/bench.sh --deps > bench-results/deps.log 2>&1 || true
@@ -149,7 +169,7 @@ jobs:
         continue-on-error: true
         env:
           RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
-          RUNS_INPUTS: versions=${{ inputs.versions }} variants=${{ inputs.variants }} repeat=${{ inputs.repeat }} tests=${{ inputs.tests }} embed=${{ inputs.embed }}
+          RUNS_INPUTS: versions=${{ inputs.versions }} variants=${{ inputs.variants }} repeat=${{ inputs.repeat }} tests=${{ inputs.tests }} embed=${{ inputs.embed }} flags=${{ inputs.flags }} gcc_repo=${{ inputs.gcc_repo }} modules=${{ inputs.modules }}
           RUNS_STEPS: bench=${{ steps.bench.outcome }} report=${{ steps.report.outcome }}
           PART: php${{ matrix.version }}
         run: sh tools/runs-report.sh report.md "$PART"
