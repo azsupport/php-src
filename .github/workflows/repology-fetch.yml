@@ -1,0 +1,67 @@
+name: Repology fetch
+
+# The versions of the software of the ports of azsupport/ports in the other
+# distributions: every repository Repology (https://repology.org) follows, by
+# tools/repology-fetch.sh, for the table of azsupport/azsupport that compares them
+# with ours. For every port of main of azsupport/ports and every library of
+# azsupport (azsupport:<name>, deps.conf), the project of Repology: a port that is
+# in the FreeBSD tree by tools/project-by (its srcname there), the others as
+# tools/repology-map.conf says; then each project once, /api/v1/project/<name>. At
+# most one request a second, with a User-Agent that names the tool and a contact
+# (the rules of https://repology.org/api); about 500 requests. Repology is closed to
+# the sandbox of Claude Code, GitHub is not: the files go into the branch runs of
+# the private azsupport/azsupport (secret RUNS_TOKEN), distro/repology/<YYYY-MM-DD>/:
+# <run id>.tsv (the packages of the projects), <run id>-origins.tsv (origin and
+# project) and <run id>.md (the report, also the summary of the run), and the report
+# of the run into repology-fetch/<YYYY-MM-DD>/<run id>-fetch.md there
+# (tools/runs-report.sh).
+# Started by hand: Actions, "Repology fetch", "Run workflow", or
+#   gh api -X POST repos/azsupport/php-src/actions/workflows/repology-fetch.yml/dispatches \
+#     -f ref=master
+# (-f 'inputs[origins]=www/nginx-devel azsupport:curl' for these alone).
+
+on:
+  workflow_dispatch:
+    inputs:
+      origins:
+        description: 'Only these ports of azsupport/ports (category/port) and libraries of azsupport (azsupport:<name>), separated by spaces; empty: all'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: [self-hosted, azfork]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch from Repology
+        id: fetch
+        env:
+          ORIGINS: ${{ inputs.origins }}
+        run: |
+          rc=0
+          set -f
+          # shellcheck disable=SC2086
+          sh tools/repology-fetch.sh fetch out $ORIGINS || rc=$?
+          [ -f out/report.md ] && cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      - name: Into azsupport/azsupport (branch runs)
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+        run: '[ -d out ] && sh tools/repology-fetch.sh push out'
+
+      - name: Report
+        if: always()
+        env:
+          RUNS_TOKEN: ${{ secrets.RUNS_TOKEN }}
+          RUNS_INPUTS: origins=${{ inputs.origins }}
+          RUNS_STEPS: fetch=${{ steps.fetch.outcome }}
+        run: |
+          [ -s out/report.md ] && cp out/report.md report.md || printf '### Repology fetch\n\nNo report: the step Fetch ended before writing one (its log).\n' > report.md
+          sh tools/runs-report.sh report.md fetch
