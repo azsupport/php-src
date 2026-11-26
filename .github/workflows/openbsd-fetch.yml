@@ -24,6 +24,10 @@ on:
         description: 'OPENBSD_x_y branches, separated by spaces (empty: every branch with revisions in a directory, and the two newest)'
         required: false
         default: ''
+      since:
+        description: 'The reference point of the review before (YYYY-MM-DD): only the branches with revisions of that day or later, rlog.txt with those only (empty: everything)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -44,6 +48,7 @@ jobs:
         env:
           DIRS: ${{ inputs.dirs }}
           BRANCHES: ${{ inputs.branches }}
+          SINCE: ${{ inputs.since }}
         run: |
           rc=0
           set -f

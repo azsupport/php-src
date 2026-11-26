@@ -18,6 +18,12 @@
 #               empty: every OPENBSD_x_y branch with revisions in the directory,
 #               and the two newest branches of the tree (the supported releases)
 #               in any case
+#   SINCE       fetch: the reference point of the review before (YYYY-MM-DD, UTC):
+#               only the branches with revisions in the directory of that day or
+#               later are taken (and those of BRANCHES), and their rlog.txt lists
+#               those revisions only; the two newest branches of the tree are named
+#               in report.md, not taken without such revisions (a new release: give
+#               it in BRANCHES)
 #   CVSROOTS    fetch: anoncvs roots to try in turn instead of those of
 #               anoncvs.html (anoncvs@anoncvs.example.org:/cvs ...); their host
 #               keys are taken on first use
@@ -41,6 +47,12 @@
 #                                    taken and what failed (the summary of the run;
 #                                    a push puts it at distro/openbsd/<date>/<run id>.md)
 #   taken.txt                        "<branch> <port dir>" per directory taken
+#   points.tsv                       "<port dir> <branch> <revisions> <newest>" (TAB)
+#                                    per directory and branch with revisions, the
+#                                    day of its newest revision (YYYY-MM-DD): the
+#                                    point a review of them reaches, for its state
+#                                    file; a push puts it at
+#                                    distro/openbsd/<date>/points-<run id>.tsv
 # The exit status of a fetch is 1 when a directory or a branch failed: the rest is
 # still written, and report.md says what failed and why.
 
@@ -103,6 +115,7 @@ if [ "$cmd" = push ]; then
         echo
         if [ -s "$src/report.md" ]; then cat "$src/report.md"; else echo "(no report: the fetch wrote none)"; fi
     } > "$r/$base/$run.md"
+    [ -s "$src/points.tsv" ] && cp "$src/points.tsv" "$r/$base/points-$run.tsv"
     git -C "$r" add -A "$base"
     git -C "$r" commit -q -m "openbsd-fetch: run $run" || { echo "::error title=openbsd fetch::commit failed"; exit 1; }
     # other runs push into runs too: on a refused push, rebase and again
@@ -131,6 +144,7 @@ mkdir -p "$out" && out="$(cd "$out" && pwd)" || exit 1
 rep="$out/report.md"
 : > "$rep"
 : > "$out/taken.txt"
+: > "$out/points.tsv"
 say() { printf '%s\n' "$*" >> "$rep"; }
 # progress into the log of the job
 note() { printf '%s openbsd-fetch: %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
@@ -267,6 +281,15 @@ vsort() { awk -F_ '{ printf "%d %d %s\n", $2, $3, $0 }' | sort -k1,1n -k2,2n | c
 newest="$(sed -n 's/^[[:space:]]*\(OPENBSD_[0-9]*_[0-9]*\): [0-9.]*\.0\.[0-9]*$/\1/p' "$w/top" | sort -u | vsort |
     tail -n 2 | tr '\n' ' ')"
 say "- the two newest branches of the tree: $newest"
+# the reference point of the review before (SINCE): YYYY-MM-DD, as YYYYMMDD for the awk scripts
+since=''
+if [ -n "${SINCE:-}" ]; then
+    case "$SINCE" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) since="$(printf '%s' "$SINCE" | tr -d -)" ;;
+        *) say "- **SINCE \`$SINCE\` is not YYYY-MM-DD**: nothing fetched"; exit 1 ;;
+    esac
+    say "- since $SINCE (the reference point of the review before): the branches with revisions of that day or later, their rlog.txt with those revisions only; points.tsv — the point reached"
+fi
 if [ -n "${BRANCHES:-}" ]; then
     for b in $BRANCHES; do
         case "$b" in
@@ -285,7 +308,7 @@ say "|---|---|---|---|"
 # the OPENBSD_x_y branch tags of the files of an rlog: "<tag> <revisions on the
 # branch>" (a.b.0.n is the branch a.b.n, whose revisions are a.b.n.1, a.b.n.2 ...)
 cat > "$w/branches.awk" <<'EOF'
-/^RCS file: / { nt = 0; split("", tn); split("", tb); insym = 0; next }
+/^RCS file: / { nt = 0; split("", tn); split("", tb); insym = 0; cur = ""; next }
 /^symbolic names:/ { insym = 1; next }
 insym && /^[ \t]/ {
     line = $0
@@ -308,24 +331,37 @@ insym && /^[ \t]/ {
 }
 insym { insym = 0 }
 prev == "----------------------------" && /^revision [0-9.]+/ {
+    cur = ""
     for (k = 1; k <= nt; k++)
-        if (index($2, tb[k]) == 1 && length($2) > length(tb[k])) cnt[tn[k]]++
+        if (index($2, tb[k]) == 1 && length($2) > length(tb[k])) cur = tn[k]
+    if (cur != "") cnt[cur]++
+}
+# the day of the revision (date: 2026/11/10 ... or 2026-11-10 ...): since the
+# reference point (since, YYYYMMDD) or not, the newest of its branch
+cur != "" && /^date: / {
+    dd = $2
+    gsub(/[^0-9]/, "", dd)
+    dd = substr(dd, 1, 8)
+    if (since == "" || dd >= since) nw[cur]++
+    if (dd > mx[cur]) mx[cur] = dd
+    cur = ""
 }
 { prev = $0 }
-END { for (t in seen) print t, cnt[t] + 0 }
+END { for (t in seen) print t, cnt[t] + 0, nw[t] + 0, (mx[t] == "" ? "-" : mx[t]) }
 EOF
 
 # the revision entries of branch br (variable) of the files of an rlog: a file
 # whose tag br is a.b.0.n gets its revisions a.b.n.m, with date, author and message
 cat > "$w/branchlog.awk" <<'EOF'
 function flush() {
-    if (entry != "" && pre != "" && index(rev, pre) == 1 && substr(rev, length(pre) + 1) ~ /^[0-9]+$/) {
+    if (entry != "" && pre != "" && index(rev, pre) == 1 && substr(rev, length(pre) + 1) ~ /^[0-9]+$/ &&
+        (since == "" || dt >= since)) {
         if (!shown) { printf "%s\n", file; shown = 1 }
         printf "%s", entry
     }
-    entry = ""; rev = ""
+    entry = ""; rev = ""; dt = ""
 }
-/^RCS file: / { file = $0; pre = ""; shown = 0; insym = 0; inrev = 0; entry = ""; rev = ""; next }
+/^RCS file: / { file = $0; pre = ""; shown = 0; insym = 0; inrev = 0; entry = ""; rev = ""; dt = ""; next }
 /^symbolic names:/ { insym = 1; next }
 insym && /^[ \t]/ {
     line = $0
@@ -353,6 +389,7 @@ insym { insym = 0 }
 inrev {
     entry = entry $0 "\n"
     if (rev == "" && $1 == "revision") rev = $2
+    if (dt == "" && $1 == "date:") { dt = $2; gsub(/[^0-9]/, "", dt); dt = substr(dt, 1, 8) }
 }
 EOF
 
@@ -372,16 +409,24 @@ for d in "$@"; do
         failed=1
         continue
     fi
-    awk -f "$w/branches.awk" "$w/full" | vsort > "$w/br"
-    withrev="$(awk '$2 > 0 { printf "%s (%d) ", $1, $2 }' "$w/br")"
+    awk -v since="$since" -f "$w/branches.awk" "$w/full" | vsort > "$w/br"
+    if [ -n "$since" ]; then
+        withrev="$(awk '$2 > 0 { printf "%s (%d, %d since %s) ", $1, $2, $3, s }' s="$SINCE" "$w/br")"
+    else
+        withrev="$(awk '$2 > 0 { printf "%s (%d) ", $1, $2 }' "$w/br")"
+    fi
+    awk -v d="$d" '$2 > 0 { m = $4; if (m != "-") m = substr(m, 1, 4) "-" substr(m, 5, 2) "-" substr(m, 7, 2); printf "%s\t%s\t%d\t%s\n", d, $1, $2, m }' "$w/br" >> "$out/points.tsv"
+    taken=''
+    notes=''
     if [ -n "${BRANCHES:-}" ]; then
         sel="$BRANCHES"
+    elif [ -n "$since" ]; then
+        sel="$(awk '$3 > 0 { print $1 }' "$w/br" | vsort | tr '\n' ' ')"
+        [ -n "$sel" ] || notes=" no revisions since $SINCE;"
     else
         # shellcheck disable=SC2086
         sel="$({ awk '$2 > 0 { print $1 }' "$w/br"; printf '%s\n' $newest; } | sort -u | vsort | tr '\n' ' ')"
     fi
-    taken=''
-    notes=''
     for b in $sel; do
         case "$b" in OPENBSD_[0-9]*_[0-9]*) ;; *) continue ;; esac
         dest="$out/$b/$d"
@@ -404,9 +449,14 @@ for d in "$@"; do
         fi
         # the revisions on the branch, from the rlog of the directory (rlog -r of a
         # tag a file lacks lists all its revisions, and the servers know no -S)
-        awk -v br="$b" -f "$w/branchlog.awk" "$w/full" > "$dest/rlog.txt"
-        [ -s "$dest/rlog.txt" ] ||
-            printf '(no revisions of ports/%s on %s: the directory as the release had it)\n' "$d" "$b" > "$dest/rlog.txt"
+        awk -v br="$b" -v since="$since" -f "$w/branchlog.awk" "$w/full" > "$dest/rlog.txt"
+        if [ ! -s "$dest/rlog.txt" ]; then
+            if [ -n "$since" ]; then
+                printf '(no revisions of ports/%s on %s since %s)\n' "$d" "$b" "$SINCE" > "$dest/rlog.txt"
+            else
+                printf '(no revisions of ports/%s on %s: the directory as the release had it)\n' "$d" "$b" > "$dest/rlog.txt"
+            fi
+        fi
         rc=0
         cvsq "$dest/branch.diff" rdiff -u -r "${b}_BASE" -r "$b" "ports/$d" || rc=$?
         if [ ! -s "$dest/branch.diff" ]; then
