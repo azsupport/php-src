@@ -1,5 +1,5 @@
-Description: Declare the dependency on ext/hash: RedisArray calls php_hash_fetch_ops(), so a PHP 5.6 built with --disable-all and without --enable-hash failed to link (undefined reference to php_hash_fetch_ops); configure now says that redis needs hash.
-Origin: azsupport; phpredis 5.x and later need PHP 7, where ext/hash is always built
+Description: Two fixes for PHP 5.6. 1) Declare the dependency on ext/hash: RedisArray calls php_hash_fetch_ops(), so a PHP 5.6 built with --disable-all and without --enable-hash failed to link (undefined reference to php_hash_fetch_ops); configure now says that redis needs hash. 2) Redis::_unserialize() and RedisCluster::_unserialize() kept the value they returned until the end of the request: RETURN_ZVAL(z_ret, 1, 0) copied the unserialized value into the return value and never freed the original, so with the php or igbinary serializer every call kept the whole value (200 calls on an array of 1000 strings of 100 bytes kept 52 MB); the value is moved into the return value now.
+Origin: 1) azsupport; phpredis 5.x and later need PHP 7, where ext/hash is always built. 2) upstream https://github.com/phpredis/phpredis/commit/a107c9fc08e05c7961750be9dfaec661ca1cbefb (Michael Grunder, 17.01.2020; phpredis 5.2.0), its redis_commands.c part only: its efree() in cluster_library.c frees the MGET reply zval of RedisCluster under PHP 7, where add_next_index_zval() copies the zval, while under PHP 5 the reply array keeps that zval itself and RETVAL_ZVAL(..., 0, 1) frees it
 
 diff --git a/config.m4 b/config.m4
 index 8a9072f..d01bc57 100755
@@ -14,3 +14,16 @@ index 8a9072f..d01bc57 100755
 +    PHP_ADD_EXTENSION_DEP(redis, hash)
 +  ])
  fi
+diff --git a/redis_commands.c b/redis_commands.c
+index 26df9b5..62a9b66 100644
+--- a/redis_commands.c
++++ b/redis_commands.c
+@@ -4026,7 +4026,7 @@ void redis_unserialize_handler(INTERNAL_FUNCTION_PARAMETERS,
+         zend_throw_exception(ex, "Invalid serialized data, or unserialization error", 0 TSRMLS_CC);
+         RETURN_FALSE;
+     }
+-    RETURN_ZVAL(z_ret, 1, 0);
++    RETURN_ZVAL(z_ret, 0, 0);
+ }
+ 
+ /* vim: set tabstop=4 softtabstop=4 expandtab shiftwidth=4: */
