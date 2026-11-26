@@ -204,7 +204,7 @@ void phpdbg_try_file_init(char *init_file, size_t init_file_len, zend_bool free_
 			while (fgets(cmd, PHPDBG_MAX_CMD, fp) != NULL) {
 				cmd_len = strlen(cmd)-1;
 
-				while (cmd_len > 0L && isspace(cmd[cmd_len-1]))
+				while (cmd_len > 0L && isspace((unsigned char)cmd[cmd_len-1]))
 					cmd_len--;
 
 				cmd[cmd_len] = '\0';

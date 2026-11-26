@@ -183,6 +183,9 @@ static int php_zip_ops_stat(php_stream *stream, php_stream_statbuf *ssb TSRMLS_D
 		ssb->sb.st_blocks = -1;
 #endif
 		ssb->sb.st_ino = -1;
+	} else {
+		efree(file_basename);
+		return -1;
 	}
 	efree(file_basename);
 	return 0;
