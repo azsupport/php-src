@@ -77,7 +77,10 @@ if [ "$cmd" = push ]; then
     day="$(date -u +%Y-%m-%d)"
     run="${GITHUB_RUN_ID:-0}"
     r="$w/runs"
-    if ! git clone -q --depth 1 --branch runs --single-branch "$remote" "$r" 2>"$w/err"; then
+    # the branch has hundreds of thousands of files: without their blobs, and only
+    # distro/repology checked out
+    if ! git clone -q --depth 1 --filter=blob:none --sparse --branch runs --single-branch "$remote" "$r" 2>"$w/err" ||
+        ! git -C "$r" sparse-checkout set distro/repology 2>>"$w/err"; then
         echo "::error title=repology fetch::clone of azsupport/azsupport (runs) failed: $(hide < "$w/err" | tail -n 2 | tr '\n' ' ')"
         exit 1
     fi
