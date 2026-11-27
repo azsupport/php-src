@@ -36,6 +36,7 @@ struct php_zip_stream_data_t {
 	struct zip_file *zf;
 	size_t cursor;
 	php_stream *stream;
+	php_zip_archive *archive;
 };
 
 #define STREAM_DATA_FROM_STREAM() \
@@ -102,6 +103,12 @@ static int php_zip_ops_close(php_stream *stream, int close_handle)
 			zip_close(self->za);
 			self->za = NULL;
 		}
+	}
+
+	/* the archive ref is tied to self, so release it regardless of close_handle */
+	if (self->archive) {
+		php_zip_archive_release(self->archive);
+		self->archive = NULL;
 	}
 	efree(self);
 	stream->abstract = NULL;
@@ -191,6 +198,9 @@ static int php_zip_ops_stat(php_stream *stream, php_stream_statbuf *ssb) /* {{{ 
 		ssb->sb.st_blocks = -1;
 #endif
 		ssb->sb.st_ino = -1;
+	} else {
+		zend_string_release_ex(file_basename, 0);
+		return -1;
 	}
 	zend_string_release_ex(file_basename, 0);
 	return 0;
@@ -208,8 +218,9 @@ const php_stream_ops php_stream_zipio_ops = {
 };
 
 /* {{{ php_stream_zip_open */
-php_stream *php_stream_zip_open(struct zip *arch, const char *path, const char *mode STREAMS_DC)
+php_stream *php_stream_zip_open(ze_zip_object *obj, const char *path, const char *mode STREAMS_DC)
 {
+	struct zip *arch = php_zip_object_za(obj);
 	struct zip_file *zf = NULL;
 
 	php_stream *stream = NULL;
@@ -228,6 +239,9 @@ php_stream *php_stream_zip_open(struct zip *arch, const char *path, const char *
 			self->zf = zf;
 			self->stream = NULL;
 			self->cursor = 0;
+			/* keep the zip_t alive while the stream borrows it */
+			self->archive = obj->archive;
+			php_zip_archive_addref(self->archive);
 			stream = php_stream_alloc(&php_stream_zipio_ops, self, NULL, mode);
 			stream->orig_path = estrdup(path);
 		}
@@ -307,6 +321,7 @@ php_stream *php_stream_zip_opener(php_stream_wrapper *wrapper,
 			self->zf = zf;
 			self->stream = NULL;
 			self->cursor = 0;
+			self->archive = NULL;
 			stream = php_stream_alloc(&php_stream_zipio_ops, self, NULL, mode);
 
 			if (opened_path) {
